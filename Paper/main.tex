@@ -1,0 +1,491 @@
+\documentclass{paper}
+\usepackage{fullpage}
+\usepackage{style/julia}    %% Julia code
+\usepackage{xspace}
+\usepackage{mathtools}      %% for \prescript
+\usepackage{fdsymbol}       %% \lessclosed
+\usepackage{mathpartir}     %% inference rules
+\usepackage[linesnumbered]{algorithm2e}  %% algorithms
+\usepackage{threeparttable}
+\usepackage[autolanguage]{numprint}
+\usepackage{stmaryrd}
+\usepackage{multirow}
+
+\renewcommand{\c}{\cjl}
+\newcommand{\cjl}[1]{{\small\lstinline[language=Julia]!#1!}\xspace}
+
+%% *********************************************************
+\newcommand{\EM}[1]{\ensuremath{#1}\xspace}    %% make sure we are in math mode
+\newcommand{\Gen}[2]{\EM{#1\,\rightsquigarrow\,#2}}  %% Generate subtypes
+\newcommand{\Set}[1]{\EM{\{ #1\}}}                   %% A set of things
+\newcommand{\Rule}[2]{\inferrule[]{#1}{#2}}          %% An inference rule
+\newcommand{\RuleL}[3]{
+  \inferrule[\textcolor{gray}{\footnotesize [#3\!]}]{#1}{#2}
+} 
+\newcommand{\Exist}[2]{\EM{\exists #1\!.\,#2}}       %% A #1 exists in #2
+\newcommand{\Tuple}[1]{\EM{\langle #1 \rangle}}      %% A tuple of #1
+\newcommand{\Union}[1]{\EM{\cup(#1)}}                %% A union of #1
+\newcommand{\m}[1]{\EM{{#1^{*}}}}                     %% Zero or more
+\renewcommand{\t}{\EM{t}}                            %% A type t
+\newcommand{\mt}{\EM{\m{\t}}}                        %% Zero or more t s
+\newcommand{\X}{\EM{X}}                              %% Variable X
+\newcommand{\Y}{\EM{Y}}                              %% Variable Y
+\newcommand{\Xt}{\EM{\X^\t}}                         %% Variable X bounded by t
+\newcommand{\Ty}[2]{\EM{#1(#2)}}                     %% Datatype #1(#2)
+\newcommand{\T}{\EM{T}}                              %% Datatype name T
+\newcommand{\TyT}[1]{\EM{\Ty \T{#1}}}                %% Datatype T(#1)
+\newcommand{\TyTt}{\EM{\TyT{\mt}}}                   %% Datatype T(t*)
+\newcommand{\TyTX}{\EM{\TyT{\m\X}}}                  %% Datatype T(X*)
+\renewcommand{\v}{\EM{v}}                            %% Value v
+\renewcommand{\d}{\EM{d}}                            %% Declaration d 
+\renewcommand{\l}{\EM{l}}                            %% Left hand side l
+\newcommand{\Unify}[4]{\EM{\mathit{unify}(#1,#2,#3)=#4}}
+\newcommand{\Setify}[1]{\EM{[\![\,#1\,]\!]}}
+\newcommand{\Subst}[3]{\EM{#1[#2\!/#3]}}             %% Subsitution
+\newcommand{\Match}[4]{\EM{\mathit{match}(#1,#2,#3) = #4}}
+
+\begin{document}
+
+\title{Generating subtypes}
+\author{A/J/J}
+\maketitle
+\begin{abstract}
+Notes about how to generates subtypes
+\end{abstract}
+
+\section{Introduction}
+
+This note aims to describe how to generate subtypes of Julia method signature
+for the purpose of testing type stability.
+
+The definition of Julia is imprecise, so generating the exact set of
+subtypes of a signature may not be possible. We choose to generate a
+superset of that set of types, and rely on the Julia type checker to
+filter out extraneous types.
+
+We strive to limit the size of the superset for perfomance reasons, the space
+of types is large and checking any type is costly.
+
+\section{A specification of the generator}
+
+The Julia type language is rich and its semantics is complex. Previous
+work has shown that the subtyping relation is not decidable.
+
+Moreover, even the Julia language specification admits to being at best
+heuristic (See the discussion of Diagonal types).
+
+Our approach is to start with a specification for a generator that is
+simple but ignores some important features of the language. As a
+specification, we aim for readability rather than as a guide towards a
+practical implementation.
+
+We will then discuss extensions and implemtation issues.
+
+\subsection{Core Julia}
+
+\newcommand{\Any}{\EM{\mathit{Any}}}
+
+Julia has an idiosyncratic syntax and terminology, this section
+presents the type language using more traditional
+terminology. Metavariables \t, \v and \d range over, respectively,
+types, type instances, and type declarations.  The notation \m\t
+stands for zero or more types \t and $\t_1\dots\t_n$ for the same.
+The type grammar is given in Fig.~\ref{g}.  For the remainder, we
+shall assume that types are well-formed (as defined in the text).
+
+\begin{figure}[!h]
+\[\begin{array}{cl@{\quad}ll}
+\v   ::= & \TyTt            & \text{value} \\
+         & \Tuple\mt        & \text{} \\
+\t   ::= & \v               & \text{type} \\
+         & \X               & \text{} \\
+         & \Union\mt        & \text{} \\          
+         & \Exist \Xt \t    & \text{} \\
+\d ::=   & \l <: \TyTt      & \text{declaration}\\
+\l ::=   & \TyTX            & \text{} \\
+         & \Exist \Xt\l     & \\
+ \end{array}\]
+\caption{Grammar}\label{g}
+\end{figure}
+
+A type declaration \d such as $\Exist\Xt{\TyT\X} <: \Ty{\T'}\X$
+introduces a type constructor \TyT\X parameterized by an existentially
+quantified type variable \X upper bounded by type \t. Furthermore,
+this type is declared to be a subtype of \Ty{\T'}\X. The scope of the
+type variable extends to the parent type. Type constructors without
+parameters can be written without parentheses, i.e. $\TyT{} \equiv
+\T$. The declaration of type \Ty{\Any}{} is assumed.  In general a
+declarations may introduce multiple variables and provide any type to
+parent. For instance,
+$\Exist{\X^\Any}{\Exist{\Y^\Any}{\TyT{\X,\Y}}}<:\Ty{\T'}{\X,\Any}$
+introduce the type constructor \TyT{\X,\Y} as a subtype of $\T'$, both
+variables are bounded by \Any and the parent type is instantiated with
+\Ty{\T'}{\X,\Any}. A type declaration is well-formed if it has no free
+variable, all of its constituent types are well-formed, and the
+instantiation of the parent type constructor respects that types'
+bounds. In Julia terms, type declarations cover all of abstract,
+primitive and composite type declarations. Concrete types are types
+that have no subtypes. For our purposes, we ignore the \c{mutable}
+qualifier as it does not affect subtyping ---mutable types are limtied
+to concrete types--- and size modifiers for primitive types.
+
+A type, \t, can be an instantiation of a type constructor, a tuple of
+types \Tuple\mt, a variable \X, the union of types \Union\mt and a
+variable introduction \Exist\Xt\TyTt.  In terms of subtyping, Julia
+limits parametric types to be invariant in their arguments, so that
+\c{Ref\{Int\}<:Ref\{Real\}} does not hold even if \c{Int} is a subtype
+of \c{Real}. On the other hand, tuples are co-variant, and thus
+\c{Tuple\{Int\}<:Tuple\{Real\}} holds. Julia supports lower bounds for
+existential, but they are rarely used. Not supporting them, entails
+the generation of more subtypes than necessary. Well-formed types have
+correct instantiations of parametric types, no undefined type
+constructor and, at the top-level, no free variables.
+
+An instance \v is the type of a run-time value in Julia, these can be
+either type constructors or tuples. Note that the inner types can be
+parametric.
+
+
+\subsection{A Core Generator}
+
+\newcommand{\RSet}{{\sf GenSet}\xspace}
+\newcommand{\RUnion}{{\sf GenUnion}\xspace}
+\newcommand{\RTuple}{{\sf GenTuple}\xspace}
+\newcommand{\RExists}{{\sf GenExists}\xspace}
+\newcommand{\RDeclare}{{\sf GenDeclare}\xspace}
+
+A generator is a relation \Gen\t S that, for a set of type
+declarations \m\d, generates all subtypes of a type \t where $S$ is a
+\Set{\v_1\dots\v_n} of value types.  The relation is specified in
+Fig.~\ref{gen}. The rules are non-deterministic, each application of a
+generator returns \emph{all} derivable types. Each of the rules is
+described next.
+
+\newcommand{\UnifyGround}[2]{\EM{#1 \cong #2}}
+
+\begin{figure}[!h]\begin{mathpar} %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\RuleL{                                        %% Set of values %%%%%%%%%%%%%%%
+  \Gen {\v_1}{S_1}~\dots~\Gen{\v_n}{S_n}
+}{
+  \Gen{\{\v_1\dots\v_n\}}{S_1\cup\dots\cup S_n}
+}\RSet
+
+\RuleL{                                        %% Unions %%%%%%%%%%%%%%%%%%%%%%
+ \Gen {t_1}{S_1} ~\dots~ \Gen {t_n}{S_n}   
+}{
+  \Gen{\Union{\t_1\dots\t_n}}{S_1\cup\dots\cup S_n}
+}\RUnion
+
+\RuleL{                                        %% Tuples %%%%%%%%%%%%%%%%%%%%%%
+ \Gen {t_1}{S_1} ~\dots~ \Gen{t_n}{S_n} 
+}{
+  \Gen{\Tuple{\t_1\dots \t_2}}{\Setify{\Tuple{S_1\dots S_n}}}
+}\RTuple
+
+\RuleL{                                        %% Exist %%%%%%%%%%%%%%%%%%%%%%%
+  \Gen\t{S'} \and \Gen{\Setify{\Subst{\t'}\X{S'}}}S
+}{
+  \Gen{\Exist\Xt{\t'}}S
+}\RExists
+
+\RuleL{                                         %% Declaration %%%%%%%%%%%%%%%%
+  \l <: \TyT{\m{\t_2}} \and
+   \Match\l{\TyT{\m{\t_1}}}{\TyT{\m{\t_2}}}\t \and  \Gen\t S
+}{
+  \Gen {\TyT{\m{\t_1}}}{S\cup \TyT{\m{\t_1}}}
+}\RDeclare
+\end{mathpar} %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\caption{Generation rules}\label{gen}
+
+\begin{mathpar} %%%%% Matching %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\Rule{
+  \X \not\in \t' \and \Match{\t_1}{\t'}{\v}{\t_2}
+}{
+  \Match{\Exist\Xt{\t_1}}{\t'}{\v}{\Exist\Xt{\t_2}}
+}  
+
+\Rule{
+  \Unify\X{\t'}{\v}{\t_2} \and \Match{\Subst{\t_1}\X{\t_2}}{\t'}{\v}{\t_3}
+}{
+  \Match{\Exist\Xt{\t_1}}{\t'}{\v}{\t_3}
+}  
+    
+\Rule{\UnifyGround{\t'}{\v'}}{\Match\v{\t'}{\v'}\v}  
+
+\\ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\Rule{}{ \Unify\X\X\t\t }
+
+\Rule{
+  \exists i\in [1,n]. \Unify\X{\t_i}{\t_i'}\t
+}{
+  \Unify\X{\TyT{\t_1\dots\t_n}}{\TyT{\t_1'\dots\t_n'}}\t
+}
+
+\Rule{
+  \exists i\in [1,n]. \Unify\X{\t_i}{\t_i'}\t
+}{
+  \Unify\X{\Tuple{\t_1\dots\t_n}}{\Tuple{\t_1'\dots\t_n'}}\t
+}
+
+\Rule{
+  \exists i\in [1,n]. \Unify\X{\t_i}{\t_i'}\t
+}{
+  \Unify\X{\Union{\t_1\dots\t_n}}{\Union{\t_1'\dots\t_n'}}\t
+}
+
+\Rule{
+  \X\not=\Y \and \exists i\in [1,2]. \Unify\X{\t_i}{\t_i'}\t
+}{
+  \Unify\X{\Exist{\Y^{\t_1}}{\t_2}}{\Exist{\Y^{\t_1'}}{\t_2'}}\t
+}
+
+\\
+
+\Rule{}{
+  \UnifyGround\X\t
+}
+
+\Rule{
+    \UnifyGround{\t_1}{\t_1'} \and \UnifyGround{\t_n}{\t_n'}
+}{
+  \UnifyGround{\Exist{\X^{\t_1}}{\t_2}}{\Exist{\X^{\t_1'}}{\t_2'}}
+}
+
+\Rule{
+    \UnifyGround{\t_1}{\t_1'} ~\dots~ \UnifyGround{\t_n}{\t_n'}
+}{
+  \UnifyGround{\Union{\t_1\dots\t_n}}{\Union{\t_1'\dots\t_n'}}
+}
+
+\Rule{
+    \UnifyGround{\t_1}{\t_1'} ~\dots~ \UnifyGround{\t_n}{\t_n'}
+}{
+  \UnifyGround{\Tuple{\t_1\dots\t_n}}{\Tuple{\t_1'\dots\t_n'}}
+}
+
+\Rule{
+    \UnifyGround{\t_1}{\t_1'} ~\dots~ \UnifyGround{\t_n}{\t_n'}
+}{
+  \UnifyGround{\TyT{\t_1\dots\t_n}}{\TyT{\t_1'\dots\t_n'}}
+}
+
+\end{mathpar}\caption{Auxiliary definitions}\label{aux}
+\end{figure}
+
+Rule \RSet extends the generator to sets of values by union of the
+pointwise application of \Gen\cdot\cdot. As mentioned above, any given
+\v can derive multiple sets of values, we assume that \Gen\v S returns
+the union of all such sets.
+
+Rule \RUnion generates the subtypes of a union as the union of the
+pointwise sets for each element of the union. Unions are not part of
+the set of a run-time values.
+
+Rule \RTuple deals with tuples. First, subtypes are generated
+pointwise for every element $\t_i$ of the tuple type. The result is
+obtained as the combination of every possible tuple that could be
+obtained from the values in each $S_i$, this combination is written
+\Setify{\Tuple{S_1\dots S_2}}, note that we take liberty with the
+syntax by creating a tuple of sets, the role \Setify\cdot is to shake
+this out into a set of well-formed tuples.
+
+Rule \RExists introduces a type variable \X in some type $\t'$,
+written \Exist\Xt{\t'} where \X has an upper bound of \t.  The rule
+start by generating the set $S'$ of subtypes of the bound \t. Then for
+each indivudal value \v in $S'$, substitute that value for \X in $\t'$
+and generates all subtypes of the result.  The notation
+\Setify{\Subst{\t'}\X{S'}} denotes the set of types obtained by
+replacing \X in $\t'$ with each of the values in $S'$.
+
+Rule \RDeclare deals with subtypes of \TyT{\m{\t_1}}. It
+non-deterministically picks one of the declarations with \T as a
+supertype. \TyT{\m{\t_1}} is an instantiation of the parent type \T,
+with no free variables. The rule identifies a direct subtype
+$\l<:\TyT{\m{\t_2}}$ where \m{\t_2} is partial instantiation which may
+have some free variables corresponding to some of the introductions
+occurring in \l. To fix the mind consider the following example:
+
+\newcommand{\Int}{\EM{\mathit{Int}}}
+
+\newcommand{\Dict}{\EM{\mathit{Dict}}}
+\newcommand{\IntDict}{\EM{\mathit{IntDict}}}
+
+
+$\Int <: \Any$
+
+$\Exist{\X^\Any}{\Exist{\Y^\Any}{\Ty\Dict{\X,\Y}}} <: \Any$
+
+$\Exist{\X^\Any}{\Ty\IntDict{\X}} <: \Ty\Dict{\X, \Int}$
+
+The query \Gen{\Ty\Dict{\Int,\Int}}S returns
+$S=\Set{\Ty\Dict{\Int,\Int}, \Ty\IntDict{\Int}}$ as the only subtype
+of \Ty\Dict{\Int,\Int} is \Ty\IntDict{\Int}.
+
+On the other hand \Gen{\Ty\Dict{\Int,\Any}}S returns only the
+singleton \Ty\Dict{\Int,\Any}. This is because parametric types are
+invariant and thus $\Ty\Dict{\Int,\Int} \not<: \Ty\Dict{\Int,\Any}$.
+
+To return to \RDeclare, if there is a candidate subtype,
+\Match\l{\TyT{\m{\t_1}}}{\TyT{\m{\t_2}}}\t will strip the declaration
+of variables that are bound and ensure that the parent instance
+matches the one in the declaration.
+
+In the auxiliaries, \Match\l\t\v{\t'} takes three arguments, the first
+is a declaration with possibly some existentials, the second is the
+instantiation of the parent type, the third is the declaration of the
+parent type, and it returns a new type for \l with all the bound
+variables stripped off. Match also ensures that \t and \v are similar.
+
+Unify finds a binding for a variable.
+
+$\cong$ ensures that two terms have the same structure module
+variables occuring on the left hand side.
+
+$\X\not\in\t$ indicates that variable \X does not occur free in type
+\t, \Subst\t\X{\t'} denotes the substitution of $\t'$ for \X in type
+\t.
+
+
+
+
+
+
+
+
+
+
+\end{document}
+
+
+\section{Type Language}
+
+The type language supported here streamlines the syntax of Julia but should
+be equivalent module a number of simplification that we discuss next.
+\begin{itemize}
+\item Any Julia type \c{t} can be translated to a type term $t$.
+\item A Julia tuple, \c{Tuple\{t,t\}} is written \Tuple tt. Without
+  loss of generality, we only support 2-tuples. Julia allows any
+  arity. \c{NamedTuple}s are not supported currently.
+\item A Julia union type \c{Union\{t,t\}} is written \Union
+  tt. Without loss of generality we limit the presentation to
+  2-unions.
+\item A Julia abstract type or struct \c T is written $T()$, a Julia
+  parametric type \c{Vector\{Int32\}} is written
+  $\mathit{Vector}(\mathit{Int32})$. A parametric type has one or more
+  parameters, written \m t.
+\item The Julia type \c{Any} belongs to the set of type constructor
+  denoted by $T$ and is written $\top$.
+\item In Julia, the parametric type \c{Vector\{T\} where T} can be
+  abbreviated \c{Vector}, we assume that all such abbreviations are
+  reversed.
+\item In Julia the notation \c{Foo\{<:Bar\}} is an abbreviation
+  for \c{Foo\{X\} where X <: Bar} where \c X is assumed to be fresh.
+  We assume that all such abbreviations are reversed.
+\item Type parameters are non-recursive, \c{Foo\{ X <: Vec\{Y\}, Y <:
+  Bar\{X\}\}} does not occur.
+\item In Julia, types introduce by a \c{struct} are \emph{concrete},
+  tuples are concrete. Other named types, including \c{Any}, are
+  \emph{abstract}. We assume the presence of predicates to differentiate
+  the two.
+\item Values have types that are either $T(\m t)$ (possibly parametric
+  types) where $T$ is concrete, or \Tuple tt. The inner types are not
+  restricted.
+\item In Julia, a Union-all type is written \c{T\{X\} where X <: t},
+  they are written \Exist Xt{T(X)}. Julia allows lower bounds, we
+  restrict the type language and ignore them. This is a loss of
+  expressiveness.
+\end{itemize}
+
+\subsection{Types}
+
+The syntax of types is defined as follows:
+
+
+
+\newcommand{\NI}{\noindent}
+
+\subsection{Examples}
+
+\NI
+The Julia type \c{Tuple\{Vector\{Vector\{T\} where T\}, ABM, AbstractArray\}}
+can be shortened to (loosing an irrelevant type in the tupple to get a 2-tuple)
+
+\[\text{
+\c{Tuple\{Vec\{Vec\{T\} where T\}, Arr\}}
+}\]
+
+\NI
+and written as (note that the type \c{AbstractArray} is a union-all abbreviation):
+
+\newcommand{\tVec}{\EM{\mathit{Vec}}\xspace}
+\newcommand{\tArr}{\EM{\mathit{Arr}}\xspace}
+
+\[
+\Tuple{{\tVec(\Exist X{\top}{\tVec(t)})}}{\Exist Y{\top}{\tArr(Y)}}
+\]
+
+\NI
+The Julia type \c{Tuple\{DenseCuArray\{Complex\{<:cufftReals\}\},Int32\}} can be shortened to
+
+\[\text{
+\c{Tuple\{ D \{ C \( <:R \}\}, I \}}
+}\]
+
+\NI and written:
+
+\[
+\Tuple {\Exist XR{D(C(X))}}{I}
+\]
+
+\NI
+The Julia type \c{Tuple\{NTuple\{N,Distribution\{<:ArrayLikeVariate\{M\}\}\} where N,Int32\} where M} can be shortened to:
+
+\[\text{
+\c{Tuple\{
+          NT \{
+               N,
+               D \{ <: Arr\{ N \}\}
+               \} where N,
+          I   
+          \} where M\}}
+}\]
+
+\NI and written (with parentheses for clarity):
+
+\[
+\Exist M{\top}{(\Tuple { \Exist N\top{ NT(N, \Exist X{\tArr(N)}{D(X)})}} {I})}
+\]
+
+
+\subsection{Definitions}
+
+Datatype definitions are as follows:
+
+\[\begin{array}{cl@{\quad}ll}
+\end{array}\]
+
+The goal of this note is to think about how to generate a subtype $v$
+of some method signature $d$ given a set of datatypes \m d.
+
+
+\section{Generation}
+
+
+
+
+
+
+A{T<:Int}          <: B{S, 
+A{T}               <: B{C{Int}, T}
+A{T<:Int, S<:B{T}} <: B{T}
+
+A{T, S}            <: B{Union{T, S}}
+
+A{T, S}            <: B{Union{Ref{T}, S}}
+
+A{T}               <: B           minimal recursive case !
+
+
+
+\end{document}
