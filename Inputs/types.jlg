@@ -1,54 +1,149 @@
+abstract type A end
+abstract type A12814{N, T} end
+abstract type A20086{T,N} end
+abstract type A20992{T,D,d} end
 abstract type A21613{S <: Tuple} end
 abstract type A28593{S<:Real, V<:AbstractVector{S}} end
+abstract type AArray_17003{T,N} end
+abstract type AT end
+abstract type Abstract22734 end
 abstract type AbstractArrayStyle{N} <: BroadcastStyle end
+abstract type AbstractBroadcasted end
+abstract type AbstractChannel{T} end
+abstract type AbstractChar end
+abstract type AbstractCmd end
+abstract type AbstractConfig end
+abstract type AbstractCredential end
 abstract type AbstractDateTime <: TimeType end
+abstract type AbstractDateToken end
+abstract type AbstractDict{K,V} end
+abstract type AbstractDisplay end
 abstract type AbstractFile <: IO end
 abstract type AbstractFloat <: Real end
+abstract type AbstractGitHash end
+abstract type AbstractGitObject end
+abstract type AbstractInterpreter end
 abstract type AbstractInterval{T} <: Domain{T} end
 abstract type AbstractIrrational <: Real end
+abstract type AbstractLattice end
+abstract type AbstractLock end
+abstract type AbstractMatch end
+abstract type AbstractMenu end
+abstract type AbstractMyType12580{T} end
+abstract type AbstractMyType18457{T,F,G} end
+abstract type AbstractNode end
+abstract type AbstractPattern end
 abstract type AbstractPipe <: IO end
+abstract type AbstractPoint{T} end
+abstract type AbstractQ{T} end
+abstract type AbstractREPL end
 abstract type AbstractRGB22592{T} <: Color22592{T,3} end
+abstract type AbstractRNG end
 abstract type AbstractRange{T} <: AbstractArray{T,1} end
+abstract type AbstractRotation{T} end
+abstract type AbstractSchedule end
+abstract type AbstractSerializer end
+abstract type AbstractSet{T} end
 abstract type AbstractSlices{T,N} <: AbstractArray{T,N} end
+abstract type AbstractT27351 end
 abstract type AbstractTerminal <: Base.AbstractPipe end
+abstract type AbstractTest29307 end
+abstract type AbstractTestSet end
+abstract type AbstractThing{T,N} end
+abstract type AbstractTime end
 abstract type AbstractTriangular{T,S<:AbstractMatrix} <: AbstractMatrix{T} end
 abstract type AbstractTriangular{T} <: AbstractMatrix{T} end
+abstract type AbstractTypeNoConstructors end
 abstract type AbstractUnitRange{T} <: OrdinalRange{T,T} end
+abstract type Algorithm end
+abstract type ArithmeticStyle end
 abstract type ArrayData{T,N} <: AbstractArray{T,N} end
+abstract type AxisConversionStyle end
 abstract type B <: A end
 abstract type B11327 <: A11327 end
 abstract type B20992{SV,T,D,d} <: A20992{T,D,d} end
+abstract type B33370 end
+abstract type Bar4129 end
+abstract type BroadcastStyle end
 abstract type C11597{T<:Union{Nothing, Int}} end
 abstract type C38497{e,g<:Tuple,i} end
 abstract type C74685{T,N} <: AbstractArray{T,N} end
 abstract type Calendar <: AbstractTime end
+abstract type CallInfo end
 abstract type CategoricalPool{T, R <: Integer, V} end
 abstract type CategoricalValue{T, R <: Integer} end
+abstract type Cell end
+abstract type Change end
 abstract type Color22592{T, N} <: Colorant22592{T,N} end
+abstract type Colorant22592{T,N} end
+abstract type Colorant35855 end
+abstract type Completion end
+abstract type CompletionProvider end
+abstract type Component end
+abstract type ConstResult end
+abstract type Container{T} end
 abstract type DA_19281{T, N} <: AbstractArray{T, N} end
 abstract type DatePeriod <: Period end
+abstract type Domain{T} end
 abstract type Enum{T<:Integer} end
+abstract type Exception end
+abstract type ExecutionResult end
+abstract type Factorization{T} end
 abstract type FixedPoint35855{T <: Integer} <: Real end
 abstract type FloatInterval{T<:AbstractFloat} end
+abstract type Foo11367 end
+abstract type Foo24748{T1,T2,T3} end
+abstract type Foo9378{T,S} end
+abstract type Foo____{K} end
+abstract type ForwardableArgtypes end
 abstract type GitObject <: AbstractGitObject end
+abstract type HistoryProvider end
+abstract type IO end
+abstract type IOServer end
+abstract type IPAddr end
+abstract type IT4805_2{N, T} end
+abstract type IT4805{N, T} end
+abstract type IndexStyle end
 abstract type Instant <: AbstractTime end
 abstract type Integer<: Real end
+abstract type Interface41024 end
 abstract type Interface41024Extended <: Interface41024 end
+abstract type InvokeType11007 end
+abstract type InvokeX end
+abstract type InvokeXs end
 abstract type Issue49050Abs1{T, N} <: Issue49050AbsTop{T,N} end
 abstract type Issue49050Abs2{T} <: Issue49050Abs1{T,3} end
+abstract type Issue49050AbsTop{T,N} end
+abstract type IteratorEltype end
+abstract type IteratorSize end
 abstract type LibuvServer <: IOServer end
 abstract type LibuvStream <: IO end
+abstract type MethodTableView end
 abstract type MethodType11007 <: InvokeType11007 end
+abstract type Number end
+abstract type OrderStyle end
+abstract type Ordering end
 abstract type OrdinalRange{T,S} <: AbstractRange{T} end
+abstract type Outer5906{T} end
+abstract type P47654{A} end
+abstract type Paint{T} end
 abstract type Period <: AbstractTime end
+abstract type PivotingStrategy end
 abstract type Qux_{T} <: Sup_{Qux_{Int},T} end
+abstract type RangeStepStyle end
 abstract type Real <: Number end
-abstract type Real <: Number end
+abstract type Result end
+abstract type RoundingIncrementHelper end
+abstract type Sampler{E} end
 abstract type Signed <: Integer end
+abstract type Sup2a_ end
 abstract type Sup2b_{A <: Sup2a_, B} <: Sup2a_ end
+abstract type Sup_{A,B} end
 abstract type TextTerminal <: AbstractTerminal end
 abstract type TimePeriod <: Period end
 abstract type TimeType <: AbstractTime end
+abstract type TimeZone end
+abstract type U end
 abstract type UniformBits{T<:BitInteger} end
 abstract type UnixTerminal <: TextTerminal end
 abstract type Unsigned <: Integer end
@@ -56,41 +151,86 @@ abstract type WrappedException <: Exception end
 abstract type X38497{T<:Number} end
 abstract type Y38497{T>:Integer} <: X38497{T} end
 abstract type _ConfiguredMenu{C} <: AbstractMenu end
+abstract type abstest_14825 end
 abstract type at0{T<:Number,N} end
 abstract type at1{T>:Integer,N} <:at0{T,N} end
 abstract type b43296{a, j, c, d} <: e43296{a, j} end
 abstract type e43296{a, j} <: AbstractArray{a, j} end
+abstract type MultiplicativeInverse{T} <: Number end
+mutable struct A end
+mutable struct A1090 end
+mutable struct A11136 end
+mutable struct A4413 end
+mutable struct Alpha end
+mutable struct B end
+mutable struct B11136 end
+mutable struct B4413 end
+mutable struct B6980 <: A6980 end
 mutable struct Bar____{K,V} <: Foo____{K} end
+mutable struct C <: A end
+mutable struct C4413 end
+mutable struct DoAllocNoEscapeInter end
+mutable struct Empty12394 end
+mutable struct Foo4115 end
+mutable struct Foo7648 end
+mutable struct GenericIterator{N} end
+mutable struct IO13433 <: IO end
+mutable struct LineBreak end
+mutable struct MSingle end
+mutable struct REPLBack end
 mutable struct ShellCompletionProvider <: CompletionProvider end
+mutable struct TestAbstractArray end
 mutable struct TestThrowNoGetindex{T} <: AbstractVector{T} end
+mutable struct Test_type end
+mutable struct Type11167{T,N} end
 mutable struct UnimplementedArray{T, N} <: AbstractArray{T, N} end
 mutable struct UnimplementedFastArray{T, N} <: AbstractArray{T, N} end
 mutable struct UnimplementedSlowArray{T, N} <: AbstractArray{T, N} end
 mutable struct Wow____{K,V} <: Foo____{K} end
+mutable struct X1474{a,b} end
+struct A12238{T} end
+struct A23764_2{T, N, S} <: AbstractArray{Union{Ref{T}, S}, N} end
+struct A23764{T, N, S} <: AbstractArray{Union{T, S}, N} end
+struct A39218 end
+struct A41010 end
 struct A46327 <: Real end
 struct A46871{T, N, M} <: AbstractArray{T, N} end
 struct ANumber <: Number end
+struct AStruct{N} end
 struct AUnionParam{T<:Union{Nothing,Float32,Float64}} end
+struct A_20087 end
 struct AnInteger{S<:Integer} end
+struct AndAnd end
 struct Applied{Style, Args<:Tuple} end
 struct ApplyQuasiArray{T, N, App<:Applied} end
 struct ArithmeticUnknown <: ArithmeticStyle end
 struct ArrayConflict <: AbstractArrayStyle{Any} end
 struct ArrayStyle{A<:AbstractArray} <: AbstractArrayStyle{Any} end
+struct A{T} end
+struct B14919 <: A14919 end
 struct B20086{T,N} <: A20086{T,N} end
 struct B28593{S<:Real, V<:AbstractVector{S}} end
 struct B46327 <: Real end
 struct B46871{T, N} <: Ref{A46871{T, N, N}} end
+struct B9378{T} end
+struct BStruct{T,S} end
+struct B_20087 end
 struct BadError <: Exception end
+struct BandedMatrix{T, CONTAINER, RAXIS} end
 struct Bar37126{T<:Real, P<:Real} end
+struct BufferType end
 struct BuildBotConfig <: Documenter.DeployConfig end
+struct C43296{t,I} end
 struct CFoo9378 <: FooB9378{Float64} end
 struct ColumnNorm <: PivotingStrategy end
 struct Constructor{F} <: Function end
 struct CoreSTDERR <: IO end
 struct CoreSTDOUT <: IO end
+struct CorruptType end
 struct CountingSort <: Algorithm end
 struct CustomNumber <: Number end
+struct C{T,O} end
+struct Decimal3 end
 struct DefaultArrayStyle{N} <: AbstractArrayStyle{N} end
 struct DevNull <: IO end
 struct DispatchLoopTestAlg <: Base.Sort.Algorithm end
@@ -100,16 +240,30 @@ struct EOFError <: Exception end
 struct EltypeUnknown <: IteratorEltype end
 struct EmptyCompletionProvider <: CompletionProvider end
 struct EmptyHistoryProvider <: HistoryProvider end
+struct EmptyImmutable13175 end
+struct EmptyType end
+struct EmptyType{T} end
+struct ExtDepStruct end
+struct F21178{A,B} end
 struct F49127{m,n} <: Function end
+struct F49231{a,b,c,d,e,f,g} end
 struct FailFastError <: Exception end
 struct FairSchedule <: AbstractSchedule end
 struct FakeZeroDimArray <: AbstractArray{Int, 0} end
 struct FallbackTestSet <: AbstractTestSet end
 struct FinalBit <: RoundingIncrementHelper end
+struct Foo end
+struct Foo27710{T} end
+struct Foo28079 end
+struct Foo42097{F} end
 struct ForwardOrdering <: Ordering end
+struct F{T} end
+struct GhostStruct end
 struct HFPotential{kind,T,B,RO<:HFPotentialOperator{T,B},P<:Integer} end
 struct HasEltype <: IteratorEltype end
+struct HasExtensionsStruct end
 struct HasLength <: IteratorSize end
+struct HasNoOne end
 struct HasShape{N} <: IteratorSize end
 struct HashEnum4 <: Enum{Int} end
 struct ISOCalendar <: Calendar end
@@ -118,63 +272,98 @@ struct IndexLinear <: IndexStyle end
 struct Infinity <: Integer end
 struct InlineStringIssue57 <: AbstractString end
 struct InsertionSortAlg <: Algorithm end
+struct InternalCodeCache end
 struct InterruptException <: Exception end
 struct Irrational{sym} <: AbstractIrrational end
 struct IsInfinite <: IteratorSize end
 struct Issue29451String <: AbstractString end
 struct Issue47089{A<:Number,B<:Number} end
 struct Issue49785{S, T<:S} end
+struct Iter27594 end
+struct Itr41839_3 end
+struct KWGetindex end
 struct LatexCompletions <: CompletionProvider end
+struct MIME{mime} end
 struct MergeSortAlg <: Algorithm end
+struct Missing end
 struct MyArrayStyle <: Broadcast.AbstractArrayStyle{Any} end
 struct MyArrayStyleDim{N} <: Broadcast.AbstractArrayStyle{N} end
 struct MyContainerStyle <: BroadcastStyle end
 struct MyErrorTypeTest <: Exception end
 struct MyFirstAlg <: Base.Sort.Algorithm end
 struct MyIdentity{T} <: LinearAlgebra.AbstractQ{T} end
+struct MyParametricFunc{T} end
 struct MySecondAlg <: Base.Sort.Algorithm end
 struct MyType12580{T}<:AbstractMyType12580{T} end
 struct MyType18457{T,F,G}<:AbstractMyType18457{T,F,G} end
 struct MyType47877{A,B} <: MyAbstract47877{A} end
+struct MyType{T} end
 struct NoCallInfo <: CallInfo end
+struct NoMethodHasThisType end
 struct NoPivot <: PivotingStrategy end
+struct NoValue end
+struct NonFunctionCallable end
+struct NonFunctionIsZero end
 struct NonScalarIndexingOfWithoutMissingVectorAlg <: Base.Sort.Algorithm end
+struct NotFound end
+struct Obj43486 end
 struct OneToInf{T<:Integer} <: AbstractUnitRange{T} end
 struct OneToThree <: AbstractUnitRange{Int} end
+struct Ones{T, N, Axes} end
+struct OrOr end
 struct Ordered <: OrderStyle end
 struct OutOfMemoryError<: Exception end
+struct PNG end
 struct Pick{N} <: Function end
 struct PrecompilableError <: Exception end
 struct Q38497{o,e<:NTuple{o},g} <: C38497{e,g,Array{o}} end
 struct QRIteration <: Algorithm end
+struct QuasiAdjoint{T,S} end
 struct QuickSortAlg <: Algorithm end
+struct REPLBackendRef end
 struct RadixSort <: Algorithm end
+struct RandomStruct23964 end
 struct ReadOnlyMemoryError <: Exception end
 struct RoundBit <: RoundingIncrementHelper end
+struct RoundingMode{T} end
 struct RowMaximum <: PivotingStrategy end
 struct RowNonZero <: PivotingStrategy end
+struct S45879{P} end
 struct S48695{T, N, H<:AbstractArray{T, N}} <: AbstractArray{T, N} end
 struct SamplerType{T} <: Sampler{T} end
+struct ScaleMinMax{To,From} end
 struct SegmentationFault <: Exception end
 struct SillyArray <: AbstractArray{Float64,1} end
 struct SingleRange <: AxisConversionStyle end
 struct SizeUnknown <: IteratorSize end
+struct SomeFunctor end
 struct SomeOtherOrder <: Base.Order.Ordering end
 struct SparseMatrixStyle <: Broadcast.AbstractArrayStyle{2} end
 struct StackOverflowError<: Exception end
 struct StaticSchedule <: AbstractSchedule end
 struct StickyBit <: RoundingIncrementHelper end
+struct StrangeType18623 end
+struct Struct49454 end
+struct StructWithNoFields end
 struct StructuredMatrixStyle{T} <: Broadcast.AbstractArrayStyle{2} end
 struct Style{T} <: BroadcastStyle end
 struct SurrealFinite <: Real end
+struct T end
 struct T19714 <: Integer end
 struct T27351 <: AbstractT27351 end
+struct T35888 end
+struct T48006{A1,A2,A3} end
 struct T48695{T, N, H<:AbstractArray} <: AbstractArray{Union{Missing, T}, N} end
+struct TT20103{X,Y} end
 struct TaskLocalRNG <: AbstractRNG end
 struct TestTVUpper{A<:Integer} end
 struct TupleOfRanges <: AxisConversionStyle end
+struct Type4Union end
+struct TypeA end
 struct TypeCompareError{A,B} <: Exception end
 struct TypeWithIntParam{T<:Integer, Vector{T}<:A<:AbstractArray{T}} end
+struct TypeWithZero end
+struct TypeWithoutZero end
 struct UInt104Raw{T} <: UniformBits{T} end
 struct UInt104{T}<: UniformBits{T} end
 struct UInt10Raw{T} <: UniformBits{T} end
@@ -186,13 +375,508 @@ struct UInt2x52{T}<: UniformBits{T} end
 struct UInt52Raw{T} <: UniformBits{T} end
 struct UInt52{T}<: UniformBits{T} end
 struct UTC <: TimeZone end
+struct UndefInitializer end
 struct UndefRefError <: Exception end
 struct UniformT{T} <: Sampler{T} end
 struct UnitUpperTriangular{T,S<:AbstractMatrix} <: AbstractTriangular{T,S} end
 struct Unknown <: BroadcastStyle end
+struct UnknownType end
 struct Unordered <: OrderStyle end
 struct UpperTriangular{T,S<:AbstractMatrix} <: AbstractTriangular{T,S} end
+struct WeirdNames end
+struct X end
+struct X2 end
+struct Y end
+struct Z end
 struct Z38497{T>:Int} <: Y38497{T} end
+struct Zero36193 end
+struct _InitialValue end
+struct __FIELDS__ end
+struct a32325 end
+struct a34752{T} end
 struct f_with_params{t} <: Function end
+struct fmpz end
 struct h43296{a, j, f, d, i} <: b43296{a, j, f, d} end
-
+struct t_docs_abc end
+struct totally_not_five26034 end
+struct typeA end
+mutable struct A12089{K, N} end
+mutable struct A16767{T} end
+mutable struct A265{T} end
+mutable struct A3890{T1} end
+mutable struct A42645{T} end
+mutable struct ARefxy{T} end
+mutable struct ARef{T} end
+mutable struct AliasableConstField{S,T} end
+mutable struct Atomic{T<:AtomicTypes} end
+mutable struct Atomic{T} end
+mutable struct B12238{T,S} end
+mutable struct B15163{T} end
+mutable struct B16767{T} end
+mutable struct B2365{T} end
+mutable struct B265{T} end
+mutable struct B3890{T2} end
+mutable struct B42645{T} end
+mutable struct Bar22256{AParameter} end
+mutable struct BitArray{N} <: AbstractArray{Bool, N} end
+mutable struct BitSet <: AbstractSet{Int} end
+mutable struct BitSetBoundedMinPrioritySet <: AbstractSet{Int} end
+mutable struct C16767{T} end
+mutable struct CFunction <: Ref{Cvoid} end
+mutable struct CallThisFunc27178{FCN_TYPE} end
+mutable struct Channel{T} <: AbstractChannel{T} end
+mutable struct ConcreteThing{T<:AbstractFloat,N} <: AbstractThing{T,N} end
+mutable struct CustomDict{K, V} <: AbstractDict{K, V} end
+mutable struct DateRange6387{C} <: AbstractRange{Date6387{C}} end
+mutable struct Dict{K,V} <: AbstractDict{K,V} end
+mutable struct DoAllocNoEscapeSparam{T} end
+mutable struct DynamicMenu <: TerminalMenus._ConfiguredMenu{TerminalMenus.Config} end
+mutable struct Foo16530a{dim} end
+mutable struct Foo16530b{dim} end
+mutable struct Foo4376{T} end
+mutable struct Foo7810{T<:AbstractVector} end
+mutable struct FooNTuple{N} end
+mutable struct FooTupleT{T} end
+mutable struct Foo{T} end
+mutable struct GenericIOBuffer{T<:AbstractVector{UInt8}} <: IO end
+mutable struct HAMT{K, V} end
+mutable struct HTML{T} end
+mutable struct Header{level} end
+mutable struct I1628{X} end
+mutable struct I2619{T} end
+mutable struct IdDict{K,V} <: AbstractDict{K,V} end
+mutable struct IdSet{T} <: AbstractSet{T} end
+mutable struct IdentityTestKV{K, V} end
+mutable struct IntDisjointSet{T<:Integer} end
+mutable struct IntrusiveLinkedListSynchronized{T} end
+mutable struct IntrusiveLinkedList{T} end
+mutable struct LazyGenericDomtree{IsPostDom} end
+mutable struct Leaf{K, V} end
+mutable struct LinkedListItem{T} end
+mutable struct MPoint{T} <: AbstractPoint{T} end
+mutable struct MethodList <: AbstractArray{Method,1} end
+mutable struct MultiSelectMenu{C} <: _ConfiguredMenu{C} end
+mutable struct MultiSelectWithSkipMenu <: TerminalMenus._ConfiguredMenu{TerminalMenus.Config} end
+mutable struct MyArray{N} <: AbstractArray{Int, N} end
+mutable struct MyType4154{T} end
+mutable struct Node2562{T} end
+mutable struct Node2{T} end
+mutable struct Node42297{T, V} end
+mutable struct Node{T} end
+mutable struct OptimizationState{Interp<:AbstractInterpreter} end
+mutable struct Pager{C} <: _ConfiguredMenu{C} end
+mutable struct PartialMutable{S,T} end
+mutable struct Polygon5884{T<:Real} end
+mutable struct RadioMenu{C} <: _ConfiguredMenu{C} end
+mutable struct RefValue{T} <: Ref{T} end
+mutable struct Refxy{T} end
+mutable struct S1442{T} end
+mutable struct SIQ{A,B} <: Number end
+mutable struct SI{m, s, kg} end
+mutable struct SafeRefs{S,T} end
+mutable struct SafeRef{T} end
+mutable struct Sampler11587{N} end
+mutable struct ScopedValue{T} end
+mutable struct Serializer{I<:IO} <: AbstractSerializer end
+mutable struct SharedArray{T,N} <: DenseArray{T,N} end
+mutable struct Stable{T,N} end
+mutable struct Stateful{T, VS, N<:Integer} end
+mutable struct T10207{A, B} end
+mutable struct T20267{T} end
+mutable struct T21719{V} end
+mutable struct T24Linear{T,N,dims} <: AbstractArray{T,N} end
+mutable struct T4801{X} end
+mutable struct TSlow18399{T} end
+mutable struct TSlowNIndexes{T,N} <: AbstractArray{T,N} end
+mutable struct Term41096{I, M<:Modulate41096} end
+mutable struct TestDict{K, V}<: AbstractDict{K, V} end
+mutable struct TestPushArray{T, N} <: AbstractArray{T, N} end
+mutable struct TestSet{T} <: AbstractSet{T} end
+mutable struct Text{T} end
+mutable struct TupleParam{P} end
+mutable struct TwoPhaseDefUseMap <: AbstractVector{TwoPhaseVectorView} end
+mutable struct TwoPhaseVectorView <: AbstractVector{Int} end
+mutable struct Type11243{A, B} end
+mutable struct Unstable{T} end
+mutable struct WeakKeyDict{K,V} <: AbstractDict{K,V} end
+mutable struct XY{X,Y} end
+mutable struct callinfos_19805{FUNC_FT<:Function} end
+mutable struct mt6{T<:Integer,N} <:at1{T,N} end
+mutable struct t1_14825{A <: abstest_14825, B} end
+mutable struct t2_14825{C, B} <: abstest_14825 end
+mutable struct type_1{T <: Number} <: Number end
+struct A11888{T} end
+struct A28256{names, T<:NamedTuple{names, <:Tuple}} end
+struct A29955{T, TV<:AbstractVector{T}, TModel<:M29955{T,TV}} end
+struct A37044{T1,T2} end
+struct A37890{A, B} end
+struct A41438{T} end
+struct A41503{d} end
+struct A43303{T} end
+struct A43411{S, T} end
+struct A44921{T} end
+struct AD1B{T,N} <: ArrayData{T,N} end
+struct AD1C{T,N} <: ArrayData{T,N} end
+struct AD1P{T,N} <: ArrayData{T,N} end
+struct AD1{T,N} <: ArrayData{T,N} end
+struct AD2B{T,N} <: ArrayData{T,N} end
+struct AD2C{T,N} <: ArrayData{T,N} end
+struct AD2Dim{T} <: ArrayData{T,2} end
+struct AD2P{T,N} <: ArrayData{T,N} end
+struct AD2{T,N} <: ArrayData{T,N} end
+struct AVL35416{K,V} end
+struct A_15703{N} end
+struct Accumulate{F,I,T} end
+struct AdjointFactorization{T,S<:Factorization} <: Factorization{T} end
+struct AdjointQ{T,S<:AbstractQ{T}} <: AbstractQ{T} end
+struct AdjointRotation{T,S<:AbstractRotation{T}} <: AbstractRotation{T} end
+struct Adjoint{T,S} <: AbstractMatrix{T} end
+struct AliasableFields{S,T} end
+struct AliasableField{T} end
+struct AlmostLU{T, S<:AbstractMatrix{T}} end
+struct AlwaysHasLayout{T} end
+struct AnalysisState{T} end
+struct AnnotatedChar{C <: AbstractChar} <: AbstractChar end
+struct AnnotatedString{S <: AbstractString} <: AbstractString end
+struct Array19745{T,N} <: ArrayData{T,N} end
+struct ArrayWrapper{T,N,A<:AbstractArray} <: AbstractArray{T,N} end
+struct A{T,N,O} <: AbstractArray{C{T,A{T,N,O}},N} end
+struct B12814{N, T} <: A12814{N, T} end
+struct B16424{T} end
+struct B21613{S <: Tuple, L} <: A21613{S} end
+struct B37890{A, B} end
+struct B40050 <: Ref{Tuple{B40050}} end
+struct B41438{T} end
+struct B41503{j,k} <: AbstractArray{A41503{B41503{Any,k}},Any} end
+struct BadVector20469{T} <: AbstractVector{Int} end
+struct Bar29983{S} end
+struct BestguessInfo{Interp<:AbstractInterpreter} end
+struct Bidiagonal{T,V<:AbstractVector{T}} <: AbstractMatrix{T} end
+struct BitMaskedBitArray{N,M} end
+struct BoolOptimization{T <: Algorithm} <: Algorithm end
+struct BottomRF{T} end
+struct BroadcastFunction{F} <: Function end
+struct Broadcasted{Style<:Union{Nothing,BroadcastStyle}, Axes, F, Args<:Tuple} <: Base.AbstractBroadcasted end
+struct BunchKaufman{T,S<:AbstractMatrix,P<:AbstractVector{<:Integer}} <: Factorization{T} end
+struct Bunch{N,T} end
+struct By{T, O} <: Ordering end
+struct By{T,O} end
+struct C16424{T,S} end
+struct C20992{S,n,T,D,d} <: B20992{NTuple{n,S},T,D,d} end
+struct CSE{X} end
+struct CachedMethodTable{T<:MethodTableView} <: MethodTableView end
+struct CartesianIndex{N} <: AbstractCartesianIndex{N} end
+struct CartesianIndices{N,R<:NTuple{N,OrdinalRangeInt}} <: AbstractArray{CartesianIndex{N},N} end
+struct CassetteLikeWrapper{F} end
+struct CheckSorted{T <: Algorithm} <: Algorithm end
+struct CholeskyPivoted{T,S<:AbstractMatrix,P<:AbstractVector{<:Integer}} <: Factorization{T} end
+struct Cholesky{T,S<:AbstractMatrix} <: Factorization{T} end
+struct CodePointError{T<:Integer} <: Exception end
+struct CodeUnits{T,S<:AbstractString} <: DenseVector{T} end
+struct Complex{T<:Real} <: Number end
+struct ComposedFunction{O,I} <: Function end
+struct ComputeExtrema{T <: Algorithm} <: Algorithm end
+struct ConditionalsLattice{L<:AbstractLattice} <: AbstractLattice end
+struct ConsiderCountingSort{T <: Algorithm, U <: Algorithm} <: Algorithm end
+struct ConsiderRadixSort{T <: Algorithm, U <: Algorithm} <: Algorithm end
+struct ConstantRange{T} <: AbstractRange{T} end
+struct Const{T,N} <: DenseArray{T,N} end
+struct ContainsPointerNopadding{T} end
+struct Count{T,S} end
+struct CyclePadding{P} end
+struct Cycle{I} end
+struct D16424{T<:Real,S<:T} end
+struct D8915{T<:Union{Float32,Float64}} end
+struct DateFormat{S, T<:Tuple} end
+struct DatePart{letter} <: AbstractDateToken end
+struct Delim{T, length} <: AbstractDateToken end
+struct Diagonal{T,V<:AbstractVector{T}} <: AbstractMatrix{T} end
+struct DimSelector{dims, T} end
+struct DropWhile{I,P<:Function} end
+struct Drop{I} end
+struct Dual{T<:Real} <: Number end
+struct DummyRange{T} <: AbstractRange{T} end
+struct D{NT, DT} end
+struct EachLine{IOT <: IO} end
+struct EachStringIndex{T<:AbstractString} end
+struct Eigen{T,V,S<:AbstractMatrix,U<:AbstractVector} <: Factorization{T} end
+struct Empty5906{T} <: Outer5906{T} end
+struct Enumerate{I} end
+struct Exception31219{T} end
+struct ExceptionStack <: AbstractArray{Any,1} end
+struct ExtremaMap{F} <: Function end
+struct Extruded{T, K, D} end
+struct F21666{T <: Base.ArithmeticStyle} end
+struct F36869{T, V} <: AbstractArray{Union{T, V}, 1} end
+struct FieldConvert{FieldTypeA, S} end
+struct FieldDescStorage{T} end
+struct FieldTypeRefinement{S,T} end
+struct Fill44087 <: AbstractArray{Int,0} end
+struct Fill{T, N, S<:NTuple{N,Integer}} <: AbstractArray{T,N} end
+struct FilteringRF{F, T} end
+struct Filter{F,I} end
+struct Fix1{F,T} <: Function end
+struct Fix2{F,T} <: Function end
+struct FlatteningRF{T} end
+struct Flatten{I} end
+struct FlipArgs{F} end
+struct Float22716{T<:AbstractFloat} <: AbstractFloat end
+struct Foo26601{T} end
+struct Foo26826{A,B} end
+struct Foo27204{T} end
+struct Foo29983{T} end
+struct FooDictHash{T} end
+struct Format{S, T} end
+struct FunctionSum{Tf} end
+struct Furlong{p,T<:Number} <: Number end
+struct GeneralizedEigen{T,V,S<:AbstractMatrix,U<:AbstractVector} <: Factorization{T} end
+struct GeneralizedSVD{T,S<:AbstractMatrix,Tr,C<:AbstractVector{Tr}} <: Factorization{T} end
+struct GeneralizedSchur{Ty,M<:AbstractMatrix,A<:AbstractVector,B<:AbstractVector{Ty}} <: Factorization{Ty} end
+struct Generator{I,F} end
+struct GenericArray{T,N} <: AbstractArray{T,N} end
+struct GenericCondition{L<:AbstractLock} end
+struct GenericDict{K,V} <: AbstractDict{K,V} end
+struct GenericDomTree{IsPostDom} end
+struct GenericOrder{T} end
+struct GenericSet{T} <: AbstractSet{T} end
+struct Givens{T} <: AbstractRotation{T} end
+struct GraphemeIterator{S<:AbstractString} end
+struct Gr{N, T} end
+struct Hanoi5906{T} <: Outer5906{T} end
+struct HashState{K} end
+struct Herd{N,T} end
+struct Hermitian{T,S<:AbstractMatrix{<:T}} <: AbstractMatrix{T} end
+struct HessenbergQ{T,S<:AbstractMatrix,W<:AbstractVector,sym} <: AbstractQ{T} end
+struct Hessenberg{T,SH<:AbstractMatrix,S<:AbstractMatrix,W<:AbstractVector,V<:Number} <: Factorization{T} end
+struct IEEEFloatOptimization{T <: Algorithm} <: Algorithm end
+struct IOContext{IO_t <: IO} <: AbstractPipe end
+struct IdOffsetRange{T<:Integer,I<:AbstractUnitRange{T}} <: AbstractUnitRange{T} end
+struct IdentityUnitRange{T<:AbstractUnitRange} <: AbstractUnitRange{Int} end
+struct ImmutableArray{T,N,A<:AbstractArray} <: AbstractArray{T,N} end
+struct ImmutableDict{K,V} <: AbstractDict{K,V} end
+struct ImmutableRef{T} end
+struct ImmutableTestArray{T, N} <: Base.DenseArray{T, N} end
+struct InetAddr{T<:IPAddr} end
+struct InferenceLattice{L<:AbstractLattice} <: AbstractLattice end
+struct InliningState{Interp<:AbstractInterpreter} end
+struct Inner5906{T} end
+struct InnerCtorRT{T} end
+struct InsertBefore{T<:Union{IRCode, IncrementalCompact}} <: Inserter end
+struct InterConditionalsLattice{L<:AbstractLattice} <: AbstractLattice end
+struct InterMustAliasesLattice{L<:AbstractLattice} end
+struct InterMustAliasesLattice{L<:AbstractLattice} <: AbstractLattice end
+struct InterTaintLattice{PL<:AbstractLattice} <: CC.AbstractLattice end
+struct Interval{L,R,T} <: AbstractInterval{T} end
+struct InvalidCharError{T<:AbstractChar} <: Exception end
+struct IsUIntMappable{T <: Algorithm, U <: Algorithm} <: Algorithm end
+struct Issue36437{T} end
+struct Issue49027{Ty<:Number} end
+struct Issue49050Concrete{T} <: Issue49050Abs2{T} end
+struct Issue50544{T<:Tuple} end
+struct KeySet{K, T <: AbstractDict{K}} <: AbstractSet{K} end
+struct KronTestArray{T, N, AT} <: AbstractArray{T, N} end
+struct LDLt{T,S<:AbstractMatrix{T}} <: Factorization{T} end
+struct LL31783{T} end
+struct LQPackedQ{T,S<:AbstractMatrix{T},C<:AbstractVector{T}} <: AbstractQ{T} end
+struct LQ{T,S<:AbstractMatrix{T},C<:AbstractVector{T}} <: Factorization{T} end
+struct LReplace{S<:AbstractString} end
+struct LU{T,S<:AbstractMatrix{T},P<:AbstractVector{<:Integer}} <: Factorization{T} end
+struct LessThan{T<:Integer,S} <: Sampler{T} end
+struct Less{O} end
+struct LinRange{T,L<:Integer} <: AbstractRange{T} end
+struct LinSlowMatrix{T} <: DenseArray{T,2} end
+struct LinearIndices{N,R<:NTuple{N,AbstractUnitRange{Int}}} <: AbstractArray{Int,N} end
+struct Logged{F} end
+struct LogicalIndex{T, A<:AbstractArray{Bool}} <: AbstractVector{T} end
+struct Lt{T} <: Ordering end
+struct M29955{T, TV<:AbstractVector{T}} end
+struct MappingRF{F, T} end
+struct Masked{T<:Integer,S} <: Sampler{T} end
+struct MaybeSome{T} end
+struct Maybe{T} end
+struct MeterUnits{T,P} <: Number end
+struct MissingOptimization{T <: Algorithm} <: Algorithm end
+struct MockUnitful{T<:TNumber} <: Number end
+struct ModInt{n} end
+struct Modulate41096{M<:Union{Function, Val{true}, Val{false}}, id} end
+struct MulAddMul{ais1, bis0, TA, TB} end
+struct MustAliasesLattice{L<:AbstractLattice} end
+struct MustAliasesLattice{L<:AbstractLattice} <: AbstractLattice end
+struct My8156{A, B} end
+struct MyArray49392{T, N} <: AbstractArray{T, N} end
+struct MyArrayWrapper{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N} end
+struct MyArray{T,N} <: AbstractArray{T,N} end
+struct MyIdentity <: AbstractMatrix{Bool} end
+struct MyNullable{T} end
+struct MyQ{T,S<:AbstractQ{T}} <: AbstractQ{T} end
+struct MyURange <: AbstractUnitRange{Int} end
+struct NArray_17003{T,N} <: AArray_17003{Nable_17003{T},N} end
+struct Nable_17003{T} end
+struct NewSlotPhi{Phi} end
+struct Node23685{T} end
+struct Node35416{T,K,X} end
+struct Node{N1<:AbstractNode, N2<:AbstractNode} <: AbstractNode end
+struct Node{T} end
+struct NominalPool{T, R <: Integer, V} <: CategoricalPool{T, R, V} end
+struct NominalValue{T, R <: Integer} <: CategoricalValue{T, R} end
+struct Normed35855 <: FixedPoint35855{UInt8} end
+struct Nullable11904{T} end
+struct OffsetArray{T,N,AA<:AbstractArray} <: AbstractArray{T,N} end
+struct OneElVec <: AbstractVector{Bool} end
+struct OneHotVecOrMat{N} <: AbstractArray{Bool,N} end
+struct OneTo{T<:Integer} <: AbstractUnitRange{T} end
+struct OpenInterval{T} end
+struct OrdinalValue{T, R <: Integer} <: CategoricalValue{T, R} end
+struct Origin{T<:Union{Tuple{Vararg{Int}}, Int}} end
+struct P33954{T} end
+struct Pair{A, B} end
+struct PartialQuickSort{T <: Union{Integer,OrdinalRange}} <: Algorithm end
+struct PartialsLattice{L<:AbstractLattice} <: AbstractLattice end
+struct PartitionIterator{T} end
+struct PermutedDimsArray{T,N,perm,iperm,AA<:AbstractArray} <: AbstractArray{T,N} end
+struct Perm{O<:Ordering,V<:AbstractVector} <: Ordering end
+struct PersistentDict{K,V} <: AbstractDict{K,V} end
+struct PointerNopadding{T} end
+struct Point{X} end
+struct Pool18343{R, V} end
+struct PrintAll{T} <: Function end
+struct ProductIterator{T<:Tuple} end
+struct Q33954{T} end
+struct QRCompactWYQ{S, M<:AbstractMatrix{S}, C<:AbstractMatrix{S}} <: AbstractQ{S} end
+struct QRCompactWY{S,M<:AbstractMatrix{S},C<:AbstractMatrix{S}} <: Factorization{S} end
+struct QRPackedQ{T,S<:AbstractMatrix{T},C<:AbstractVector{T}} <: AbstractQ{T} end
+struct QRPivoted{T,S<:AbstractMatrix{T},C<:AbstractVector{T},P<:AbstractVector{<:Integer}} <: Factorization{T} end
+struct QR{T,S<:AbstractMatrix{T},C<:AbstractVector{T}} <: Factorization{T} end
+struct Quaternion{T<:Real} <: Number end
+struct Q{T} end
+struct REPLDisplay{Repl<:AbstractREPL} <: AbstractDisplay end
+struct RGB{T<:AbstractFloat} <: Paint{T} end
+struct RSplitIterator{S <: AbstractString, F} end
+struct Rational{T<:Integer} <: Real end
+struct RawBigIntRoundingIncrementHelper{T<:Unsigned} end
+struct RawBigInt{T<:Unsigned} end
+struct ReadEachIterator{T, IOT <: IO} end
+struct RealWrapper{T <: Real} <: Real end
+struct RefArray{T,A<:AbstractArray{T},R} <: Ref{T} end
+struct ReflectionExample{T<:AbstractFloat, N} end
+struct RegexMatchIterator{S <: AbstractString} end
+struct RegexMatch{S<:AbstractString} <: AbstractMatch end
+struct ReinterpretArray{T,N,S,A<:AbstractArray{S},IsReshaped} <: AbstractArray{T, N} end
+struct Repeated{O} end
+struct ReshapedArrayIterator{I,M} end
+struct ReshapedArray{T,N,P<:AbstractArray,MI<:Tuple{Vararg{SignedMultiplicativeInverse{Int}}}} <: AbstractArray{T,N} end
+struct ReshapedIndex{T} end
+struct Rest{I,S} end
+struct Returns{V} <: Function end
+struct ReverseOrdering{Fwd<:Ordering} <: Ordering end
+struct Reverse{O} end
+struct Reverse{T} end
+struct Rotation{T} <: AbstractRotation{T} end
+struct S28356{T<:Union{Float64,Float32}} end
+struct S32488{S <: Tuple, T, N, L} end
+struct S36104{K,V} end
+struct S38888{T} end
+struct S40{_A, _B, _C, _D, _E, _F, _G, _H, _I, _J, _K, _L, _M, _N, _O, _P, _Q, _R, _S, _T, _U, _V, _W, _X, _Y, _Z, _Z1, _Z2, _Z3, _Z4, _Z5, _Z6, _Z7, _Z8, _Z9, _Z10, _Z11, _Z12, _Z13, _Z14} end
+struct SA{N,L} end
+struct SCartesianIndices2{K,R<:AbstractUnitRange{Int}} <: AbstractMatrix{SCartesianIndex2{K}} end
+struct SIQ20671{T<:Number,m,kg,s,A,K,mol,cd,rad,sr} <: Number end
+struct SMatrix1{T} <: AbstractArray{T,2} end
+struct SROAUnswitchUnion1{T} end
+struct SROAUnswitchUnion2{S,T} end
+struct SVD{T,Tr,M<:AbstractArray{T},C<:AbstractVector{Tr}} <: Factorization{T} end
+struct SamplerBigFloat{I<:FloatInterval{BigFloat}} <: Sampler{BigFloat} end
+struct SamplerBigInt{SP<:Sampler{Limb}} <: Sampler{BigInt} end
+struct SamplerRangeFast{U<:BitUnsigned,T<:BitInteger} <: Sampler{T} end
+struct SamplerRangeInt{T<:Integer,U<:Unsigned} <: Sampler{T} end
+struct SamplerRangeNDL{U<:Unsigned,T} <: Sampler{T} end
+struct SamplerSimple{T,S,E} <: Sampler{E} end
+struct SamplerTag{T,S,E} <: Sampler{E} end
+struct SamplerTrivial{T,E} <: Sampler{E} end
+struct Schur{Ty,S<:AbstractMatrix,C<:AbstractVector} <: Factorization{Ty} end
+struct ScratchQuickSort{L<:Union{Integer,Missing}, H<:Union{Integer,Missing}, T<:Algorithm} <: Algorithm end
+struct SelfTyA{V} end
+struct SelfTyB{T} end
+struct Set{T} <: AbstractSet{T} end
+struct SignedMultiplicativeInverse{T<:Signed} <: MultiplicativeInverse{T} end
+struct SimpleVector{T} <: AbstractVector{T} end
+struct SizedArray{SZ,T,N,A<:AbstractArray} <: AbstractArray{T,N} end
+struct SkipMissing{T} end
+struct Slices{P,SM,AX,S,N} <: AbstractSlices{S,N} end
+struct Slice{T<:AbstractUnitRange} <: AbstractUnitRange{Int} end
+struct Small{N, T <: Algorithm, U <: Algorithm} <: Algorithm end
+struct Some{T} end
+struct SparamUnused{T} end
+struct SplatNew{T} end
+struct Splat{F} <: Function end
+struct SplitIterator{S<:AbstractString,F} end
+struct SquaresVector <: AbstractArray{Int, 1} end
+struct StableCheckSorted{T<:Algorithm} <: Algorithm end
+struct StepRangeLen{T,R,S,L<:Integer} <: AbstractRange{T} end
+struct StepRange{T,S} <: OrdinalRange{T,S} end
+struct StmtRange <: AbstractUnitRange{Int} end
+struct Strider{T,N} <: AbstractArray{T,N} end
+struct StructWithUnionAllMethodDefs{T} end
+struct Struct{T} end
+struct Str{C} <: AbstractString end
+struct SubArray{T,N,P,I,L} <: AbstractArray{T,N} end
+struct SubString{T<:AbstractString} <: AbstractString end
+struct SubstitutionString{T<:AbstractString} <: AbstractString end
+struct SymTridiagonal{T, V<:AbstractVector{T}} <: AbstractMatrix{T} end
+struct Symmetric{T,S<:AbstractMatrix{<:T}} <: AbstractMatrix{T} end
+struct Symmetric{T,S<:AbstractMatrix{T}} <: AbstractMatrix{T} end
+struct SyntacticallyDefined{T} end
+struct T11675{T} end
+struct T20324{T} end
+struct T20332{T} end
+struct T20804{T} end
+struct T26321{N,S<:NTuple{N}} end
+struct T27269{X, Y <: Vector{X}} end
+struct T29145{A,B} end
+struct T44614_1{T} end
+struct T44614_2{L} end
+struct T44614_3{L, N} end
+struct TParamTypeofTest1{T} end
+struct TParamTypeofTest2{S,T} end
+struct TSlow{T,N} <: AbstractArray{T,N} end
+struct T_30763{T} end
+struct TaintLattice{PL<:AbstractLattice} <: CC.AbstractLattice end
+struct TakeWhile{I,P<:Function} end
+struct Take{I} end
+struct TestNumber{Inner} <: Number end
+struct TestQuaternion{T} <: Number end
+struct TransposeFactorization{T,S<:Factorization} <: Factorization{T} end
+struct Transpose{T,S} <: AbstractMatrix{T} end
+struct Tridiagonal{T,V<:AbstractVector{T}} <: AbstractMatrix{T} end
+struct TwicePrecision{T} end
+struct TypeWith4Params{a,b,c,d} end
+struct TypeWithIrrelevantParameter{T} end
+struct TypesView{T} end
+struct UTInstant{P<:Period} <: Instant end
+struct UndefComplex{T} end
+struct UniformScaling{T<:Number} end
+struct UnitRange{T<:Real} <: AbstractUnitRange{T} end
+struct UnsafeView{T} <: DenseArray{T,1} end
+struct UnsignedMultiplicativeInverse{T<:Unsigned} <: MultiplicativeInverse{T} end
+struct UpperHessenberg{T,S<:AbstractMatrix{T}} <: AbstractMatrix{T} end
+struct Value18343{T, R} end
+struct ValueIterator{T<:AbstractDict} end
+struct Val{x} end
+struct Vec8010{T} end
+struct VecElement{T} end
+struct VoxelIndices{T <: Integer} end
+struct WithoutMissingVector{T, U} <: AbstractVector{T} end
+struct WorldView{Cache} end
+struct Wrap1{T} end
+struct WrappedArray{T,N} <: AbstractArray{T,N} end
+struct WrappedVector{T} <: AbstractVector{T} end
+struct Wrapper47654{T, V<:Vec47654{T}} end
+struct WrapperArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N} end
+struct WrapperOneField{T} end
+struct X41654 <: Ref{X41654} end
+struct Z14477C{T} end
+struct ZeroBasedUnitRange{T,A<:AbstractUnitRange{T}} <: AbstractUnitRange{T} end
+struct Zip{Is<:Tuple} end
+struct iter31113{T} end
+struct st3{T<:Integer,N} <: at0{T,N} end
+struct st4{T,N} <: at0{T,N} end
+struct st5{T>:Int64,N} <:at1{T,N} end
