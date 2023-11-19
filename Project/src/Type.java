@@ -2,25 +2,24 @@ import java.util.ArrayList;
 import java.util.List;
 
 class Type {
-    static Type parse(Parser p) {
-        return BoundVar.parse(p);
-    }
 }
 
 class DependentType extends Type {
     String value;
+
     DependentType(String value) {
         this.value = value;
     }
+
     static Type parse(Parser p) {
         var tok = p.peek();
-        if (tok.isNumber()){
+        if (tok.isNumber()) {
             p.advance();
             return new DependentType(tok.toString());
-        } 
-        return null;        
+        }
+        return null;
     }
-    
+
 }
 
 // Int
@@ -37,11 +36,16 @@ class TypeInst extends Type {
 
     static Type parse(Parser p) {
         var dep = DependentType.parse(p);
-        if (dep != null) 
-            return dep;        
+        if (dep != null)
+            return dep;
         var name = TypeName.parse(p);
         var typeParams = new ArrayList<Type>();
         var tok = p.peek();
+        if (tok.isString()) {
+            name.name += tok.toString();
+            p.advance();
+
+        }
         if (tok.delim("{")) {
             tok = p.advance().peek();
             while (!tok.delim("}")) {
@@ -49,7 +53,7 @@ class TypeInst extends Type {
                     tok = p.advance().peek();
                     continue;
                 } else {
-                    typeParams.add(Type.parse(p));
+                    typeParams.add(UnionAllInst.parse(p));
                 }
                 tok = p.peek();
             }
@@ -107,7 +111,7 @@ class BoundVar extends Type {
                 var lower = UnionAllInst.parse(p.advance());
                 return new BoundVar(t.toString(), lower, null);
             } else
-                return new BoundVar(t.toString(), null, null);
+                return t;
         }
     }
 
@@ -135,12 +139,23 @@ class UnionAllInst extends Type {
     static Type parse(Parser p) {
         var type = TypeInst.parse(p);
         var tok = p.peek();
-        if (tok.delim("where")) {
+        if (tok.ident("where")) {
             p.advance();
             var boundVars = new ArrayList<Type>();
+            var gotBrace = false;
+            if (p.peek().delim("{")) {
+                p.advance();
+                gotBrace = true;
+            }
             boundVars.add(BoundVar.parse(p));
             while (p.peek().delim(","))
                 boundVars.add(BoundVar.parse(p.advance()));
+            if (gotBrace) {
+                if (p.peek().delim("}"))
+                    p.advance();
+                else
+                    p.failAt("Missing closing brace", p.peek());
+            }
             return new UnionAllInst(type, boundVars);
         } else
             return type;
@@ -183,7 +198,7 @@ class TypeDeclaration {
             if (tok.ident("type")) {
                 str += "type ";
             } else
-                p.fail("Invalid type declaration");
+                p.failAt("Invalid type declaration", tok);
             return str;
         }
         if (tok.ident("mutable")) {
@@ -194,7 +209,7 @@ class TypeDeclaration {
             str += "struct ";
             return str;
         } else
-            p.fail("Invalid type declaration");
+            p.failAt("Invalid type declaration", tok);
         return null;
     }
 
@@ -222,10 +237,10 @@ class TypeDeclaration {
             var parent = TypeInst.parse(p);
             tok = p.next();
             if (!tok.ident("end"))
-                p.fail("Missed end of declaration");
+                p.failAt("Missed end of declaration", tok);
             return new TypeDeclaration(modifiers, name, typeParams, parent);
         } else {
-            p.fail("Invalid type declaration");
+            p.failAt("Invalid type declaration", tok);
             return null; // not reached
         }
     }
@@ -255,14 +270,34 @@ class TypeName {
         this.name = name;
     }
 
-    static TypeName parse(Parser p) {
-        var str = p.nextIdentifier().toString();
-        var tok = p.peek();
-        while (tok != null && tok.delim(".")) {
-            str += tok + p.advance().nextIdentifier().toString();
+    static String readDotted(Parser p) {
+        var tok = p.next();
+        var str = tok.toString();
+        tok = p.peek();
+        while (tok.delim(".")) {
+            str += "." + p.advance().nextIdentifier().toString();
             tok = p.peek();
-        }            
-        return new TypeName(str);
+        }
+        return str;
+    }
+
+    static TypeName parse(Parser p) {
+        var tok = p.peek();
+        if (tok.ident("typeof") || tok.ident("keytype")) {
+            var str = tok.toString();
+            tok = p.advance().next();
+            str += tok.toString();
+            if (!tok.delim("("))
+                p.failAt("Missed opening brace for typeof", tok);
+            tok = p.next();
+            while (!tok.delim(")")) {
+                str += tok.toString();
+                tok = p.next();
+            }
+            str += ")";
+            return new TypeName(str);
+        } else
+            return new TypeName(TypeName.readDotted(p));
     }
 
     @Override
@@ -281,6 +316,7 @@ class FunctionName {
     static FunctionName parse(Parser p) {
         var tok = p.next();
         var str = "";
+
         if (tok.delim("(")) {
             tok = p.next();
             while (!tok.delim(")")) {
@@ -301,5 +337,248 @@ class FunctionName {
     @Override
     public String toString() {
         return name;
+    }
+}
+
+class Param {
+
+    String name;
+    Type type;
+    String value;
+    String varargs;
+
+    Param(String name, Type type, String value, String varargs) {
+        this.name = name;
+        this.type = type;
+        this.value = value;
+        this.varargs = varargs;
+    }
+
+    static Type parseType(Parser p) {
+        var tok = p.peek();
+        if (tok.delim("::")) {
+            tok = p.advance().peek();
+            return UnionAllInst.parse(p);
+        }
+        return null;
+    }
+
+    static String parseValue(Parser p) {
+        if (!p.peek().delim("="))
+            return null;
+        return Expression.parse(p.advance()).toString();
+    }
+
+    static String parseVarargs(Parser p) {
+        var tok = p.peek();
+        if (tok.delim("...")) {
+            p.advance();
+            return "...";
+        }
+        return null;
+    }
+
+    static Param parse(Parser p) {
+        var tok = p.peek();
+        var gotParen = false;
+        if (tok.delim("@")) {
+            p.advance();
+            tok = p.peek();
+            if (tok.delim("(")) {
+                tok = p.advance().peek();
+                gotParen = true;
+
+            }
+
+        }
+
+        var name = "???";
+        Type type = null;
+        if (tok.isIdentifier()) {
+            name = tok.toString();
+            tok = p.advance().peek();
+        } else if (tok.delim("(")) {
+            name = "(";
+            tok = p.advance().peek();
+            while (!tok.delim(")")) {
+                if (tok.delim(",") || tok.delim(";")) {
+                    tok = p.advance().peek();
+                    continue;
+                } else
+                    name += tok.toString();
+                tok = p.advance().peek();
+            }
+            name += ")";
+            tok = p.advance().peek();
+        }
+        type = Param.parseType(p);
+        var value = Param.parseValue(p);
+        var varargs = Param.parseVarargs(p);
+        if (gotParen) {
+            if (tok.delim(")")) {
+                p.advance();
+            } else
+                p.failAt("Missing closing paren", tok);
+        }
+        if (name.equals("???") && type == null && value == null && varargs == null)
+            p.failAt("Invalid parameter", p.peek());
+        return new Param(name, type, value, varargs);
+    }
+
+    @Override
+    public String toString() {
+        var str = name;
+        if (type != null)
+            str += " :: " + type.toString();
+        if (value != null)
+            str += " = " + value;
+        if (varargs != null)
+            str += "...";
+        return str;
+    }
+}
+
+class Function {
+    String modifiers;
+    FunctionName name;
+    List<Param> typeParams = new ArrayList<>();
+    List<Type> wheres = new ArrayList<>();
+
+    void parseModifiers(Parser p) {
+        var tok = p.peek();
+        var str = "";
+        if (tok.delim("@")) {
+            str += "@";
+            tok = p.peek();
+            while (!tok.ident("function")) {
+                str += p.next().toString();
+                tok = p.peek();
+            }
+        }
+        if (tok.ident("function")) {
+            p.advance();
+            str += "function ";
+        } else
+            p.failAt("Missied function keyword", tok);
+        modifiers = str;
+    }
+
+    static List<Type> parseWhere(Parser p, List<Type> wheres) {
+        var tok = p.peek();
+        boolean gotBrace = false;
+        if (tok.delim("{")) {
+            gotBrace = true;
+            tok = p.advance().peek();
+        }
+        while (true) {
+            wheres.add(BoundVar.parse(p));
+            tok = p.peek();
+            if (tok.delim(","))
+                tok = p.advance().peek();
+            else
+                break;
+        }
+        if (gotBrace) {
+            if (tok.delim("}")) {
+                p.advance();
+            } else
+                p.failAt("Missing closing brace", tok);
+        }
+        return wheres;
+    }
+
+    static Function parse(Parser p) {
+        var f = new Function();
+        f.parseModifiers(p);
+        f.name = FunctionName.parse(p);
+        if (p.verbose) {
+            System.out.println("- " + p.getLine());
+        }
+        var tok = p.peek();
+        if (tok.delim("(")) {
+            tok = p.advance().peek();
+            while (!tok.delim(")")) {
+                if (tok.delim(",") || tok.delim(";")) {
+                    tok = p.advance().peek();
+                    continue;
+                } else
+                    f.typeParams.add(Param.parse(p));
+                tok = p.peek();
+            }
+            p.advance(); // skip '}'
+        }
+        if (p.peek().delim("::")) {
+            p.advance();
+            TypeInst.parse(p); // ignore the return type
+
+        }
+        if (p.peek() != null && p.peek().ident("where")) {
+            p.advance();
+            parseWhere(p, f.wheres);
+        }
+        if (p.peek() != null && p.peek().ident("where")) {
+            p.advance();
+            parseWhere(p, f.wheres);
+        }
+        if (p.verbose) {
+            System.out.println("+ " + f);
+        }
+        return f;
+    }
+
+    @Override
+    public String toString() {
+        var str = modifiers + name.toString();
+        if (typeParams != null && !typeParams.isEmpty()) {
+            str += "(";
+            for (int i = 0; i < typeParams.size(); i++) {
+                str += typeParams.get(i).toString();
+                if (i < typeParams.size() - 1)
+                    str += ", ";
+            }
+            str += ")";
+        }
+        if (wheres != null && !wheres.isEmpty()) {
+            str += " where ";
+            for (int i = 0; i < wheres.size(); i++) {
+                str += wheres.get(i).toString();
+                if (i < wheres.size() - 1)
+                    str += ", ";
+            }
+        }
+        return str;
+    }
+}
+
+class Expression {
+    String value;
+
+    Expression(String value) {
+        this.value = value;
+    }
+
+    static boolean couldBeDone(Parser.Token tok, int level) {
+        boolean possibleEnd = tok.delim(",") || tok.delim(";") || tok.delim(")");
+        return possibleEnd && level <= 0;
+    }
+
+    static Expression parse(Parser p) {
+        int level = 0; // number of parentheses that are open
+        var str = "";
+        var tok = p.peek();
+        while (!couldBeDone(tok, level)) {
+            str += tok.toString();
+            if (tok.delim("("))
+                level++;
+            else if (tok.delim(")"))
+                level--;
+            tok = p.advance().peek();
+        }
+        return new Expression(str);
+    }
+
+    @Override
+    public String toString() {
+        return value;
     }
 }

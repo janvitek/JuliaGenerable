@@ -10,11 +10,22 @@ class Parser {
     private List<Token> toks;
     private Token last;
     private int curPos;
+    boolean verbose = true;
 
-    public Parser(String path) {
+    public Parser() {
+        this.curPos = 0;
+    }
+
+    public Parser withFile(String path) {
         this.lines = getLines(path);
         this.toks = tokenize(lines);
-        this.curPos = 0;
+        return this;
+    }
+
+    public Parser withString(String s) {
+        this.lines = s.split("\n");
+        this.toks = tokenize(lines);
+        return this;
     }
 
     String[] getLines(String path) {
@@ -26,6 +37,10 @@ class Parser {
             e.printStackTrace();
             return new String[0]; // Return an empty array in case of an exception.
         }
+    }
+
+    String getLine() {
+        return lines[last.line];
     }
 
     enum Kind {
@@ -72,16 +87,20 @@ class Parser {
         boolean isNumber() {
             return kind == Kind.NUMBER;
         }
+
+        boolean isString() {
+            return kind == Kind.STRING;
+        }
+
+        boolean isIdentifier() {
+            return kind == Kind.IDENTIFIER;
+        }
     }
 
     List<Token> tokenize(String[] lines) {
         var tokens = new ArrayList<Token>();
-        int linePos = 0;
-        for (String line : lines) {
-            var lexer = new Lexer(line, linePos);
-            lexer.tokenize(tokens);
-            linePos++;
-        }
+        for (int i = 0; i < lines.length; i++)
+            new Lexer(lines[i], i).tokenize(tokens);
         return tokens;
     }
 
@@ -91,7 +110,7 @@ class Parser {
         int line_number;
         static String[] delimiters = {
                 "{", "}", ":", "<", ">", ",", ";", "=", "(", ")", ".", ":", "$", "*", "+", "-",
-                "/", "^", "!", "?", "&", "|",
+                "/", "^", "?", "&", "|", "\\", "[", "]",
                 "[", "]", "@", "#", "%", "~", };
         static String[] operators = { "<:", ">:", "==", "...", ">>", "<<", "::", ">>>" };
 
@@ -103,22 +122,25 @@ class Parser {
 
         void tokenize(List<Token> tokens) {
             Token tok = null;
+            skipSpaces();
             while (pos < ln.length()) {
-                skipSpaces();
+                if (tok == null)
+                    tok = number();
                 if (tok == null)
                     tok = string();
+                if (tok == null)
+                    tok = character();
                 if (tok == null)
                     tok = operators();
                 if (tok == null)
                     tok = delimiter();
                 if (tok == null)
-                    tok = number();
-                if (tok == null)
                     tok = identifier();
                 if (tok == null && pos < ln.length())
-                    fail(ln.charAt(pos) + " is not a valid token");
-                tokens.add(tok);
+                    failAt(ln.charAt(pos) + " is not a valid token", last);
+                tokens.add(last = tok);
                 tok = null;
+                skipSpaces();
             }
         }
 
@@ -135,7 +157,19 @@ class Parser {
             while (pos < ln.length())
                 if (ln.charAt(pos++) == '"')
                     return new Token(Kind.STRING, ln.substring(start, pos), line_number, start, pos);
-            fail("Unterminated string literal");
+            failAt("Unterminated string literal", last);
+            return null;// not reached
+        }
+
+        Token character() {
+            char delim = ln.charAt(pos);
+            if (delim != '\'')
+                return null;
+            var start = pos++;
+            while (pos < ln.length())
+                if (ln.charAt(pos++) == '\'')
+                    return new Token(Kind.STRING, ln.substring(start, pos), line_number, start, pos);
+            failAt("Unterminated string literal", last);
             return null;// not reached
         }
 
@@ -158,10 +192,30 @@ class Parser {
             return null;
         }
 
+        char readOrHuh(int p) {
+            return p < ln.length() ? ln.charAt(p) : '?';
+        }
+
         Token number() {
             var start = pos;
-            if (!Character.isDigit(ln.charAt(pos)))
+            var c0 = readOrHuh(pos);
+            var c1 = readOrHuh(pos + 1);
+            var c2 = readOrHuh(pos + 2);
+
+            var startsWithDigit = Character.isDigit(c0);
+            var startsWithDot = c0 == '.' && Character.isDigit(c1);
+            var startsWithMinus = c0 == '-' && (Character.isDigit(c1) || (c1 == '.' && Character.isDigit(c2)));
+            var isHex = c0 == '0' && (c1 == 'x' || c1 == 'X');
+            if (!startsWithDigit && !startsWithDot && !startsWithMinus)
                 return null;
+            if (isHex)
+                pos += 2;
+            else if (startsWithDigit)
+                pos++;
+            else if (startsWithDot)
+                pos += 2;
+            else if (startsWithMinus)
+                pos += Character.isDigit(c1) ? 2 : 3;
             while (pos < ln.length() && Character.isDigit(ln.charAt(pos)))
                 pos++;
             if (pos < ln.length() && ln.charAt(pos) == '.') {
@@ -173,11 +227,11 @@ class Parser {
         }
 
         boolean identifierFirst(char c) {
-            return Character.isLetter(c) || c == '_';
+            return Character.isLetter(c) || c == '_' || c == '!';
         }
 
         boolean identifierRest(char c) {
-            return Character.isLetterOrDigit(c) || c == '_';
+            return Character.isLetterOrDigit(c) || c == '_' || c == '′' || c == '!';
         }
 
         Token identifier() {
@@ -190,31 +244,9 @@ class Parser {
         }
     }
 
-    Parser eat(String s) {
-        Token tok = skip().peek();
-        return (tok == null || !tok.val.equals(s)) ? null : advance().skip();
-    }
-
-    Parser eatOrDie(String s, String msg) {
-        Token tok = skip().peek();
-        if (tok == null || !tok.val.equals(s))
-            fail(msg);
-        return advance().skip();
-    }
-
-    Parser skip() {
-        var tok = peek();
-        while (tok != null) {
-            for (char c : tok.val.toCharArray())
-                if (c != ' ' && c != '\t')
-                    return this;
-            advance();
-            tok = peek();
-        }
-        return this;
-    }
-
     Parser advance() {
+        if (curPos >= toks.size())
+            failAt("Out of tokens", last);
         curPos++;
         return this;
     }
@@ -237,11 +269,11 @@ class Parser {
     Token nextIdentifier() {
         var tok = next();
         if (tok == null || tok.kind != Kind.IDENTIFIER)
-            fail("Expected an identifier but got " + tok);
+            failAt("Expected an identifier but got " + tok, tok);
         return tok;
     }
 
-    void fail(String msg) {
+    void failAt(String msg, Token last) {
         if (toks != null)
             for (Token token : toks)
                 if (token.line == last.line)
