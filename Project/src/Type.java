@@ -4,6 +4,7 @@ import java.util.List;
 class Type {
 }
 
+// Numbers can appear in a type signature
 class DependentType extends Type {
     String value;
 
@@ -13,18 +14,15 @@ class DependentType extends Type {
 
     static Type parse(Parser p) {
         var tok = p.peek();
-        if (tok.isNumber()) {
-            p.advance();
-            return new DependentType(tok.toString());
-        }
-        return null;
+        if (!tok.isNumber())
+            return null;
+        p.advance();
+        return new DependentType(tok.toString());
     }
 
 }
 
-// Int
-// Int{X}
-// Int{X,Y}
+// An instance of a datatype constructor (not a union all or bound)
 class TypeInst extends Type {
     TypeName name;
     List<Type> typeParams;
@@ -36,15 +34,14 @@ class TypeInst extends Type {
 
     static Type parse(Parser p) {
         var dep = DependentType.parse(p);
-        if (dep != null)
+        if (dep != null) // If we see a number, it's a dependent type
             return dep;
         var name = TypeName.parse(p);
         var typeParams = new ArrayList<Type>();
         var tok = p.peek();
-        if (tok.isString()) {
+        if (tok.isString()) { // Covers the case of MIME"xyz" which is a type
             name.name += tok.toString();
             p.advance();
-
         }
         if (tok.delim("{")) {
             tok = p.advance().peek();
@@ -53,7 +50,7 @@ class TypeInst extends Type {
                     tok = p.advance().peek();
                     continue;
                 } else {
-                    typeParams.add(UnionAllInst.parse(p));
+                    typeParams.add(BoundVar.parse(p));
                 }
                 tok = p.peek();
             }
@@ -78,51 +75,40 @@ class TypeInst extends Type {
     }
 }
 
-// X
-// X <: Y
-// X <: Y <: Z
-// X >: Y
-// <: Y
-// >: Y
-// X <: Int{Y} where Y
 class BoundVar extends Type {
-    TypeName name;
+    Type name;
     Type lower;
     Type upper;
 
-    BoundVar(String name, Type lower, Type upper) {
-        this.name = new TypeName(name);
+    BoundVar(Type name, Type lower, Type upper) {
+        this.name = name;
         this.lower = lower;
         this.upper = upper;
     }
 
+    static Type huh = new TypeInst(new TypeName("???"), null);
+
     static Type parse(Parser p) {
-        var tok = p.peek();
-        if (tok.delim("<:")) {
-            var upper = UnionAllInst.parse(p.advance());
-            return new BoundVar("???", null, upper);
-        } else {
-            var t = UnionAllInst.parse(p);
-            tok = p.peek();
-            if (tok.delim("<:")) {
+        if (p.peek().delim("<:"))
+            return new BoundVar(huh, null, UnionAllInst.parse(p.advance()));
+        else {
+            var type = UnionAllInst.parse(p);
+            if (p.peek().delim("<:")) {
                 var upper = UnionAllInst.parse(p.advance());
-                return new BoundVar(t.toString(), null, upper);
-            } else if (tok.delim(">:")) {
-                var lower = UnionAllInst.parse(p.advance());
-                return new BoundVar(t.toString(), lower, null);
-            } else
-                return t;
+                Type lower = null;
+                if (p.peek().delim("<:"))
+                    lower = UnionAllInst.parse(p.advance());
+                return new BoundVar(type, lower, upper);
+            } else if (p.peek().delim(">:"))
+                return new BoundVar(type, UnionAllInst.parse(p.advance()), null);
+            else
+                return type;
         }
     }
 
     @Override
     public String toString() {
-        var str = name.toString();
-        if (lower != null)
-            str = lower.toString() + " <: " + str;
-        if (upper != null)
-            str = str + " <: " + upper.toString();
-        return str;
+        return (lower != null ? lower + " <: " : "") + name.toString() + (upper != null ? " <: " + upper : "");
     }
 }
 
@@ -355,71 +341,47 @@ class Param {
     }
 
     static Type parseType(Parser p) {
-        var tok = p.peek();
-        if (tok.delim("::")) {
-            tok = p.advance().peek();
-            return UnionAllInst.parse(p);
-        }
-        return null;
+        return p.peek().delim("::") ? UnionAllInst.parse(p.advance()) : null;
     }
 
     static String parseValue(Parser p) {
-        if (!p.peek().delim("="))
-            return null;
-        return Expression.parse(p.advance()).toString();
+        return p.peek().delim("=") ? Expression.parse(p.advance()).toString() : null;
     }
 
     static String parseVarargs(Parser p) {
-        var tok = p.peek();
-        if (tok.delim("...")) {
-            p.advance();
-            return "...";
-        }
-        return null;
+        if (!p.peek().delim("..."))
+            return null;
+        p.advance();
+        return "...";
     }
 
     static Param parse(Parser p) {
-        var tok = p.peek();
         var gotParen = false;
-        if (tok.delim("@")) {
-            p.advance();
-            tok = p.peek();
-            if (tok.delim("(")) {
-                tok = p.advance().peek();
+        if (p.peek().delim("@")) {
+            p.advance().advance();
+            if (p.peek().delim("(")) {
+                p.advance();
                 gotParen = true;
-
             }
-
         }
 
         var name = "???";
         Type type = null;
-        if (tok.isIdentifier()) {
-            name = tok.toString();
-            tok = p.advance().peek();
-        } else if (tok.delim("(")) {
+        if (p.peek().isIdentifier()) {
+            name = p.next().toString();
+        } else if (p.peek().delim("(")) {
             name = "(";
-            tok = p.advance().peek();
-            while (!tok.delim(")")) {
-                if (tok.delim(",") || tok.delim(";")) {
-                    tok = p.advance().peek();
-                    continue;
-                } else
-                    name += tok.toString();
-                tok = p.advance().peek();
-            }
+            p.advance();
+            while (!p.peek().delim(")"))
+                name += p.next().toString();
             name += ")";
-            tok = p.advance().peek();
+            p.advance();
         }
         type = Param.parseType(p);
         var value = Param.parseValue(p);
         var varargs = Param.parseVarargs(p);
-        if (gotParen) {
-            if (tok.delim(")")) {
-                p.advance();
-            } else
-                p.failAt("Missing closing paren", tok);
-        }
+        if (gotParen && !p.next().delim(")"))
+            p.failAt("Missing closing paren", p.peek());
         if (name.equals("???") && type == null && value == null && varargs == null)
             p.failAt("Invalid parameter", p.peek());
         return new Param(name, type, value, varargs);
@@ -512,11 +474,11 @@ class Function {
             TypeInst.parse(p); // ignore the return type
 
         }
-        if (p.peek() != null && p.peek().ident("where")) {
+        if (p.peek().ident("where")) {
             p.advance();
             parseWhere(p, f.wheres);
         }
-        if (p.peek() != null && p.peek().ident("where")) {
+        if (p.peek().ident("where")) {
             p.advance();
             parseWhere(p, f.wheres);
         }

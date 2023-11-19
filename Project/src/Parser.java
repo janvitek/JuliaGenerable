@@ -44,7 +44,13 @@ class Parser {
     }
 
     enum Kind {
-        KEYWORD, OPERATOR, DELIMITER, IDENTIFIER, NUMBER, STRING;
+        KEYWORD, OPERATOR, DELIMITER, IDENTIFIER, NUMBER, STRING, EOF;
+    }
+
+    private Token EOF = new Token(Kind.EOF, "EOF", 0, 0, 0);
+
+    Token eof() {
+        return EOF;
     }
 
     class Token {
@@ -94,6 +100,10 @@ class Parser {
 
         boolean isIdentifier() {
             return kind == Kind.IDENTIFIER;
+        }
+
+        boolean isEOF() {
+            return kind == Kind.EOF;
         }
     }
 
@@ -252,15 +262,15 @@ class Parser {
     }
 
     Token peek() {
-        var tok = curPos < toks.size() ? toks.get(curPos) : null;
-        if (tok != null)
+        var tok = curPos < toks.size() ? toks.get(curPos) : eof();
+        if (!tok.isEOF())
             last = tok;
         return tok;
     }
 
     Token next() {
         var tok = peek();
-        if (tok != null)
+        if (!tok.isEOF())
             advance();
         last = tok;
         return tok;
@@ -268,7 +278,7 @@ class Parser {
 
     Token nextIdentifier() {
         var tok = next();
-        if (tok == null || tok.kind != Kind.IDENTIFIER)
+        if (tok.kind != Kind.IDENTIFIER)
             failAt("Expected an identifier but got " + tok, tok);
         return tok;
     }
