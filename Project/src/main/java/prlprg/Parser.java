@@ -1,11 +1,12 @@
-
+package prlprg;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-class Parser {
+public class Parser {
+
     private String[] lines;
     private List<Token> toks;
     private Token last;
@@ -39,6 +40,10 @@ class Parser {
         }
     }
 
+    String getLineAt(Token tok) {
+        return lines[tok.line];
+    }
+
     String getLine() {
         return lines[last.line];
     }
@@ -54,6 +59,7 @@ class Parser {
     }
 
     class Token {
+
         Kind kind;
         String val;
         int line;
@@ -74,7 +80,7 @@ class Parser {
         String errorAt(String msg) {
             return (line >= lines.length) ? "Invalid line number " + line
                     : "\n> " + lines[line] + "\n> " + " ".repeat(start) + redText + "^----" + msg + " at line "
-                            + line + resetText;
+                    + line + resetText;
         }
 
         @Override
@@ -109,20 +115,22 @@ class Parser {
 
     List<Token> tokenize(String[] lines) {
         var tokens = new ArrayList<Token>();
-        for (int i = 0; i < lines.length; i++)
+        for (int i = 0; i < lines.length; i++) {
             new Lexer(lines[i], i).tokenize(tokens);
+        }
         return tokens;
     }
 
     class Lexer {
+
         String ln;
         int pos;
         int line_number;
         static String[] delimiters = {
-                "{", "}", ":", "<", ">", ",", ";", "=", "(", ")", ".", ":", "$", "*", "+", "-",
-                "/", "^", "?", "&", "|", "\\", "[", "]",
-                "[", "]", "@", "#", "%", "~", };
-        static String[] operators = { "<:", ">:", "==", "...", ">>", "<<", "::", ">>>" };
+            "{", "}", ":", "<", ">", ",", ";", "=", "(", ")", ".", ":", "$", "*", "+", "-",
+            "/", "^", "?", "&", "|", "\\", "[", "]",
+            "[", "]", "@", "#", "%", "~",};
+        static String[] operators = {"<:", ">:", "==", "...", ">>", "<<", "::", ">>>"};
 
         Lexer(String ln, int line_number) {
             this.ln = ln;
@@ -134,20 +142,27 @@ class Parser {
             Token tok = null;
             skipSpaces();
             while (pos < ln.length()) {
-                if (tok == null)
+                if (tok == null) {
                     tok = number();
-                if (tok == null)
+                }
+                if (tok == null) {
                     tok = string();
-                if (tok == null)
+                }
+                if (tok == null) {
                     tok = character();
-                if (tok == null)
+                }
+                if (tok == null) {
                     tok = operators();
-                if (tok == null)
+                }
+                if (tok == null) {
                     tok = delimiter();
-                if (tok == null)
+                }
+                if (tok == null) {
                     tok = identifier();
-                if (tok == null && pos < ln.length())
+                }
+                if (tok == null && pos < ln.length()) {
                     failAt(ln.charAt(pos) + " is not a valid token", last);
+                }
                 tokens.add(last = tok);
                 tok = null;
                 skipSpaces();
@@ -155,30 +170,37 @@ class Parser {
         }
 
         void skipSpaces() {
-            while (pos < ln.length() && (ln.charAt(pos) == ' ' || ln.charAt(pos) == '\t'))
+            while (pos < ln.length() && (ln.charAt(pos) == ' ' || ln.charAt(pos) == '\t')) {
                 pos++;
+            }
         }
 
         Token string() {
             char delim = ln.charAt(pos);
-            if (delim != '"')
+            if (delim != '"') {
                 return null;
+            }
             var start = pos++;
-            while (pos < ln.length())
-                if (ln.charAt(pos++) == '"')
+            while (pos < ln.length()) {
+                if (ln.charAt(pos++) == '"') {
                     return new Token(Kind.STRING, ln.substring(start, pos), line_number, start, pos);
+                }
+            }
             failAt("Unterminated string literal", last);
             return null;// not reached
         }
 
         Token character() {
             char delim = ln.charAt(pos);
-            if (delim != '\'')
+            if (delim != '\'') {
                 return null;
+            }
             var start = pos++;
-            while (pos < ln.length())
-                if (ln.charAt(pos++) == '\'')
+            while (pos < ln.length()) {
+                if (ln.charAt(pos++) == '\'') {
                     return new Token(Kind.STRING, ln.substring(start, pos), line_number, start, pos);
+                }
+            }
             failAt("Unterminated string literal", last);
             return null;// not reached
         }
@@ -216,22 +238,26 @@ class Parser {
             var startsWithDot = c0 == '.' && Character.isDigit(c1);
             var startsWithMinus = c0 == '-' && (Character.isDigit(c1) || (c1 == '.' && Character.isDigit(c2)));
             var isHex = c0 == '0' && (c1 == 'x' || c1 == 'X');
-            if (!startsWithDigit && !startsWithDot && !startsWithMinus)
+            if (!startsWithDigit && !startsWithDot && !startsWithMinus) {
                 return null;
-            if (isHex)
+            }
+            if (isHex) {
                 pos += 2;
-            else if (startsWithDigit)
+            } else if (startsWithDigit) {
                 pos++;
-            else if (startsWithDot)
+            } else if (startsWithDot) {
                 pos += 2;
-            else if (startsWithMinus)
+            } else if (startsWithMinus) {
                 pos += Character.isDigit(c1) ? 2 : 3;
-            while (pos < ln.length() && Character.isDigit(ln.charAt(pos)))
+            }
+            while (pos < ln.length() && Character.isDigit(ln.charAt(pos))) {
                 pos++;
+            }
             if (pos < ln.length() && ln.charAt(pos) == '.') {
                 pos++;
-                while (pos < ln.length() && Character.isDigit(ln.charAt(pos)))
+                while (pos < ln.length() && Character.isDigit(ln.charAt(pos))) {
                     pos++;
+                }
             }
             return new Token(Kind.NUMBER, ln.substring(start, pos), line_number, start, pos);
         }
@@ -246,48 +272,57 @@ class Parser {
 
         Token identifier() {
             var start = pos;
-            if (!identifierFirst(ln.charAt(pos)))
+            if (!identifierFirst(ln.charAt(pos))) {
                 return null;
-            while (pos < ln.length() && (identifierRest(ln.charAt(pos))))
+            }
+            while (pos < ln.length() && (identifierRest(ln.charAt(pos)))) {
                 pos++;
+            }
             return new Token(Kind.IDENTIFIER, ln.substring(start, pos), line_number, start, pos);
         }
     }
 
     Parser advance() {
-        if (curPos >= toks.size())
+        if (curPos >= toks.size()) {
             failAt("Out of tokens", last);
+        }
         curPos++;
         return this;
     }
 
     Token peek() {
         var tok = curPos < toks.size() ? toks.get(curPos) : eof();
-        if (!tok.isEOF())
+        if (!tok.isEOF()) {
             last = tok;
+        }
         return tok;
     }
 
     Token next() {
         var tok = peek();
-        if (!tok.isEOF())
+        if (!tok.isEOF()) {
             advance();
+        }
         last = tok;
         return tok;
     }
 
     Token nextIdentifier() {
         var tok = next();
-        if (tok.kind != Kind.IDENTIFIER)
+        if (tok.kind != Kind.IDENTIFIER) {
             failAt("Expected an identifier but got " + tok, tok);
+        }
         return tok;
     }
 
     void failAt(String msg, Token last) {
-        if (toks != null)
-            for (Token token : toks)
-                if (token.line == last.line)
+        if (toks != null) {
+            for (Token token : toks) {
+                if (token.line == last.line) {
                     System.out.println(token.val + " at line " + token.line + ", column " + token.start);
+                }
+            }
+        }
         throw new RuntimeException(last.errorAt(msg));
     }
 

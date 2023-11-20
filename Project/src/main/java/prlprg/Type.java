@@ -1,7 +1,9 @@
+package prlprg;
 import java.util.ArrayList;
 import java.util.List;
 
-class Type {
+abstract class Type {
+    abstract Ty toTy();
 }
 
 // Numbers can appear in a type signature
@@ -10,6 +12,11 @@ class DependentType extends Type {
 
     DependentType(String value) {
         this.value = value;
+    }
+
+    @Override
+    Ty toTy() {
+        return new TyCon(value);
     }
 
     static Type parse(Parser p) {
@@ -60,6 +67,14 @@ class TypeInst extends Type {
     }
 
     @Override
+    Ty toTy() {
+        var params = new ArrayList<Ty>();
+        for (var param : typeParams)
+            params.add(param.toTy());
+        return new TyInst(name.name, params);
+    }
+
+    @Override
     public String toString() {
         var str = name.toString();
         if (typeParams != null && !typeParams.isEmpty()) {
@@ -107,6 +122,12 @@ class BoundVar extends Type {
     }
 
     @Override
+    Ty toTy() {
+        return new TyVar(name.toString(), lower == null ? Ty.none() : lower.toTy(),
+                (upper == null || upper.toString().equals("Any")) ? Ty.any() : upper.toTy());
+    }
+
+    @Override
     public String toString() {
         return (lower != null ? lower + " <: " : "") + name.toString() + (upper != null ? " <: " + upper : "");
     }
@@ -148,6 +169,17 @@ class UnionAllInst extends Type {
     }
 
     @Override
+    Ty toTy() {
+        var ty = type.toTy();
+        var it = boundVars.listIterator(boundVars.size());
+        while (it.hasPrevious()) {
+            var boundVar = it.previous().toTy();
+            ty = new TyExist(boundVar, ty);
+        }
+        return ty;
+    }
+
+    @Override
     public String toString() {
         var str = type.toString();
         if (boundVars != null && !boundVars.isEmpty()) {
@@ -167,12 +199,15 @@ class TypeDeclaration {
     TypeName name;
     List<Type> typeParams;
     Type parent;
+    String sourceLine;
 
-    TypeDeclaration(String modifiers, TypeName name, List<Type> typeParams, Type parent) {
+    TypeDeclaration(String modifiers, TypeName name, List<Type> typeParams, Type parent, String source) {
         this.modifiers = modifiers;
         this.name = name;
         this.typeParams = typeParams;
         this.parent = parent;
+        this.sourceLine = source;
+
     }
 
     static String parseModifiers(Parser p) {
@@ -202,6 +237,7 @@ class TypeDeclaration {
     static TypeDeclaration parse(Parser p) {
         var modifiers = parseModifiers(p);
         var name = TypeName.parse(p);
+        var sourceLine = p.getLineAt(p.peek());
         var typeParams = new ArrayList<Type>();
         var tok = p.peek();
         if (tok.delim("{")) {
@@ -218,17 +254,33 @@ class TypeDeclaration {
         }
         tok = p.next();
         if (tok.ident("end"))
-            return new TypeDeclaration(modifiers, name, typeParams, null);
+            return new TypeDeclaration(modifiers, name, typeParams, null, sourceLine);
         else if (tok.delim("<:")) {
             var parent = TypeInst.parse(p);
             tok = p.next();
             if (!tok.ident("end"))
                 p.failAt("Missed end of declaration", tok);
-            return new TypeDeclaration(modifiers, name, typeParams, parent);
+            return new TypeDeclaration(modifiers, name, typeParams, parent, sourceLine);
         } else {
             p.failAt("Invalid type declaration", tok);
             return null; // not reached
         }
+    }
+
+    TyDecl toTy() {
+        var parentTy = (parent == null || parent.toString().equals("Any")) ? Ty.any() : parent.toTy();
+        var boundVars = new ArrayList<Ty>();
+        var args = new ArrayList<Ty>();
+        for (Type t : typeParams) {
+            var ty = t.toTy();
+            boundVars.addLast(ty);
+            args.add(ty);
+        }
+        Ty ty = new TyInst(name.toString(), args);
+        var it = boundVars.listIterator(boundVars.size());
+        while (it.hasPrevious())
+            ty = new TyExist(it.previous(), ty);
+        return new TyDecl(name.toString(), ty, parentTy, sourceLine);
     }
 
     @Override
