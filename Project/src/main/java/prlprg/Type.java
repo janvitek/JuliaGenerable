@@ -1,13 +1,16 @@
 package prlprg;
+
 import java.util.ArrayList;
 import java.util.List;
 
 abstract class Type {
+
     abstract Ty toTy();
 }
 
 // Numbers can appear in a type signature
 class DependentType extends Type {
+
     String value;
 
     DependentType(String value) {
@@ -21,8 +24,9 @@ class DependentType extends Type {
 
     static Type parse(Parser p) {
         var tok = p.peek();
-        if (!tok.isNumber())
+        if (!tok.isNumber()) {
             return null;
+        }
         p.advance();
         return new DependentType(tok.toString());
     }
@@ -31,6 +35,7 @@ class DependentType extends Type {
 
 // An instance of a datatype constructor (not a union all or bound)
 class TypeInst extends Type {
+
     TypeName name;
     List<Type> typeParams;
 
@@ -42,7 +47,9 @@ class TypeInst extends Type {
     static Type parse(Parser p) {
         var dep = DependentType.parse(p);
         if (dep != null) // If we see a number, it's a dependent type
+        {
             return dep;
+        }
         var name = TypeName.parse(p);
         var typeParams = new ArrayList<Type>();
         var tok = p.peek();
@@ -69,9 +76,13 @@ class TypeInst extends Type {
     @Override
     Ty toTy() {
         var params = new ArrayList<Ty>();
-        for (var param : typeParams)
+        for (var param : typeParams) {
             params.add(param.toTy());
-        return new TyInst(name.name, params);
+        }
+
+        return name.name.equals("Tuple") ? new TyTuple(params)
+                : name.name.equals("Union") ? new TyUnion(params)
+                : new TyInst(name.name, params);
     }
 
     @Override
@@ -81,8 +92,9 @@ class TypeInst extends Type {
             str += "{";
             for (int i = 0; i < typeParams.size(); i++) {
                 str += typeParams.get(i).toString();
-                if (i < typeParams.size() - 1)
+                if (i < typeParams.size() - 1) {
                     str += ", ";
+                }
             }
             str += "}";
         }
@@ -91,6 +103,7 @@ class TypeInst extends Type {
 }
 
 class BoundVar extends Type {
+
     Type name;
     Type lower;
     Type upper;
@@ -104,20 +117,22 @@ class BoundVar extends Type {
     static Type huh = new TypeInst(new TypeName("???"), null);
 
     static Type parse(Parser p) {
-        if (p.peek().delim("<:"))
+        if (p.peek().delim("<:")) {
             return new BoundVar(huh, null, UnionAllInst.parse(p.advance()));
-        else {
+        } else {
             var type = UnionAllInst.parse(p);
             if (p.peek().delim("<:")) {
                 var upper = UnionAllInst.parse(p.advance());
                 Type lower = null;
-                if (p.peek().delim("<:"))
+                if (p.peek().delim("<:")) {
                     lower = UnionAllInst.parse(p.advance());
+                }
                 return new BoundVar(type, lower, upper);
-            } else if (p.peek().delim(">:"))
+            } else if (p.peek().delim(">:")) {
                 return new BoundVar(type, UnionAllInst.parse(p.advance()), null);
-            else
+            } else {
                 return type;
+            }
         }
     }
 
@@ -135,6 +150,7 @@ class BoundVar extends Type {
 
 // Int{X} where {Z <: X <: Y, Y <: Int} where {X <: Int}
 class UnionAllInst extends Type {
+
     Type type;
     List<Type> boundVars;
 
@@ -155,17 +171,20 @@ class UnionAllInst extends Type {
                 gotBrace = true;
             }
             boundVars.add(BoundVar.parse(p));
-            while (p.peek().delim(","))
+            while (p.peek().delim(",")) {
                 boundVars.add(BoundVar.parse(p.advance()));
+            }
             if (gotBrace) {
-                if (p.peek().delim("}"))
+                if (p.peek().delim("}")) {
                     p.advance();
-                else
+                } else {
                     p.failAt("Missing closing brace", p.peek());
+                }
             }
             return new UnionAllInst(type, boundVars);
-        } else
+        } else {
             return type;
+        }
     }
 
     @Override
@@ -186,8 +205,9 @@ class UnionAllInst extends Type {
             str += " where ";
             for (int i = 0; i < boundVars.size(); i++) {
                 str += boundVars.get(i).toString();
-                if (i < boundVars.size() - 1)
+                if (i < boundVars.size() - 1) {
                     str += ", ";
+                }
             }
         }
         return str;
@@ -195,6 +215,7 @@ class UnionAllInst extends Type {
 }
 
 class TypeDeclaration {
+
     String modifiers;
     TypeName name;
     List<Type> typeParams;
@@ -213,13 +234,14 @@ class TypeDeclaration {
     static String parseModifiers(Parser p) {
         var str = "";
         var tok = p.next();
-        if (tok.ident("abstract")) {
-            str += "abstract ";
+        if (tok.ident("abstract") || tok.ident("primitive")) {
+            str += tok.toString();
             tok = p.next();
             if (tok.ident("type")) {
                 str += "type ";
-            } else
+            } else {
                 p.failAt("Invalid type declaration", tok);
+            }
             return str;
         }
         if (tok.ident("mutable")) {
@@ -229,8 +251,9 @@ class TypeDeclaration {
         if (tok.ident("struct")) {
             str += "struct ";
             return str;
-        } else
+        } else {
             p.failAt("Invalid type declaration", tok);
+        }
         return null;
     }
 
@@ -246,20 +269,28 @@ class TypeDeclaration {
                 if (tok.delim(",")) {
                     tok = p.advance().peek();
                     continue;
-                } else
+                } else {
                     typeParams.add(BoundVar.parse(p));
+                }
                 tok = p.peek();
             }
             p.advance(); // skip '}'
         }
         tok = p.next();
-        if (tok.ident("end"))
+        if (tok.isNumber()) {
+            tok = p.next();
+        }
+        if (tok.ident("end")) {
             return new TypeDeclaration(modifiers, name, typeParams, null, sourceLine);
-        else if (tok.delim("<:")) {
+        } else if (tok.delim("<:")) {
             var parent = TypeInst.parse(p);
             tok = p.next();
-            if (!tok.ident("end"))
+            if (tok.isNumber()) {
+                tok = p.next();
+            }
+            if (!tok.ident("end")) {
                 p.failAt("Missed end of declaration", tok);
+            }
             return new TypeDeclaration(modifiers, name, typeParams, parent, sourceLine);
         } else {
             p.failAt("Invalid type declaration", tok);
@@ -278,8 +309,9 @@ class TypeDeclaration {
         }
         Ty ty = new TyInst(name.toString(), args);
         var it = boundVars.listIterator(boundVars.size());
-        while (it.hasPrevious())
+        while (it.hasPrevious()) {
             ty = new TyExist(it.previous(), ty);
+        }
         return new TyDecl(name.toString(), ty, parentTy, sourceLine);
     }
 
@@ -290,18 +322,21 @@ class TypeDeclaration {
             str += "{";
             for (int i = 0; i < typeParams.size(); i++) {
                 str += typeParams.get(i).toString();
-                if (i < typeParams.size() - 1)
+                if (i < typeParams.size() - 1) {
                     str += ", ";
+                }
             }
             str += "}";
         }
-        if (parent != null)
+        if (parent != null) {
             str += " <: " + parent.toString();
+        }
         return str;
     }
 }
 
 class TypeName {
+
     String name;
 
     TypeName(String name) {
@@ -316,6 +351,9 @@ class TypeName {
             str += "." + p.advance().nextIdentifier().toString();
             tok = p.peek();
         }
+        if (p.peek().isString()) {
+            str += p.next().toString();
+        }
         return str;
     }
 
@@ -325,8 +363,9 @@ class TypeName {
             var str = tok.toString();
             tok = p.advance().next();
             str += tok.toString();
-            if (!tok.delim("("))
+            if (!tok.delim("(")) {
                 p.failAt("Missed opening brace for typeof", tok);
+            }
             tok = p.next();
             while (!tok.delim(")")) {
                 str += tok.toString();
@@ -334,8 +373,9 @@ class TypeName {
             }
             str += ")";
             return new TypeName(str);
-        } else
+        } else {
             return new TypeName(TypeName.readDotted(p));
+        }
     }
 
     @Override
@@ -345,6 +385,7 @@ class TypeName {
 }
 
 class FunctionName {
+
     String name;
 
     FunctionName(String name) {
@@ -401,8 +442,9 @@ class Param {
     }
 
     static String parseVarargs(Parser p) {
-        if (!p.peek().delim("..."))
+        if (!p.peek().delim("...")) {
             return null;
+        }
         p.advance();
         return "...";
     }
@@ -418,41 +460,48 @@ class Param {
         }
 
         var name = "???";
-        Type type = null;
+        Type type;
         if (p.peek().isIdentifier()) {
             name = p.next().toString();
         } else if (p.peek().delim("(")) {
             name = "(";
             p.advance();
-            while (!p.peek().delim(")"))
+            while (!p.peek().delim(")")) {
                 name += p.next().toString();
+            }
             name += ")";
             p.advance();
         }
         type = Param.parseType(p);
         var value = Param.parseValue(p);
         var varargs = Param.parseVarargs(p);
-        if (gotParen && !p.next().delim(")"))
+        if (gotParen && !p.next().delim(")")) {
             p.failAt("Missing closing paren", p.peek());
-        if (name.equals("???") && type == null && value == null && varargs == null)
+        }
+        if (name.equals("???") && type == null && value == null && varargs == null) {
             p.failAt("Invalid parameter", p.peek());
+        }
         return new Param(name, type, value, varargs);
     }
 
     @Override
     public String toString() {
         var str = name;
-        if (type != null)
+        if (type != null) {
             str += " :: " + type.toString();
-        if (value != null)
+        }
+        if (value != null) {
             str += " = " + value;
-        if (varargs != null)
+        }
+        if (varargs != null) {
             str += "...";
+        }
         return str;
     }
 }
 
 class Function {
+
     String modifiers;
     FunctionName name;
     List<Param> typeParams = new ArrayList<>();
@@ -472,8 +521,9 @@ class Function {
         if (tok.ident("function")) {
             p.advance();
             str += "function ";
-        } else
+        } else {
             p.failAt("Missied function keyword", tok);
+        }
         modifiers = str;
     }
 
@@ -487,16 +537,18 @@ class Function {
         while (true) {
             wheres.add(BoundVar.parse(p));
             tok = p.peek();
-            if (tok.delim(","))
+            if (tok.delim(",")) {
                 tok = p.advance().peek();
-            else
+            } else {
                 break;
+            }
         }
         if (gotBrace) {
             if (tok.delim("}")) {
                 p.advance();
-            } else
+            } else {
                 p.failAt("Missing closing brace", tok);
+            }
         }
         return wheres;
     }
@@ -515,8 +567,9 @@ class Function {
                 if (tok.delim(",") || tok.delim(";")) {
                     tok = p.advance().peek();
                     continue;
-                } else
+                } else {
                     f.typeParams.add(Param.parse(p));
+                }
                 tok = p.peek();
             }
             p.advance(); // skip '}'
@@ -547,8 +600,9 @@ class Function {
             str += "(";
             for (int i = 0; i < typeParams.size(); i++) {
                 str += typeParams.get(i).toString();
-                if (i < typeParams.size() - 1)
+                if (i < typeParams.size() - 1) {
                     str += ", ";
+                }
             }
             str += ")";
         }
@@ -556,8 +610,9 @@ class Function {
             str += " where ";
             for (int i = 0; i < wheres.size(); i++) {
                 str += wheres.get(i).toString();
-                if (i < wheres.size() - 1)
+                if (i < wheres.size() - 1) {
                     str += ", ";
+                }
             }
         }
         return str;
@@ -565,6 +620,7 @@ class Function {
 }
 
 class Expression {
+
     String value;
 
     Expression(String value) {
@@ -582,10 +638,11 @@ class Expression {
         var tok = p.peek();
         while (!couldBeDone(tok, level)) {
             str += tok.toString();
-            if (tok.delim("("))
+            if (tok.delim("(")) {
                 level++;
-            else if (tok.delim(")"))
+            } else if (tok.delim(")")) {
                 level--;
+            }
             tok = p.advance().peek();
         }
         return new Expression(str);

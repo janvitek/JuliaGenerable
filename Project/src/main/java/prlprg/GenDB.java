@@ -1,5 +1,6 @@
 package prlprg;
 
+import java.nio.channels.OverlappingFileLockException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -18,13 +19,22 @@ interface Ty {
     }
 }
 
-record TyInst(String nm, List<Ty> params) implements Ty {
+record TyInst(String nm, List<Ty> tys) implements Ty {
 
     @Override
     public String toString() {
-        return nm + (params.isEmpty() ? ""
-                : "{" + params.stream().map(Ty::toString).collect(Collectors.joining(","))
+        return nm + (tys.isEmpty() ? ""
+                : "{" + tys.stream().map(Ty::toString).collect(Collectors.joining(","))
                 + "}");
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof TyInst t) {
+            return nm.equals(t.nm()) && tys.equals(t.tys());
+        } else {
+            return false;
+        }
     }
 }
 
@@ -32,12 +42,34 @@ record TyVar(String nm, Ty low, Ty up) implements Ty {
 
     @Override
     public String toString() {
-        return (low != Ty.none() ? low + " <: " : "") + Color.blue(nm) + (up != Ty.any() ? " <: " + up : "");
+        return (!low.equals(Ty.none()) ? low + "<:" : "") + Color.yellow(nm) + (!up.equals(Ty.any()) ? "<:" + up : "");
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof TyVar t) {
+            return nm.equals(t.nm()) && low.equals(t.low()) && up.equals(t.up());
+        } else {
+            return false;
+        }
     }
 }
 
 record TyCon(String nm) implements Ty {
 
+    @Override
+    public String toString() {
+        return nm;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof TyCon t) {
+            return nm.equals(t.nm());
+        } else {
+            return false;
+        }
+    }
 }
 
 record TyTuple(List<Ty> tys) implements Ty {
@@ -45,6 +77,15 @@ record TyTuple(List<Ty> tys) implements Ty {
     @Override
     public String toString() {
         return "(" + tys.stream().map(Ty::toString).collect(Collectors.joining(",")) + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof TyTuple t) {
+            return tys.equals(t.tys());
+        } else {
+            return false;
+        }
     }
 }
 
@@ -54,13 +95,31 @@ record TyUnion(List<Ty> tys) implements Ty {
     public String toString() {
         return "[" + tys.stream().map(Ty::toString).collect(Collectors.joining("|")) + "]";
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof TyUnion t) {
+            return tys.equals(t.tys());
+        } else {
+            return false;
+        }
+    }
 }
 
 record TyDecl(String nm, Ty ty, Ty parent, String src) implements Ty {
 
     @Override
     public String toString() {
-        return nm + " = " + ty + " <: " + parent + Color.gray("\n# " + src);
+        return nm + " = " + ty + " <: " + parent + Color.green("\n# " + src);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof TyDecl t) {
+            return nm.equals(t.nm()) && ty.equals(t.ty()) && parent.equals(t.parent());
+        } else {
+            return false;
+        }
     }
 }
 
@@ -71,61 +130,83 @@ record TySig(String nm, Ty ty) implements Ty {
 record TyExist(Ty v, Ty ty) implements Ty {
 
     static final String redE = Color.red("∃");
+    static final String redD = Color.red(".");
 
     @Override
     public String toString() {
-        return redE + v + "." + ty;
+        return redE + v + redD + ty;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof TyExist t) {
+            return v.equals(t.v()) && ty.equals(t.ty());
+        } else {
+            return false;
+        }
     }
 }
 
 class GenDB {
 
-    HashMap<String, TyDecl> tydb = new HashMap<>();
-    HashMap<String, List<Ty>> sigdb = new HashMap<>();
+    private final HashMap<String, TyDecl> tydb = new HashMap<>();
+    private final HashMap<String, List<Ty>> sigdb = new HashMap<>();
 
-    void addTyDecl(TyDecl ty) {
+    public GenDB() {
+        //addTyDecl(new TyDecl("Any", new TyInst("Any", List.of()), Ty.none(), ""));
+        addTyDecl(new TyDecl("Tuple", new TyInst("Tuple", List.of()), Ty.none(), ""));
+        addTyDecl(new TyDecl("Union", new TyInst("Union", List.of()), Ty.none(), ""));
+    }
+
+    final void addTyDecl(TyDecl ty) {
         if (tydb.containsKey(ty.nm())) {
             System.out.println("Warning: " + ty.nm() + " already exists, replacing");
         }
         tydb.put(ty.nm(), ty);
     }
 
-    void addSig(TySig sig) {
+    final void addSig(TySig sig) {
         sigdb.put(sig.nm(), List.of(sig.ty()));
     }
 
-    private Ty phase1_unwrap(Ty ty) {
+    private Ty fixVars(Ty ty) {
         switch (ty) {
             case TyVar t -> {
-                return new TyVar(t.nm(), phase1_unwrap(t.low()), phase1_unwrap(t.up()));
+                return new TyVar(t.nm(), Ty.none(), Ty.any());
             }
             case TyInst t -> {
-                return new TyInst(t.nm(), t.params().stream().map(this::phase1_unwrap).collect(Collectors.toList()));
+                if (t.tys().isEmpty()) {
+                    return tydb.containsKey(t.toString()) ? t
+                            : new TyVar(t.nm(), Ty.none(), Ty.any());
+                } else {
+                    return new TyInst(t.nm(), t.tys().stream().map(this::fixVars).collect(Collectors.toList()));
+                }
             }
             case TyCon t -> {
                 return t;
             }
             case TyTuple t -> {
-                return new TyTuple(t.tys().stream().map(this::phase1_unwrap).collect(Collectors.toList()));
+                return new TyTuple(t.tys().stream().map(this::fixVars).collect(Collectors.toList()));
             }
             case TyUnion t -> {
-                return new TyUnion(t.tys().stream().map(this::phase1_unwrap).collect(Collectors.toList()));
+                return new TyUnion(t.tys().stream().map(this::fixVars).collect(Collectors.toList()));
             }
             case TyExist t -> {
                 var maybeVar = t.v();
-                var body = phase1_unwrap(t.ty());
+                var body = fixVars(t.ty());
                 if (maybeVar instanceof TyVar defVar) {
-                    return new TyExist(defVar, body);
+                    var tv = new TyVar(defVar.nm(), fixVars(defVar.low()), fixVars(defVar.up()));
+                    return new TyExist(tv, body);
                 } else if (maybeVar instanceof TyInst inst) {
-                    if (inst.params().isEmpty()) {
+                    if (inst.tys().isEmpty()) {
                         if (tydb.containsKey(inst.toString())) {
                             return body;
                         } else {
-                            var tv = new TyVar(inst.toString(), Ty.none(), Ty.any());
+                            var tv = new TyVar(inst.nm(), Ty.none(), Ty.any());
                             return new TyExist(tv, body);
                         }
                     } else {
-                        return new TyInst(inst.nm(), inst.params().stream().map(this::phase1_unwrap).collect(Collectors.toList()));
+                        return new TyInst(inst.nm(), inst.tys().stream().map(this::fixVars).collect(Collectors.toList()));
                     }
                 } else {
                     return body;
@@ -137,7 +218,7 @@ class GenDB {
     }
 
     private TyDecl phase1(TyDecl d) {
-        return new TyDecl(d.nm(), phase1_unwrap(d.ty()), d.parent(), d.src());
+        return new TyDecl(d.nm(), fixVars(d.ty()), fixVars(d.parent()), d.src());
     }
 
     public void cleanUp() {
@@ -165,7 +246,7 @@ class Color {
     static String red = "\u001B[31m";
     static String resetText = "\u001B[0m"; // ANSI escape code to reset text color
     static String green = "\u001B[32m";
-    static String blue = "\u001B[34m";
+    // static String yellow = "\u001B[34m";
     static String yellow = "\u001B[33m";
     //static String cyan = "\u001B[36m";
     //static String magenta = "\u001B[35m";
@@ -174,11 +255,11 @@ class Color {
         return red + s + resetText;
     }
 
-    static String blue(String s) {
-        return blue + s + resetText;
+    static String yellow(String s) {
+        return yellow + s + resetText;
     }
 
-    static String gray(String s) {
+    static String green(String s) {
         return green + s + resetText;
     }
 }

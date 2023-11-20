@@ -1,4 +1,5 @@
 package prlprg;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,14 +30,15 @@ public class Parser {
         return this;
     }
 
+    private final String[] empty = new String[0];
+
     String[] getLines(String path) {
         try {
             Path p = Path.of(path);
             List<String> ls = Files.readAllLines(p);
-            return ls.toArray(new String[0]);
+            return ls.toArray(empty);
         } catch (IOException e) {
-            e.printStackTrace();
-            return new String[0]; // Return an empty array in case of an exception.
+            throw new RuntimeException(e);
         }
     }
 
@@ -52,7 +54,7 @@ public class Parser {
         KEYWORD, OPERATOR, DELIMITER, IDENTIFIER, NUMBER, STRING, EOF;
     }
 
-    private Token EOF = new Token(Kind.EOF, "EOF", 0, 0, 0);
+    private final Token EOF = new Token(Kind.EOF, "EOF", 0, 0);
 
     Token eof() {
         return EOF;
@@ -64,14 +66,12 @@ public class Parser {
         String val;
         int line;
         int start;
-        int end;
 
-        public Token(Kind kind, String token, int line, int start, int end) {
+        public Token(Kind kind, String token, int line, int start) {
             this.kind = kind;
             this.val = token;
             this.line = line;
             this.start = start;
-            this.end = end;
         }
 
         String redText = "\u001B[31m";
@@ -183,7 +183,7 @@ public class Parser {
             var start = pos++;
             while (pos < ln.length()) {
                 if (ln.charAt(pos++) == '"') {
-                    return new Token(Kind.STRING, ln.substring(start, pos), line_number, start, pos);
+                    return new Token(Kind.STRING, ln.substring(start, pos), line_number, start);
                 }
             }
             failAt("Unterminated string literal", last);
@@ -198,7 +198,7 @@ public class Parser {
             var start = pos++;
             while (pos < ln.length()) {
                 if (ln.charAt(pos++) == '\'') {
-                    return new Token(Kind.STRING, ln.substring(start, pos), line_number, start, pos);
+                    return new Token(Kind.STRING, ln.substring(start, pos), line_number, start);
                 }
             }
             failAt("Unterminated string literal", last);
@@ -218,7 +218,7 @@ public class Parser {
                 if (ln.startsWith(delim, pos)) {
                     var start = pos;
                     pos += delim.length();
-                    return new Token(Kind.DELIMITER, delim, line_number, start, pos);
+                    return new Token(Kind.DELIMITER, delim, line_number, start);
                 }
             }
             return null;
@@ -259,26 +259,27 @@ public class Parser {
                     pos++;
                 }
             }
-            return new Token(Kind.NUMBER, ln.substring(start, pos), line_number, start, pos);
+            return new Token(Kind.NUMBER, ln.substring(start, pos), line_number, start);
         }
 
-        boolean identifierFirst(char c) {
+        boolean identifierFirst(int c) {
             return Character.isLetter(c) || c == '_' || c == '!';
         }
 
-        boolean identifierRest(char c) {
-            return Character.isLetterOrDigit(c) || c == '_' || c == '′' || c == '!';
+        boolean identifierRest(int c) {
+            return Character.isLetterOrDigit(c) || c == '_' || c == '′' || c == '!' || c == '₀';
         }
 
         Token identifier() {
             var start = pos;
-            if (!identifierFirst(ln.charAt(pos))) {
+
+            if (!identifierFirst(ln.codePointAt(pos))) {
                 return null;
             }
-            while (pos < ln.length() && (identifierRest(ln.charAt(pos)))) {
+            while (pos < ln.length() && (identifierRest(ln.codePointAt(pos)))) {
                 pos++;
             }
-            return new Token(Kind.IDENTIFIER, ln.substring(start, pos), line_number, start, pos);
+            return new Token(Kind.IDENTIFIER, ln.substring(start, pos), line_number, start);
         }
     }
 

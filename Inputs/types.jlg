@@ -348,7 +348,6 @@ struct StructWithNoFields end
 struct StructuredMatrixStyle{T} <: Broadcast.AbstractArrayStyle{2} end
 struct Style{T} <: BroadcastStyle end
 struct SurrealFinite <: Real end
-struct T end
 struct T19714 <: Integer end
 struct T27351 <: AbstractT27351 end
 struct T35888 end
