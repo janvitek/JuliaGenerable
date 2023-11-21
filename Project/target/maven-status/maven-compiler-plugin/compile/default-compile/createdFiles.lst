@@ -7,12 +7,14 @@ prlprg/Color.class
 prlprg/TypeDeclaration.class
 prlprg/GenDB.class
 prlprg/TyUnion.class
+prlprg/Generator$InhNode.class
 prlprg/TyTuple.class
 prlprg/Parser$Lexer.class
 prlprg/TyCon.class
 prlprg/Type.class
 prlprg/Parser$Token.class
 prlprg/UnionAllInst.class
+prlprg/Generator.class
 prlprg/BoundVar.class
 prlprg/TyVar.class
 prlprg/Expression.class

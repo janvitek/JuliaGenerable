@@ -32,5 +32,8 @@ public class App {
         }
 
         db.cleanUp();
+
+        var g = new Generator(db);
+        g.processTypes();
     }
 }

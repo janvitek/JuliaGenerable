@@ -153,8 +153,8 @@ record TyExist(Ty v, Ty ty) implements Ty {
 
 class GenDB {
 
-    private final HashMap<String, TyDecl> tydb = new HashMap<>();
-    private final HashMap<String, List<TySig>> sigdb = new HashMap<>();
+    final HashMap<String, TyDecl> tydb = new HashMap<>();
+    final HashMap<String, List<TySig>> sigdb = new HashMap<>();
 
     public GenDB() {
         addTyDecl(new TyDecl("Function", new TyInst("Function", List.of()), Ty.none(), ""));

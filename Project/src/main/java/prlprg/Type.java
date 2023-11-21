@@ -518,17 +518,9 @@ class Param {
 
     @Override
     public String toString() {
-        var str = name;
-        if (type != null) {
-            str += " :: " + type.toString();
-        }
-        if (value != null) {
-            str += " = " + value;
-        }
-        if (varargs != null) {
-            str += "...";
-        }
-        return str;
+        return name
+                + (type != null ? " :: " + type.toString() : "") + (value != null ? " = " + value : "")
+                + (varargs != null ? "..." : "");
     }
 }
 
