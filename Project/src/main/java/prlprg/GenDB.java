@@ -1,8 +1,8 @@
 package prlprg;
 
-import java.nio.channels.OverlappingFileLockException;
 import java.util.HashMap;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.stream.Collectors;
 
 interface Ty {
@@ -123,8 +123,12 @@ record TyDecl(String nm, Ty ty, Ty parent, String src) implements Ty {
     }
 }
 
-record TySig(String nm, Ty ty) implements Ty {
+record TySig(String nm, Ty ty, String src) implements Ty {
 
+    @Override
+    public String toString() {
+        return "function " + nm + " " + ty + Color.green("\n# " + src);
+    }
 }
 
 record TyExist(Ty v, Ty ty) implements Ty {
@@ -150,10 +154,10 @@ record TyExist(Ty v, Ty ty) implements Ty {
 class GenDB {
 
     private final HashMap<String, TyDecl> tydb = new HashMap<>();
-    private final HashMap<String, List<Ty>> sigdb = new HashMap<>();
+    private final HashMap<String, List<TySig>> sigdb = new HashMap<>();
 
     public GenDB() {
-        //addTyDecl(new TyDecl("Any", new TyInst("Any", List.of()), Ty.none(), ""));
+        addTyDecl(new TyDecl("Function", new TyInst("Function", List.of()), Ty.none(), ""));
         addTyDecl(new TyDecl("Tuple", new TyInst("Tuple", List.of()), Ty.none(), ""));
         addTyDecl(new TyDecl("Union", new TyInst("Union", List.of()), Ty.none(), ""));
     }
@@ -166,7 +170,11 @@ class GenDB {
     }
 
     final void addSig(TySig sig) {
-        sigdb.put(sig.nm(), List.of(sig.ty()));
+        if (!sigdb.containsKey(sig.nm())) {
+            sigdb.put(sig.nm(), new ArrayList<>());
+        }
+        var list = sigdb.get(sig.nm());
+        list.add(sig);
     }
 
     private Ty fixVars(Ty ty) {
@@ -221,6 +229,10 @@ class GenDB {
         return new TyDecl(d.nm(), fixVars(d.ty()), fixVars(d.parent()), d.src());
     }
 
+    private TySig phase1sig(TySig s) {
+        return new TySig(s.nm(), fixVars(s.ty()), s.src());
+    }
+
     public void cleanUp() {
         // At this point the definitions in the DB are ill-formed, as we don't
         // know what identifiers refer to types and what identifiers refer to
@@ -237,6 +249,13 @@ class GenDB {
             newTydb.put(name, newdecl.ty());
         }
 
+        for (var name : sigdb.keySet()) {
+            var sigs = sigdb.get(name);
+            for (var sig : sigs) {
+                var newsig = phase1sig(sig);
+                System.out.println(newsig.toString());
+            }
+        }
     }
 }
 

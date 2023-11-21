@@ -2,6 +2,7 @@ package prlprg;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 abstract class Type {
 
@@ -116,17 +117,45 @@ class BoundVar extends Type {
 
     static Type huh = new TypeInst(new TypeName("???"), null);
 
+    static boolean gotParen(Parser p) {
+        if (p.peek().delim("(")) {
+            p.advance();
+            return true;
+        }
+        return false;
+    }
+
+    static void getParen(Parser p, boolean gotParen) {
+        if (gotParen) {
+            if (p.peek().delim(")")) {
+                p.advance();
+            } else {
+                p.failAt("Missing closing paren", p.peek());
+            }
+        }
+    }
+
     static Type parse(Parser p) {
         if (p.peek().delim("<:")) {
-            return new BoundVar(huh, null, UnionAllInst.parse(p.advance()));
+            boolean gotParen = gotParen(p.advance());
+            var b = new BoundVar(huh, null, UnionAllInst.parse(p));
+            getParen(p, gotParen);
+            return b;
         } else {
             var type = UnionAllInst.parse(p);
             if (p.peek().delim("<:")) {
-                var upper = UnionAllInst.parse(p.advance());
+                boolean gotParen = gotParen(p.advance());
+                var upper = UnionAllInst.parse(p);
+                getParen(p, gotParen);
                 Type lower = null;
+                var tok1 = p.peek();
+
                 if (p.peek().delim("<:")) {
-                    lower = UnionAllInst.parse(p.advance());
+                    gotParen = gotParen(p.advance());
+                    lower = UnionAllInst.parse(p);
+                    getParen(p, gotParen);
                 }
+                var tok = p.peek();
                 return new BoundVar(type, lower, upper);
             } else if (p.peek().delim(">:")) {
                 return new BoundVar(type, UnionAllInst.parse(p.advance()), null);
@@ -171,7 +200,7 @@ class UnionAllInst extends Type {
                 gotBrace = true;
             }
             boundVars.add(BoundVar.parse(p));
-            while (p.peek().delim(",")) {
+            while (gotBrace && p.peek().delim(",")) {
                 boundVars.add(BoundVar.parse(p.advance()));
             }
             if (gotBrace) {
@@ -458,7 +487,6 @@ class Param {
                 gotParen = true;
             }
         }
-
         var name = "???";
         Type type;
         if (p.peek().isIdentifier()) {
@@ -484,6 +512,10 @@ class Param {
         return new Param(name, type, value, varargs);
     }
 
+    Ty toTy() {
+        return type == null ? Ty.any() : type.toTy();
+    }
+
     @Override
     public String toString() {
         var str = name;
@@ -506,6 +538,7 @@ class Function {
     FunctionName name;
     List<Param> typeParams = new ArrayList<>();
     List<Type> wheres = new ArrayList<>();
+    String source;
 
     void parseModifiers(Parser p) {
         var tok = p.peek();
@@ -513,7 +546,7 @@ class Function {
         if (tok.delim("@")) {
             str += "@";
             tok = p.peek();
-            while (!tok.ident("function")) {
+            while (!tok.isEOF() && !tok.ident("function")) {
                 str += p.next().toString();
                 tok = p.peek();
             }
@@ -557,9 +590,7 @@ class Function {
         var f = new Function();
         f.parseModifiers(p);
         f.name = FunctionName.parse(p);
-        if (p.verbose) {
-            System.out.println("- " + p.getLine());
-        }
+        f.source = p.getLineAt(p.peek());
         var tok = p.peek();
         if (tok.delim("(")) {
             tok = p.advance().peek();
@@ -574,27 +605,35 @@ class Function {
             }
             p.advance(); // skip '}'
         }
-        if (p.peek().delim("::")) {
+        if (!p.peek().isEOF() && p.peek().delim("::")) {
             p.advance();
             TypeInst.parse(p); // ignore the return type
         }
-        if (p.peek().ident("where")) {
+        if (!p.peek().isEOF() && p.peek().ident("where")) {
             p.advance();
             parseWhere(p, f.wheres);
         }
-        if (p.peek().ident("where")) {
+        if (!p.peek().isEOF() && p.peek().ident("where")) {
             p.advance();
             parseWhere(p, f.wheres);
         }
-        if (p.peek().ident("@")) {
-            while (!p.peek().isEOF() || !p.peek().ident("function")) {
+        if (!p.peek().isEOF() && p.peek().delim("@")) {
+            while (!p.peek().isEOF() && !p.peek().ident("function")) {
                 p.advance();
             }
         }
-        if (p.verbose) {
-            System.out.println("+ " + f);
-        }
         return f;
+    }
+
+    TySig toTy() {
+        var nm = name.toString();
+        List<Ty> tys = typeParams.stream().map(Param::toTy).collect(Collectors.toList());
+        var reverse = wheres.reversed();
+        Ty ty = new TyTuple(tys);
+        for (var where : reverse) {
+            ty = new TyExist(where.toTy(), ty);
+        }
+        return new TySig(nm, ty, source);
     }
 
     @Override
