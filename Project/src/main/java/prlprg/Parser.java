@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.spi.CurrencyNameProvider;
 
 public class Parser {
 
@@ -263,11 +264,12 @@ public class Parser {
         }
 
         boolean identifierFirst(int c) {
-            return Character.isLetter(c) || c == '_' || c == '!';
+            return Character.isLetter(c) || c == '_' || c == '!' || c == '∘'
+                    || c == '𝕃';
         }
 
         boolean identifierRest(int c) {
-            return Character.isLetterOrDigit(c) || c == '_' || c == '′' || c == '!' || c == '₀';
+            return Character.isLetterOrDigit(c) || c == '_' || c == '′' || c == '!' || c == '₀' || c == '𝕃';
         }
 
         Token identifier() {
@@ -276,6 +278,7 @@ public class Parser {
             if (!identifierFirst(ln.codePointAt(pos))) {
                 return null;
             }
+            pos++;
             while (pos < ln.length() && (identifierRest(ln.codePointAt(pos)))) {
                 pos++;
             }
@@ -324,7 +327,12 @@ public class Parser {
                 }
             }
         }
-        throw new RuntimeException(last.errorAt(msg));
+        if (last == null) {
+            System.out.println("At " + curPos);
+            throw new RuntimeException("Huh?");
+        } else {
+            throw new RuntimeException(last.errorAt(msg));
+        }
     }
 
 }

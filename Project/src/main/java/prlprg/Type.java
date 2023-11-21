@@ -577,7 +577,6 @@ class Function {
         if (p.peek().delim("::")) {
             p.advance();
             TypeInst.parse(p); // ignore the return type
-
         }
         if (p.peek().ident("where")) {
             p.advance();
@@ -586,6 +585,11 @@ class Function {
         if (p.peek().ident("where")) {
             p.advance();
             parseWhere(p, f.wheres);
+        }
+        if (p.peek().ident("@")) {
+            while (!p.peek().isEOF() || !p.peek().ident("function")) {
+                p.advance();
+            }
         }
         if (p.verbose) {
             System.out.println("+ " + f);

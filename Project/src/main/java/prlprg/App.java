@@ -23,12 +23,12 @@ public class App {
         var parser = debug ? new Parser().withString("struct DataStructures.SSIncludeLast{ContainerType<:DataStructures.SortedSet} <: DataStructures.AbstractIncludeLast{ContainerType<:DataStructures.SortedSet} end")
                 : new Parser().withFile("../Inputs/types_from_jj.jlg");
         parseTypes(parser);
-        debug = true;
+        debug = false;
         if (debug) {
             parseFunctions(new Parser()
                     .withString("function Str{T}(arg1) where In <: T <: Real"));
         } else {
-            parseFunctions(new Parser().withFile("../Inputs/morefunctions.jlg"));
+            parseFunctions(new Parser().withFile("../Inputs/functions_from_jj.jlg"));
         }
 
         db.cleanUp();
