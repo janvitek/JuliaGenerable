@@ -1,3 +1,4 @@
+abstract type Any end
 abstract type AbstractArray{T, 0} end
 abstract type AbstractArray{T, 1} end
 abstract type AbstractArray{T, 2} end
@@ -19,7 +20,6 @@ abstract type AbstractSet{T} end
 abstract type AbstractSlices{T, N} <: AbstractArray{T, N} end
 abstract type AbstractString end
 abstract type AbstractUnitRange{T} <: OrdinalRange{T, T} end
-abstract type Any end
 abstract type Base.AbstractBroadcasted end
 abstract type Base.AbstractCartesianIndex{N} end
 abstract type Base.AbstractCmd end

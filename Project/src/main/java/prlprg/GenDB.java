@@ -1,8 +1,8 @@
 package prlprg;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.ArrayList;
 import java.util.stream.Collectors;
 
 interface Ty {
@@ -153,13 +153,18 @@ record TyExist(Ty v, Ty ty) implements Ty {
 
 class GenDB {
 
-    final HashMap<String, TyDecl> tydb = new HashMap<>();
-    final HashMap<String, List<TySig>> sigdb = new HashMap<>();
+    HashMap<String, TyDecl> tydb = new HashMap<>();
+    HashMap<String, List<TySig>> sigdb = new HashMap<>();
 
     public GenDB() {
-        addTyDecl(new TyDecl("Function", new TyInst("Function", List.of()), Ty.none(), ""));
-        addTyDecl(new TyDecl("Tuple", new TyInst("Tuple", List.of()), Ty.none(), ""));
-        addTyDecl(new TyDecl("Union", new TyInst("Union", List.of()), Ty.none(), ""));
+        addTyDecl(new TyDecl("Function", new TyInst("Function", List.of()), Ty.any(), ""));
+        addTyDecl(new TyDecl("Tuple", new TyInst("Tuple", List.of()), Ty.any(), ""));
+        addTyDecl(new TyDecl("Union", new TyInst("Union", List.of()), Ty.any(), ""));
+        addTyDecl(new TyDecl("UnionAll", new TyInst("UnionAll", List.of()), Ty.any(), ""));
+        addTyDecl(new TyDecl("DataType", new TyInst("DataType", List.of()), Ty.any(), ""));
+        addTyDecl(new TyDecl("AbstractVector", new TyInst("AbstractVector", List.of()), Ty.any(), "")); // add arguments
+        addTyDecl(new TyDecl("AbstractArray", new TyInst("AbstractArray", List.of()), Ty.any(), "")); // add arguments
+        addTyDecl(new TyDecl("AbstractVecOrMat", new TyInst("AbstractVecOrMat", List.of()), Ty.any(), "")); // add arguments
     }
 
     final void addTyDecl(TyDecl ty) {
@@ -242,20 +247,24 @@ class GenDB {
         // still.
         // Phase 1 will try to clean up types by removing obvious variables.
 
-        var newTydb = new HashMap<String, Ty>();
+        var newTydb = new HashMap<String, TyDecl>();
         for (var name : tydb.keySet()) {
             var newdecl = phase1(tydb.get(name));
-            System.out.println(newdecl.toString());
-            newTydb.put(name, newdecl.ty());
+            newTydb.put(name, newdecl);
         }
-
+        var newSigdb = new HashMap<String, List<TySig>>();
         for (var name : sigdb.keySet()) {
             var sigs = sigdb.get(name);
             for (var sig : sigs) {
                 var newsig = phase1sig(sig);
-                System.out.println(newsig.toString());
+                if (!newSigdb.containsKey(name)) {
+                    newSigdb.put(name, new ArrayList<>());
+                }
+                newSigdb.get(name).add(newsig);
             }
         }
+        this.tydb = newTydb;
+        this.sigdb = newSigdb;
     }
 }
 
