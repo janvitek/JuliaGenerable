@@ -263,6 +263,16 @@ class TypeDeclaration {
     static String parseModifiers(Parser p) {
         var str = "";
         var tok = p.next();
+        if (tok.delim("(")) {
+            tok = p.next();
+            var tok2 = p.next();
+            if (tok.ident("closure") && tok2.delim(")")) {
+                str += "(closure) ";
+                tok = p.next();
+            } else {
+                p.failAt("Invalid type declaration", tok);
+            }
+        }
         if (tok.ident("abstract") || tok.ident("primitive")) {
             str += tok.toString();
             tok = p.next();
@@ -310,15 +320,25 @@ class TypeDeclaration {
             tok = p.next();
         }
         if (tok.ident("end")) {
+            if (p.peek().delim("(")) { // Skip source information
+                while (!p.peek().isEOF() && !p.peek().ident(")")) {
+                    p.advance();
+                }
+            }
             return new TypeDeclaration(modifiers, name, typeParams, null, sourceLine);
         } else if (tok.delim("<:")) {
             var parent = TypeInst.parse(p);
             tok = p.next();
-            if (tok.isNumber()) {
+            if (tok.isNumber()) { // skip primitive type number of bits
                 tok = p.next();
             }
             if (!tok.ident("end")) {
                 p.failAt("Missed end of declaration", tok);
+            }
+            if (p.peek().delim("(")) { // Skip source information
+                while (!p.peek().isEOF() && !p.peek().ident(")")) {
+                    p.advance();
+                }
             }
             return new TypeDeclaration(modifiers, name, typeParams, parent, sourceLine);
         } else {
@@ -382,6 +402,9 @@ class TypeName {
         }
         if (p.peek().isString()) {
             str += p.next().toString();
+        }
+        if (p.peek().delim(".")) {
+            str += "." + p.advance().next().toString();
         }
         return str;
     }
@@ -609,10 +632,18 @@ class Function {
             p.advance();
             parseWhere(p, f.wheres);
         }
+
         if (!p.peek().isEOF() && p.peek().delim("@")) {
             while (!p.peek().isEOF() && !p.peek().ident("function")) {
                 p.advance();
             }
+        }
+        if (!p.peek().isEOF() && p.peek().ident("in")) {
+            p.advance();
+            while (!p.peek().isEOF() && !p.peek().delim(")")) {
+                p.advance();
+            }
+            p.advance();
         }
         return f;
     }

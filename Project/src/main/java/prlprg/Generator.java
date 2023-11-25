@@ -3,7 +3,6 @@ package prlprg;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 class Generator {
@@ -80,6 +79,14 @@ class Generator {
     }
 
     record Union(List<Type> tys) implements Type {
+
+        @Override
+        public boolean equals(Object o) {
+            if (o instanceof Union u) {
+                return tys.equals(u.tys);
+            }
+            return false;
+        }
 
         @Override
         public String toString() {
@@ -160,16 +167,13 @@ class Generator {
     // Unwrap the existentials in the type, and return the bounds in the order they appear.
     // Called with a type declaration, so there should only be instances and existentials.
     List<Bound> getBounds(Type t, List<Bound> env) {
-        return switch (t) {
-            case Inst ty ->
-                env;
-            case Exist ty -> {
-                env.addLast(ty.b());
-                yield getBounds(ty.ty(), env);
-            }
-            default ->
-                throw new RuntimeException("Unexpected type: " + t);
-        };
+        assert t != null;
+        if (t instanceof Inst) {
+            return env;
+        }
+        var ty = (Exist) t;
+        env.addLast(ty.b());
+        return getBounds(ty.ty(), env);
     }
 
     Decl toDecl(InhNode n) {
@@ -192,15 +196,10 @@ class Generator {
 
     public Generator(GenDB db) {
         this.db = db;
-        var value = new InhNode(new TyDecl("Any", Ty.any(), Ty.none(), "none"));
-        this.index.put("Any", value);
     }
 
     void processTypes() {
         for (var decl : db.tydb.values()) {
-            if (decl.nm().equals("Any")) {
-                continue;
-            }
             var node = new InhNode(decl);
             index.put(node.name, node);
         }
@@ -215,11 +214,7 @@ class Generator {
         }
 
         var d = index.get("Any");
-
-        print = true;
-        if (print) {
-            printHierarchy(d, 0, false);
-        }
+        printHierarchy(d, 0);
         build(d);
     }
 
@@ -237,22 +232,15 @@ class Generator {
         }
     }
 
-    static boolean print = false;
-
-    void printHierarchy(InhNode n, int pos, boolean any
-    ) {
-        if (n.name.equals("Any") && any) {
-            System.err.println("Seeing any agains");
-            throw new RuntimeException("Seeing any again");
-        }
-        System.out.println(Color.red(".").repeat(pos + 1) + n.name);
+    void printHierarchy(InhNode n, int pos) {
+        System.out.println(Color.red(".").repeat(pos) + n.name);
         for (var c : n.children) {
-            printHierarchy(c, pos + 1, true);
+            printHierarchy(c, pos + 1);
         }
     }
 
     void build(InhNode n) {
-        Decl d = null;
+        Decl d;
         try {
             d = toDecl(n);
             System.out.println(d);
@@ -260,7 +248,6 @@ class Generator {
             System.err.println("Error: " + n.name + " " + e.getMessage());
             System.err.println("Failed at " + n.decl);
         }
-
         for (var c : n.children) {
             build(c);
         }
@@ -282,8 +269,7 @@ class Generator {
         }
     }
 
-    String findName(Ty ty
-    ) {
+    String findName(Ty ty) {
         if (ty instanceof TyInst t) {
             return t.nm();
         }

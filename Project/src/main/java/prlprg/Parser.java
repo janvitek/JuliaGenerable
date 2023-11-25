@@ -263,13 +263,20 @@ public class Parser {
             return new Token(Kind.NUMBER, ln.substring(start, pos), line_number, start);
         }
 
+        // I should really figure out a proper treatment of unicode...
+        boolean unicodeUsed(int c) {
+            return c == '∂' || c == '∘' || c == 'R' || c == 'ₜ' || c == '₋' || c == '₂' || c == '≡' || c == '≠' || c == '≤'
+                    || c == '≥' || c == '∈' || c == '∉' || c == '∪' || c == '∩' || c == '⊆' || c == '⊇' || c == '⊂' || c == '⊃'
+                    || c == '⊏' || c == '⊐' || c == '⊑' || c == '⊒' || c == '⊓' || c == '⊔' || c == '⊕' || c == '⊖' || c == '⊗'
+                    || c == '′' || c == '𝕃' || c == '₀' || c == '𝕃' || c == '⊔' || c == '⋅';
+        }
+
         boolean identifierFirst(int c) {
-            return Character.isLetter(c) || c == '_' || c == '!' || c == '∘'
-                    || c == '𝕃';
+            return Character.isLetter(c) || c == '_' || c == '!' || unicodeUsed(c);
         }
 
         boolean identifierRest(int c) {
-            return Character.isLetterOrDigit(c) || c == '_' || c == '′' || c == '!' || c == '₀' || c == '𝕃';
+            return Character.isLetterOrDigit(c) || c == '_' || c == '!' || unicodeUsed(c);
         }
 
         Token identifier() {

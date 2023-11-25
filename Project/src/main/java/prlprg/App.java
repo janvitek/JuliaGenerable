@@ -28,7 +28,7 @@ public class App {
                  struct Random.SamplerSimple{T, S, E} <: Random.Sampler{E} end
                 """;
         var dir = "../Inputs/";
-        var typs = dir + "types_from_jj.jlg";
+        var typs = dir + "raicode_types.jlg";
         var parser = debug ? new Parser().withString(str) : new Parser().withFile(typs);
         parseTypes(parser);
         debug = false;
@@ -36,7 +36,7 @@ public class App {
               function f() @  asda/asds
               function ch(A::Stride{v } where v<:Union{  ComplexF64}, ::Type{LUp })
               """;
-        var sigs = dir + "functions_from_jj.jlg";
+        var sigs = dir + "raicode_functions.jlg";
         parser = debug ? new Parser().withString(str) : new Parser().withFile(sigs);
         parseFunctions(parser);
         db.cleanUp();

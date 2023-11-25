@@ -156,7 +156,11 @@ class GenDB {
     HashMap<String, TyDecl> tydb = new HashMap<>();
     HashMap<String, List<TySig>> sigdb = new HashMap<>();
 
-    public GenDB() {
+    GenDB() {
+        // Some types that are needed, if we add them again there will be a warning
+        // and the new type will override the old one.
+        // TODO: add arguments to these types
+        addTyDecl(new TyDecl("Any", new TyInst("Any", List.of()), Ty.any(), ""));
         addTyDecl(new TyDecl("Function", new TyInst("Function", List.of()), Ty.any(), ""));
         addTyDecl(new TyDecl("Tuple", new TyInst("Tuple", List.of()), Ty.any(), ""));
         addTyDecl(new TyDecl("Union", new TyInst("Union", List.of()), Ty.any(), ""));
@@ -165,6 +169,7 @@ class GenDB {
         addTyDecl(new TyDecl("AbstractVector", new TyInst("AbstractVector", List.of()), Ty.any(), "")); // add arguments
         addTyDecl(new TyDecl("AbstractArray", new TyInst("AbstractArray", List.of()), Ty.any(), "")); // add arguments
         addTyDecl(new TyDecl("AbstractVecOrMat", new TyInst("AbstractVecOrMat", List.of()), Ty.any(), "")); // add arguments
+
     }
 
     final void addTyDecl(TyDecl ty) {
@@ -210,17 +215,15 @@ class GenDB {
                 if (maybeVar instanceof TyVar defVar) {
                     var tv = new TyVar(defVar.nm(), fixVars(defVar.low()), fixVars(defVar.up()));
                     return new TyExist(tv, body);
-                } else if (maybeVar instanceof TyInst inst) {
-                    if (inst.tys().isEmpty()) {
-                        if (tydb.containsKey(inst.toString())) {
-                            return body;
-                        } else {
-                            var tv = new TyVar(inst.nm(), Ty.none(), Ty.any());
-                            return new TyExist(tv, body);
-                        }
+                } else if (maybeVar instanceof TyInst inst && inst.tys().isEmpty()) {
+                    if (tydb.containsKey(inst.toString())) {
+                        return body;
                     } else {
-                        return new TyInst(inst.nm(), inst.tys().stream().map(this::fixVars).collect(Collectors.toList()));
+                        var tv = new TyVar(inst.nm(), Ty.none(), Ty.any());
+                        return new TyExist(tv, body);
                     }
+                } else if (maybeVar instanceof TyInst inst) {
+                    return new TyInst(inst.nm(), inst.tys().stream().map(this::fixVars).collect(Collectors.toList()));
                 } else {
                     return body;
                 }
@@ -230,33 +233,23 @@ class GenDB {
         }
     }
 
-    private TyDecl phase1(TyDecl d) {
-        return new TyDecl(d.nm(), fixVars(d.ty()), fixVars(d.parent()), d.src());
-    }
-
-    private TySig phase1sig(TySig s) {
-        return new TySig(s.nm(), fixVars(s.ty()), s.src());
-    }
-
     public void cleanUp() {
         // At this point the definitions in the DB are ill-formed, as we don't
         // know what identifiers refer to types and what identifiers refer to
         // variables. We asume that we have seen all types declarations, so
-        // anything that is not in tydb is a variable. Now, one can define
-        // a variable that shadows a type, so there may be some ambiguity
-        // still.
-        // Phase 1 will try to clean up types by removing obvious variables.
-
+        // anything that is not in tydb is a variable.
+        // We try to clean up types by removing obvious variables.
         var newTydb = new HashMap<String, TyDecl>();
         for (var name : tydb.keySet()) {
-            var newdecl = phase1(tydb.get(name));
+            var d = tydb.get(name);
+            var newdecl = new TyDecl(d.nm(), fixVars(d.ty()), fixVars(d.parent()), d.src());
             newTydb.put(name, newdecl);
         }
         var newSigdb = new HashMap<String, List<TySig>>();
         for (var name : sigdb.keySet()) {
             var sigs = sigdb.get(name);
             for (var sig : sigs) {
-                var newsig = phase1sig(sig);
+                var newsig = new TySig(sig.nm(), fixVars(sig.ty()), sig.src());
                 if (!newSigdb.containsKey(name)) {
                     newSigdb.put(name, new ArrayList<>());
                 }
@@ -270,14 +263,10 @@ class GenDB {
 
 class Color {
 
-    //static String lightGray = "\u001B[37m";
     static String red = "\u001B[31m";
     static String resetText = "\u001B[0m"; // ANSI escape code to reset text color
     static String green = "\u001B[32m";
-    // static String yellow = "\u001B[34m";
     static String yellow = "\u001B[33m";
-    //static String cyan = "\u001B[36m";
-    //static String magenta = "\u001B[35m";
 
     static String red(String s) {
         return red + s + resetText;
