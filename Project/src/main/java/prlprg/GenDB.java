@@ -5,232 +5,43 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
-interface Ty {
-
-    final static Ty Any = new TyInst("Any", List.of());
-    final static Ty None = new TyUnion(List.of());
-
-    static Ty any() {
-        return Any;
-    }
-
-    static Ty none() {
-        return None;
-    }
-}
-
-record TyInst(String nm, List<Ty> tys) implements Ty {
-
-    @Override
-    public String toString() {
-        return nm + (tys.isEmpty() ? ""
-                : "{" + tys.stream().map(Ty::toString).collect(Collectors.joining(","))
-                + "}");
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (o instanceof TyInst t) {
-            return nm.equals(t.nm()) && tys.equals(t.tys());
-        } else {
-            return false;
-        }
-    }
-}
-
-record TyVar(String nm, Ty low, Ty up) implements Ty {
-
-    @Override
-    public String toString() {
-        return (!low.equals(Ty.none()) ? low + "<:" : "") + Color.yellow(nm) + (!up.equals(Ty.any()) ? "<:" + up : "");
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (o instanceof TyVar t) {
-            return nm.equals(t.nm()) && low.equals(t.low()) && up.equals(t.up());
-        } else {
-            return false;
-        }
-    }
-}
-
-record TyCon(String nm) implements Ty {
-
-    @Override
-    public String toString() {
-        return nm;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (o instanceof TyCon t) {
-            return nm.equals(t.nm());
-        } else {
-            return false;
-        }
-    }
-}
-
-record TyTuple(List<Ty> tys) implements Ty {
-
-    @Override
-    public String toString() {
-        return "(" + tys.stream().map(Ty::toString).collect(Collectors.joining(",")) + ")";
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (o instanceof TyTuple t) {
-            return tys.equals(t.tys());
-        } else {
-            return false;
-        }
-    }
-}
-
-record TyUnion(List<Ty> tys) implements Ty {
-
-    @Override
-    public String toString() {
-        return "[" + tys.stream().map(Ty::toString).collect(Collectors.joining("|")) + "]";
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (o instanceof TyUnion t) {
-            return tys.equals(t.tys());
-        } else {
-            return false;
-        }
-    }
-}
-
-record TyDecl(String nm, Ty ty, Ty parent, String src) implements Ty {
-
-    @Override
-    public String toString() {
-        return nm + " = " + ty + " <: " + parent + Color.green("\n# " + src);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (o instanceof TyDecl t) {
-            return nm.equals(t.nm()) && ty.equals(t.ty()) && parent.equals(t.parent());
-        } else {
-            return false;
-        }
-    }
-}
-
-record TySig(String nm, Ty ty, String src) implements Ty {
-
-    @Override
-    public String toString() {
-        return "function " + nm + " " + ty + Color.green("\n# " + src);
-    }
-}
-
-record TyExist(Ty v, Ty ty) implements Ty {
-
-    static final String redE = Color.red("∃");
-    static final String redD = Color.red(".");
-
-    @Override
-    public String toString() {
-        return redE + v + redD + ty;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (o instanceof TyExist t) {
-            return v.equals(t.v()) && ty.equals(t.ty());
-        } else {
-            return false;
-        }
-    }
-}
-
 class GenDB {
+
+    private static HashMap<String, TyDecl> pre_tydb = new HashMap<>();
+    private static HashMap<String, List<TySig>> pre_sigdb = new HashMap<>();
 
     HashMap<String, TyDecl> tydb = new HashMap<>();
     HashMap<String, List<TySig>> sigdb = new HashMap<>();
 
     GenDB() {
-        // Some types that are needed, if we add them again there will be a warning
-        // and the new type will override the old one.
-        // TODO: add arguments to these types
-        addTyDecl(new TyDecl("Any", new TyInst("Any", List.of()), Ty.any(), ""));
-        addTyDecl(new TyDecl("Function", new TyInst("Function", List.of()), Ty.any(), ""));
-        addTyDecl(new TyDecl("Tuple", new TyInst("Tuple", List.of()), Ty.any(), ""));
-        addTyDecl(new TyDecl("Union", new TyInst("Union", List.of()), Ty.any(), ""));
-        addTyDecl(new TyDecl("UnionAll", new TyInst("UnionAll", List.of()), Ty.any(), ""));
-        addTyDecl(new TyDecl("DataType", new TyInst("DataType", List.of()), Ty.any(), ""));
-        addTyDecl(new TyDecl("AbstractVector", new TyInst("AbstractVector", List.of()), Ty.any(), "")); // add arguments
-        addTyDecl(new TyDecl("AbstractArray", new TyInst("AbstractArray", List.of()), Ty.any(), "")); // add arguments
-        addTyDecl(new TyDecl("AbstractVecOrMat", new TyInst("AbstractVecOrMat", List.of()), Ty.any(), "")); // add arguments
-
+        // Some types that are needed but not found. A warning is issued for types that already exist,
+        // and the new type will override the old one. TODO: add arguments for generic types.
+        addTyDecl(new TyDecl("Exception", new TyInst("Exception"), Ty.any(), ""));
+        addTyDecl(new TyDecl("Enum", new TyInst("Enum"), Ty.any(), ""));
+        addTyDecl(new TyDecl("Function", new TyInst("Function"), Ty.any(), ""));
+        addTyDecl(new TyDecl("Tuple", new TyInst("Tuple"), Ty.any(), ""));
+        addTyDecl(new TyDecl("Union", new TyInst("Union"), Ty.any(), ""));
+        addTyDecl(new TyDecl("EnumX.Enum", new TyInst("EnumX.Enum"), Ty.any(), ""));
+        addTyDecl(new TyDecl("UnionAll", new TyInst("UnionAll"), Ty.any(), ""));
+        addTyDecl(new TyDecl("DataType", new TyInst("DataType"), Ty.any(), ""));
+        addTyDecl(new TyDecl("AbstractVector", new TyInst("AbstractVector"), Ty.any(), "")); // add arguments?
+        addTyDecl(new TyDecl("AbstractArray", new TyInst("AbstractArray"), Ty.any(), "")); // add arguments?
+        addTyDecl(new TyDecl("AbstractVecOrMat", new TyInst("AbstractVecOrMat"), Ty.any(), "")); // add arguments?
+        addTyDecl(new TyDecl("AbstractDict", new TyInst("AbstractDict"), Ty.any(), "")); // add arguments?
     }
 
     final void addTyDecl(TyDecl ty) {
-        if (tydb.containsKey(ty.nm())) {
+        if (pre_tydb.containsKey(ty.nm())) {
             System.out.println("Warning: " + ty.nm() + " already exists, replacing");
         }
-        tydb.put(ty.nm(), ty);
+        pre_tydb.put(ty.nm(), ty);
     }
 
     final void addSig(TySig sig) {
-        if (!sigdb.containsKey(sig.nm())) {
-            sigdb.put(sig.nm(), new ArrayList<>());
+        if (!pre_sigdb.containsKey(sig.nm())) {
+            pre_sigdb.put(sig.nm(), new ArrayList<>());
         }
-        var list = sigdb.get(sig.nm());
-        list.add(sig);
-    }
-
-    private Ty fixVars(Ty ty) {
-        switch (ty) {
-            case TyVar t -> {
-                return new TyVar(t.nm(), Ty.none(), Ty.any());
-            }
-            case TyInst t -> {
-                if (t.tys().isEmpty()) {
-                    return tydb.containsKey(t.toString()) ? t
-                            : new TyVar(t.nm(), Ty.none(), Ty.any());
-                } else {
-                    return new TyInst(t.nm(), t.tys().stream().map(this::fixVars).collect(Collectors.toList()));
-                }
-            }
-            case TyCon t -> {
-                return t;
-            }
-            case TyTuple t -> {
-                return new TyTuple(t.tys().stream().map(this::fixVars).collect(Collectors.toList()));
-            }
-            case TyUnion t -> {
-                return new TyUnion(t.tys().stream().map(this::fixVars).collect(Collectors.toList()));
-            }
-            case TyExist t -> {
-                var maybeVar = t.v();
-                var body = fixVars(t.ty());
-                if (maybeVar instanceof TyVar defVar) {
-                    var tv = new TyVar(defVar.nm(), fixVars(defVar.low()), fixVars(defVar.up()));
-                    return new TyExist(tv, body);
-                } else if (maybeVar instanceof TyInst inst && inst.tys().isEmpty()) {
-                    if (tydb.containsKey(inst.toString())) {
-                        return body;
-                    } else {
-                        var tv = new TyVar(inst.nm(), Ty.none(), Ty.any());
-                        return new TyExist(tv, body);
-                    }
-                } else if (maybeVar instanceof TyInst inst) {
-                    return new TyInst(inst.nm(), inst.tys().stream().map(this::fixVars).collect(Collectors.toList()));
-                } else {
-                    return body;
-                }
-            }
-            default ->
-                throw new Error("Unknown type: " + ty);
-        }
+        pre_sigdb.get(sig.nm()).add(sig);
     }
 
     public void cleanUp() {
@@ -239,26 +50,263 @@ class GenDB {
         // variables. We asume that we have seen all types declarations, so
         // anything that is not in tydb is a variable.
         // We try to clean up types by removing obvious variables.
-        var newTydb = new HashMap<String, TyDecl>();
-        for (var name : tydb.keySet()) {
-            var d = tydb.get(name);
-            var newdecl = new TyDecl(d.nm(), fixVars(d.ty()), fixVars(d.parent()), d.src());
-            newTydb.put(name, newdecl);
+        for (var name : pre_tydb.keySet()) {
+            tydb.put(name, pre_tydb.get(name).fixVars());
         }
-        var newSigdb = new HashMap<String, List<TySig>>();
-        for (var name : sigdb.keySet()) {
-            var sigs = sigdb.get(name);
-            for (var sig : sigs) {
-                var newsig = new TySig(sig.nm(), fixVars(sig.ty()), sig.src());
-                if (!newSigdb.containsKey(name)) {
-                    newSigdb.put(name, new ArrayList<>());
-                }
-                newSigdb.get(name).add(newsig);
+        for (var name : pre_sigdb.keySet()) {
+            if (!sigdb.containsKey(name)) {
+                sigdb.put(name, new ArrayList<>());
+            }
+            for (var sig : pre_sigdb.get(name)) {
+                sigdb.get(name).add(sig.fixVars());
             }
         }
-        this.tydb = newTydb;
-        this.sigdb = newSigdb;
     }
+
+    // The following types are used in the generator as an intermediate step towards the
+    // final result in the Generator.
+    interface Ty {
+
+        final static Ty Any = new TyInst("Any", List.of());
+        final static Ty None = new TyUnion(List.of());
+
+        static Ty any() {
+            return Any;
+        }
+
+        static Ty none() {
+            return None;
+        }
+
+        Ty fixVars();
+
+        Generator.Type toType(List<Generator.Bound> env);
+    }
+
+    record TyInst(String nm, List<Ty> tys) implements Ty {
+
+        // An instance without arguments
+        TyInst(String nm) {
+            this(nm, List.of());
+        }
+
+        @Override
+        public String toString() {
+            var args = tys.stream().map(Ty::toString).collect(Collectors.joining(","));
+            return nm + (tys.isEmpty() ? "" : "{" + args + "}");
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof TyInst t
+                    ? nm.equals(t.nm()) && tys.equals(t.tys()) : false;
+        }
+
+        @Override
+        public Ty fixVars() {
+            return new TyInst(nm, tys.stream().map(Ty::fixVars).collect(Collectors.toList()));
+        }
+
+        @Override
+        public Generator.Type toType(List<Generator.Bound> env) {
+            return new Generator.Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
+        }
+    }
+
+    record TyVar(String nm, Ty low, Ty up) implements Ty {
+
+        @Override
+        public String toString() {
+            return (!low.equals(Ty.none()) ? low + "<:" : "") + Color.yellow(nm) + (!up.equals(Ty.any()) ? "<:" + up : "");
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof TyVar t
+                    ? nm.equals(t.nm()) && low.equals(t.low()) && up.equals(t.up()) : false;
+        }
+
+        @Override
+        public Ty fixVars() {
+            return new TyVar(nm, low.fixVars(), up.fixVars());
+        }
+
+        @Override
+        public Generator.Type toType(List<Generator.Bound> env) {
+            var vne_stream = env.reversed().stream();
+            var maybe = vne_stream.filter(b -> b.nm().equals(nm)).findFirst();
+            if (maybe.isPresent()) {
+                return new Generator.Var(maybe.get());
+            }
+            throw new RuntimeException("Variable " + nm + " not found in environment");
+        }
+    }
+
+    record TyCon(String nm) implements Ty {
+
+        @Override
+        public String toString() {
+            return nm;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof TyCon t
+                    ? nm.equals(t.nm()) : false;
+        }
+
+        @Override
+        public Ty fixVars() {
+            return this;
+        }
+
+        @Override
+
+        public Generator.Type toType(List<Generator.Bound> env) {
+            return new Generator.Con(nm);
+        }
+    }
+
+    record TyTuple(List<Ty> tys) implements Ty {
+
+        @Override
+        public String toString() {
+            return "(" + tys.stream().map(Ty::toString).collect(Collectors.joining(",")) + ")";
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof TyTuple t
+                    ? tys.equals(t.tys()) : false;
+        }
+
+        @Override
+        public Ty fixVars() {
+            return new TyTuple(tys.stream().map(Ty::fixVars).collect(Collectors.toList()));
+        }
+
+        @Override
+        public Generator.Type toType(List<Generator.Bound> env) {
+            return new Generator.Tuple(tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
+        }
+    }
+
+    record TyUnion(List<Ty> tys) implements Ty {
+
+        @Override
+        public String toString() {
+            return "[" + tys.stream().map(Ty::toString).collect(Collectors.joining("|")) + "]";
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof TyUnion t ? tys.equals(t.tys()) : false;
+        }
+
+        @Override
+        public Ty fixVars() {
+            return new TyUnion(tys.stream().map(Ty::fixVars).collect(Collectors.toList()));
+        }
+
+        @Override
+        public Generator.Type toType(List<Generator.Bound> env) {
+            return new Generator.Union(tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
+        }
+    }
+
+    record TyDecl(String nm, Ty ty, Ty parent, String src) {
+
+        @Override
+        public String toString() {
+            return nm + " = " + ty + " <: " + parent + Color.green("\n# " + src);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof TyDecl t
+                    ? nm.equals(t.nm()) && ty.equals(t.ty()) && parent.equals(t.parent()) : false;
+        }
+
+        public TyDecl fixVars() {
+            return new TyDecl(nm, ty.fixVars(), parent.fixVars(), src);
+        }
+
+    }
+
+    record TySig(String nm, Ty ty, String src) {
+
+        @Override
+        public String toString() {
+            return "function " + nm + " " + ty + Color.green("\n# " + src);
+        }
+
+        public TySig fixVars() {
+            return new TySig(nm, ty.fixVars(), src);
+        }
+    }
+
+    record TyExist(Ty v, Ty ty) implements Ty {
+
+        @Override
+        public String toString() {
+            return Color.red("∃") + v + Color.red(".") + ty;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof TyExist t
+                    ? v.equals(t.v()) && ty.equals(t.ty()) : false;
+        }
+
+        @Override
+        public Ty fixVars() {
+            var maybeVar = v();
+            var body = ty();
+            if (maybeVar instanceof TyVar defVar) {
+                var tv = new TyVar(defVar.nm(), defVar.low(), defVar.up());
+                return new TyExist(tv, body.fixVars());
+            } else if (maybeVar instanceof TyInst inst && inst.tys().isEmpty()) {
+                if (pre_tydb.containsKey(inst.toString())) {
+                    return body.fixVars();
+                } else {
+                    var tv = new TyVar(inst.nm(), Ty.none(), Ty.any());
+                    return new TyExist(tv, body.fixVars());
+                }
+            } else if (maybeVar instanceof TyInst inst) {
+                return new TyInst(inst.nm(), inst.tys().stream().map(Ty::fixVars).collect(Collectors.toList()));
+            } else {
+                return body.fixVars();
+            }
+        }
+
+        static int gen = 0;
+
+        @Override
+        public Generator.Type toType(List<Generator.Bound> env) {
+            String name;
+            Generator.Type low;
+            Generator.Type up;
+            if (v() instanceof TyVar tvar) {
+                name = tvar.nm();
+                name = name.equals("???") ? "t" + gen++ : name;
+                low = tvar.low().toType(env);
+                up = tvar.up().toType(env);
+            } else {
+                var inst = (TyInst) v();
+                if (!inst.tys().isEmpty()) {
+                    throw new RuntimeException("Should be a TyVar but is a type: " + ty);
+                }
+                name = inst.nm();
+                low = Generator.none;
+                up = Generator.any;
+            }
+            var b = new Generator.Bound(name, low, up);
+            var newenv = new ArrayList<>(env);
+            newenv.add(b);
+            return new Generator.Exist(b, ty().toType(newenv));
+        }
+    }
+
 }
 
 class Color {

@@ -5,19 +5,734 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.spi.CurrencyNameProvider;
+import java.util.stream.Collectors;
+
+abstract class Type {
+
+    abstract GenDB.Ty toTy();
+}
+
+// Numbers can appear in a type signature
+class DependentType extends Type {
+
+    String value;
+
+    DependentType(String value) {
+        this.value = value;
+    }
+
+    @Override
+    GenDB.Ty toTy() {
+        return new GenDB.TyCon(value);
+    }
+
+    static Type parse(Parser p) {
+        var tok = p.peek();
+        if (!tok.isNumber()) {
+            return null;
+        }
+        p.advance();
+        return new DependentType(tok.toString());
+    }
+
+}
+
+// An instance of a datatype constructor (not a union all or bound)
+class TypeInst extends Type {
+
+    TypeName name;
+    List<Type> typeParams;
+
+    TypeInst(TypeName name, List<Type> typeParams) {
+        this.name = name;
+        this.typeParams = typeParams;
+    }
+
+    static Type parse(Parser p) {
+        var dep = DependentType.parse(p);
+        if (dep != null) // If we see a number, it's a dependent type
+        {
+            return dep;
+        }
+        var name = TypeName.parse(p);
+        var typeParams = new ArrayList<Type>();
+        var tok = p.peek();
+        if (tok.isString()) { // Covers the case of MIME"xyz" which is a type
+            name.name += tok.toString();
+            p.advance();
+        }
+        if (tok.delim("{")) {
+            tok = p.advance().peek();
+            while (!tok.delim("}")) {
+                if (tok.delim(",")) {
+                    tok = p.advance().peek();
+                    continue;
+                } else {
+                    typeParams.add(BoundVar.parse(p));
+                }
+                tok = p.peek();
+            }
+            p.next();
+        }
+        return new TypeInst(name, typeParams);
+    }
+
+    @Override
+    GenDB.Ty toTy() {
+        var params = new ArrayList<GenDB.Ty>();
+        for (var param : typeParams) {
+            params.add(param.toTy());
+        }
+
+        return name.name.equals("Tuple") ? new GenDB.TyTuple(params)
+                : name.name.equals("Union") ? new GenDB.TyUnion(params)
+                : new GenDB.TyInst(name.name, params);
+    }
+
+    @Override
+    public String toString() {
+        var str = name.toString();
+        if (typeParams != null && !typeParams.isEmpty()) {
+            str += "{";
+            for (int i = 0; i < typeParams.size(); i++) {
+                str += typeParams.get(i).toString();
+                if (i < typeParams.size() - 1) {
+                    str += ", ";
+                }
+            }
+            str += "}";
+        }
+        return str;
+    }
+}
+
+class BoundVar extends Type {
+
+    Type name;
+    Type lower;
+    Type upper;
+
+    BoundVar(Type name, Type lower, Type upper) {
+        this.name = name;
+        this.lower = lower;
+        this.upper = upper;
+    }
+
+    static Type huh = new TypeInst(new TypeName("???"), null);
+
+    static boolean gotParen(Parser p) {
+        if (p.peek().delim("(")) {
+            p.advance();
+            return true;
+        }
+        return false;
+    }
+
+    static void getParen(Parser p, boolean gotParen) {
+        if (gotParen) {
+            if (p.peek().delim(")")) {
+                p.advance();
+            } else {
+                p.failAt("Missing closing paren", p.peek());
+            }
+        }
+    }
+
+    static Type parse(Parser p) {
+        if (p.peek().delim("<:")) {
+            boolean gotParen = gotParen(p.advance());
+            var b = new BoundVar(huh, null, UnionAllInst.parse(p));
+            getParen(p, gotParen);
+            return b;
+        } else {
+            var type = UnionAllInst.parse(p);
+            if (p.peek().delim("<:")) {
+                boolean gotParen = gotParen(p.advance());
+                var upper = UnionAllInst.parse(p);
+                getParen(p, gotParen);
+                Type lower = null;
+                if (p.peek().delim("<:")) {
+                    gotParen = gotParen(p.advance());
+                    lower = UnionAllInst.parse(p);
+                    getParen(p, gotParen);
+                }
+                return new BoundVar(type, lower, upper);
+            } else if (p.peek().delim(">:")) {
+                return new BoundVar(type, UnionAllInst.parse(p.advance()), null);
+            } else {
+                return type;
+            }
+        }
+    }
+
+    @Override
+    GenDB.Ty toTy() {
+        return new GenDB.TyVar(name.toString(), lower == null ? GenDB.Ty.none() : lower.toTy(),
+                (upper == null || upper.toString().equals("Any")) ? GenDB.Ty.any() : upper.toTy());
+    }
+
+    @Override
+    public String toString() {
+        return (lower != null ? lower + " <: " : "") + name.toString() + (upper != null ? " <: " + upper : "");
+    }
+}
+
+// Int{X} where {Z <: X <: Y, Y <: Int} where {X <: Int}
+class UnionAllInst extends Type {
+
+    Type type;
+    List<Type> boundVars;
+
+    UnionAllInst(Type type, List<Type> boundVars) {
+        this.type = type;
+        this.boundVars = boundVars;
+    }
+
+    static Type parse(Parser p) {
+        var type = TypeInst.parse(p);
+        var tok = p.peek();
+        if (tok.ident("where")) {
+            p.advance();
+            var boundVars = new ArrayList<Type>();
+            var gotBrace = false;
+            if (p.peek().delim("{")) {
+                p.advance();
+                gotBrace = true;
+            }
+            boundVars.add(BoundVar.parse(p));
+            while (gotBrace && p.peek().delim(",")) {
+                boundVars.add(BoundVar.parse(p.advance()));
+            }
+            if (gotBrace) {
+                if (p.peek().delim("}")) {
+                    p.advance();
+                } else {
+                    p.failAt("Missing closing brace", p.peek());
+                }
+            }
+            return new UnionAllInst(type, boundVars);
+        } else {
+            return type;
+        }
+    }
+
+    @Override
+    GenDB.Ty toTy() {
+        var ty = type.toTy();
+        var it = boundVars.listIterator(boundVars.size());
+        while (it.hasPrevious()) {
+            var boundVar = it.previous().toTy();
+            ty = new GenDB.TyExist(boundVar, ty);
+        }
+        return ty;
+    }
+
+    @Override
+    public String toString() {
+        var str = type.toString();
+        if (boundVars != null && !boundVars.isEmpty()) {
+            str += " where ";
+            for (int i = 0; i < boundVars.size(); i++) {
+                str += boundVars.get(i).toString();
+                if (i < boundVars.size() - 1) {
+                    str += ", ";
+                }
+            }
+        }
+        return str;
+    }
+}
+
+class TypeDeclaration {
+
+    String modifiers;
+    TypeName name;
+    List<Type> typeParams;
+    Type parent;
+    String sourceLine;
+
+    TypeDeclaration(String modifiers, TypeName name, List<Type> typeParams, Type parent, String source) {
+        this.modifiers = modifiers;
+        this.name = name;
+        this.typeParams = typeParams;
+        this.parent = parent;
+        this.sourceLine = source;
+
+    }
+
+    static String maybeStruct(Parser p) {
+        var str = "";
+        if (p.peek().delim("(")) {
+            if (p.advance().next().ident("closure") && p.next().delim(")")) {
+                str += "(closure) ";
+                p.advance();
+            } else {
+                p.failAt("Invalid type declaration, expected (closure) ", p.peek());
+            }
+        }
+        if (p.peek().ident("mutable")) {
+            str += "mutable ";
+            p.advance();
+        }
+        if (p.peek().ident("struct")) {
+            str += "struct ";
+            p.advance();
+        }
+        return str;
+    }
+
+    static String parseModifiers(Parser p) {
+        var str = maybeStruct(p);
+        if (!str.equals("")) {
+            return str;
+        }
+        var tok = p.next();
+        if (tok.ident("abstract") || tok.ident("primitive")) {
+            str += tok.toString() + " type ";
+            tok = p.next();
+            if (!tok.ident("type")) {
+                p.failAt("Invalid type declaration: missing type", tok);
+            }
+            return str;
+        }
+        p.failAt("Invalid type declaration", tok);
+        return null;
+    }
+
+    static boolean parseEnd(Parser p) {
+        var tok = p.peek();
+        if (tok.ident("end")) {
+            p.advance();
+            if (p.peek().delim("(")) { // Skip source information
+                while (!p.peek().isEOF() && !p.peek().delim(")")) {
+                    p.advance();
+                }
+                p.advance();
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    static TypeDeclaration parse(Parser p) {
+        var modifiers = parseModifiers(p);
+        var name = TypeName.parse(p);
+        var sourceLine = p.getLineAt(p.peek());
+        var typeParams = new ArrayList<Type>();
+        var tok = p.peek();
+        if (tok.delim("{")) {
+            tok = p.advance().peek();
+            while (!tok.delim("}")) {
+                if (tok.delim(",")) {
+                    tok = p.advance().peek();
+                    continue;
+                } else {
+                    typeParams.add(BoundVar.parse(p));
+                }
+                tok = p.peek();
+            }
+            p.advance(); // skip '}'
+        }
+        tok = p.peek();
+        if (tok.isNumber()) {
+            tok = p.advance().peek();
+        }
+        if (parseEnd(p)) {
+            return new TypeDeclaration(modifiers, name, typeParams, null, sourceLine);
+        } else if (tok.delim("<:")) {
+            var parent = TypeInst.parse(p.advance());
+            tok = p.peek();
+            if (tok.isNumber()) { // skip primitive type number of bits
+                tok = p.advance().peek();
+            }
+            if (!parseEnd(p)) {
+                p.failAt("Missed end of declaration", tok);
+            }
+            return new TypeDeclaration(modifiers, name, typeParams, parent, sourceLine);
+        }
+        p.failAt("Invalid type declaration", tok);
+        return null; // not reached
+    }
+
+    GenDB.TyDecl toTy() {
+        var parentTy = (parent == null || parent.toString().equals("Any")) ? GenDB.Ty.any() : parent.toTy();
+        var boundVars = new ArrayList<GenDB.Ty>();
+        var args = new ArrayList<GenDB.Ty>();
+        for (Type t : typeParams) {
+            var ty = t.toTy();
+            boundVars.addLast(ty);
+            args.add(ty);
+        }
+        GenDB.Ty ty = new GenDB.TyInst(name.toString(), args);
+        var it = boundVars.listIterator(boundVars.size());
+        while (it.hasPrevious()) {
+            ty = new GenDB.TyExist(it.previous(), ty);
+        }
+        return new GenDB.TyDecl(name.toString(), ty, parentTy, sourceLine);
+    }
+
+    @Override
+    public String toString() {
+        var str = modifiers + name.toString();
+        if (typeParams != null && !typeParams.isEmpty()) {
+            str += "{";
+            for (int i = 0; i < typeParams.size(); i++) {
+                str += typeParams.get(i).toString();
+                if (i < typeParams.size() - 1) {
+                    str += ", ";
+                }
+            }
+            str += "}";
+        }
+        if (parent != null) {
+            str += " <: " + parent.toString();
+        }
+        return str;
+    }
+}
+
+class TypeName {
+
+    String name;
+
+    TypeName(String name) {
+        this.name = name;
+    }
+
+    static String readDotted(Parser p) {
+        var tok = p.next();
+        var str = tok.toString();
+        tok = p.peek();
+        while (tok.delim(".")) {
+            str += "." + p.advance().nextIdentifier().toString();
+            tok = p.peek();
+        }
+        if (p.peek().isString()) {
+            str += p.next().toString();
+        }
+        if (p.peek().delim(".")) {
+            str += "." + p.advance().next().toString();
+        }
+        return str;
+    }
+
+    static TypeName parse(Parser p) {
+        var tok = p.peek();
+        if (tok.ident("typeof") || tok.ident("keytype")) {
+            var str = tok.toString();
+            p.advance();
+            if (p.peek().delim("(")) {
+                str += "(";
+                p.advance();
+                while (!p.peek().delim(")")) {
+                    str += p.next().toString();
+                }
+                str += ")";
+                p.advance();
+            }
+            return new TypeName(str);
+        } else {
+            return new TypeName(TypeName.readDotted(p));
+        }
+    }
+
+    @Override
+    public String toString() {
+        return name;
+    }
+}
+
+class FunctionName {
+
+    String name;
+
+    FunctionName(String name) {
+        this.name = name;
+    }
+
+    static FunctionName parse(Parser p) {
+        var tok = p.next();
+        var str = "";
+
+        if (tok.delim("(")) {
+            tok = p.next();
+            while (!tok.delim(")")) {
+                str += tok.toString();
+                tok = p.next();
+            }
+        } else {
+            str = tok.toString();
+            tok = p.peek();
+            while (!tok.delim("(")) {
+                str += p.next();
+                tok = p.peek();
+            }
+        }
+        return new FunctionName(str);
+    }
+
+    @Override
+    public String toString() {
+        return name;
+    }
+}
+
+class Param {
+
+    String name;
+    Type type;
+    String value;
+    String varargs;
+
+    Param(String name, Type type, String value, String varargs) {
+        this.name = name;
+        this.type = type;
+        this.value = value;
+        this.varargs = varargs;
+    }
+
+    static Type parseType(Parser p) {
+        return p.peek().delim("::") ? UnionAllInst.parse(p.advance()) : null;
+    }
+
+    static String parseValue(Parser p) {
+        return p.peek().delim("=") ? Expression.parse(p.advance()).toString() : null;
+    }
+
+    static String parseVarargs(Parser p) {
+        if (!p.peek().delim("...")) {
+            return null;
+        }
+        p.advance();
+        return "...";
+    }
+
+    static Param parse(Parser p) {
+        var gotParen = false;
+        if (p.peek().delim("@")) {
+            p.advance().advance();
+            if (p.peek().delim("(")) {
+                p.advance();
+                gotParen = true;
+            }
+        }
+        var name = "???";
+        Type type;
+        if (p.peek().isIdentifier()) {
+            name = p.next().toString();
+        } else if (p.peek().delim("(")) {
+            name = "(";
+            p.advance();
+            while (!p.peek().delim(")")) {
+                name += p.next().toString();
+            }
+            name += ")";
+            p.advance();
+        }
+        type = Param.parseType(p);
+        var value = Param.parseValue(p);
+        var varargs = Param.parseVarargs(p);
+        if (gotParen && !p.next().delim(")")) {
+            p.failAt("Missing closing paren", p.peek());
+        }
+        if (name.equals("???") && type == null && value == null && varargs == null) {
+            p.failAt("Invalid parameter", p.peek());
+        }
+        return new Param(name, type, value, varargs);
+    }
+
+    GenDB.Ty toTy() {
+        return type == null ? GenDB.Ty.any() : type.toTy();
+    }
+
+    @Override
+    public String toString() {
+        return name
+                + (type != null ? " :: " + type.toString() : "") + (value != null ? " = " + value : "")
+                + (varargs != null ? "..." : "");
+    }
+}
+
+class Function {
+
+    String modifiers;
+    FunctionName name;
+    List<Param> typeParams = new ArrayList<>();
+    List<Type> wheres = new ArrayList<>();
+    String source;
+
+    void parseModifiers(Parser p) {
+        var tok = p.peek();
+        var str = "";
+        if (tok.delim("@")) {
+            str += "@";
+            tok = p.peek();
+            while (!tok.isEOF() && !tok.ident("function")) {
+                str += p.next().toString();
+                tok = p.peek();
+            }
+        }
+        if (tok.ident("function")) {
+            p.advance();
+            str += "function ";
+        } else {
+            p.failAt("Missied function keyword", tok);
+        }
+        modifiers = str;
+    }
+
+    static List<Type> parseWhere(Parser p, List<Type> wheres) {
+        var tok = p.peek();
+        boolean gotBrace = false;
+        if (tok.delim("{")) {
+            gotBrace = true;
+            tok = p.advance().peek();
+        }
+        while (true) {
+            wheres.add(BoundVar.parse(p));
+            tok = p.peek();
+            if (tok.delim(",")) {
+                tok = p.advance().peek();
+            } else {
+                break;
+            }
+        }
+        if (gotBrace) {
+            if (tok.delim("}")) {
+                p.advance();
+            } else {
+                p.failAt("Missing closing brace", tok);
+            }
+        }
+        return wheres;
+    }
+
+    static Function parse(Parser p) {
+        var f = new Function();
+        f.parseModifiers(p);
+        f.name = FunctionName.parse(p);
+        f.source = p.getLineAt(p.peek());
+        var tok = p.peek();
+        if (tok.delim("(")) {
+            tok = p.advance().peek();
+            while (!tok.delim(")")) {
+                if (tok.delim(",") || tok.delim(";")) {
+                    tok = p.advance().peek();
+                    continue;
+                } else {
+                    f.typeParams.add(Param.parse(p));
+                }
+                tok = p.peek();
+            }
+            p.advance(); // skip '}'
+        }
+        if (!p.peek().isEOF() && p.peek().delim("::")) {
+            p.advance();
+            TypeInst.parse(p); // ignore the return type
+        }
+        if (!p.peek().isEOF() && p.peek().ident("where")) {
+            p.advance();
+            parseWhere(p, f.wheres);
+        }
+        if (!p.peek().isEOF() && p.peek().ident("where")) {
+            p.advance();
+            parseWhere(p, f.wheres);
+        }
+
+        if (!p.peek().isEOF() && p.peek().delim("@")) {
+            while (!p.peek().isEOF() && !p.peek().ident("function")) {
+                p.advance();
+            }
+        }
+        if (!p.peek().isEOF() && p.peek().ident("in")) {
+            p.advance();
+            while (!p.peek().isEOF() && !p.peek().delim(")")) {
+                p.advance();
+            }
+            p.advance();
+        }
+        return f;
+    }
+
+    GenDB.TySig toTy() {
+        var nm = name.toString();
+        List<GenDB.Ty> tys = typeParams.stream().map(Param::toTy).collect(Collectors.toList());
+        var reverse = wheres.reversed();
+        GenDB.Ty ty = new GenDB.TyTuple(tys);
+        for (var where : reverse) {
+            ty = new GenDB.TyExist(where.toTy(), ty);
+        }
+        return new GenDB.TySig(nm, ty, source);
+    }
+
+    @Override
+    public String toString() {
+        var str = modifiers + name.toString();
+        if (typeParams != null && !typeParams.isEmpty()) {
+            str += "(";
+            for (int i = 0; i < typeParams.size(); i++) {
+                str += typeParams.get(i).toString();
+                if (i < typeParams.size() - 1) {
+                    str += ", ";
+                }
+            }
+            str += ")";
+        }
+        if (wheres != null && !wheres.isEmpty()) {
+            str += " where ";
+            for (int i = 0; i < wheres.size(); i++) {
+                str += wheres.get(i).toString();
+                if (i < wheres.size() - 1) {
+                    str += ", ";
+                }
+            }
+        }
+        return str;
+    }
+}
+
+class Expression {
+
+    String value;
+
+    Expression(String value) {
+        this.value = value;
+    }
+
+    static boolean couldBeDone(Parser.Token tok, int level) {
+        boolean possibleEnd = tok.delim(",") || tok.delim(";") || tok.delim(")");
+        return possibleEnd && level <= 0;
+    }
+
+    static Expression parse(Parser p) {
+        int level = 0; // number of parentheses that are open
+        var str = "";
+        var tok = p.peek();
+        while (!couldBeDone(tok, level)) {
+            str += tok.toString();
+            if (tok.delim("(")) {
+                level++;
+            } else if (tok.delim(")")) {
+                level--;
+            }
+            tok = p.advance().peek();
+        }
+        return new Expression(str);
+    }
+
+    @Override
+    public String toString() {
+        return value;
+    }
+}
 
 public class Parser {
 
     private String[] lines;
     private List<Token> toks;
     private Token last;
-    private int curPos;
-    boolean verbose = true;
-
-    public Parser() {
-        this.curPos = 0;
-    }
+    private int curPos = 0;
 
     public Parser withFile(String path) {
         this.lines = getLines(path);
@@ -47,12 +762,8 @@ public class Parser {
         return lines[tok.line];
     }
 
-    String getLine() {
-        return lines[last.line];
-    }
-
     enum Kind {
-        KEYWORD, OPERATOR, DELIMITER, IDENTIFIER, NUMBER, STRING, EOF;
+        DELIMITER, IDENTIFIER, NUMBER, STRING, EOF;
     }
 
     private final Token EOF = new Token(Kind.EOF, "EOF", 0, 0);

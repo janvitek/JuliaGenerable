@@ -5,7 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
-class Generator {
+public class Generator {
 
     interface Type {
 
@@ -41,7 +41,7 @@ class Generator {
 
     // Each variable occurence, must refer to a bound in an enclosing \Exist. At this point, we should have
     // rejected types with free variables as ill-formed.
-    record Var(Bound b) implements Type {
+    public record Var(Bound b) implements Type {
 
         @Override
         public String toString() {
@@ -62,7 +62,7 @@ class Generator {
 
     // A constant, such as a number, character or string. The implementation of the parser does not attempt
     // do much we constant, they are treated as uninterpreted strings.
-    record Con(String nm) implements Type {
+    public record Con(String nm) implements Type {
 
         @Override
         public String toString() {
@@ -94,7 +94,7 @@ class Generator {
         }
     }
 
-    record Tuple(List<Type> tys) implements Type {
+    public record Tuple(List<Type> tys) implements Type {
 
         @Override
         public String toString() {
@@ -122,111 +122,32 @@ class Generator {
         }
     }
 
-    int gen = 0;
-
-    Type toType(Ty t, List<Bound> env) {
-        return switch (t) {
-            case TyInst ty ->
-                new Inst(ty.nm(), ty.tys().stream().map(tt -> toType(tt, env)).collect(Collectors.toList()));
-            case TyVar ty ->
-                new Var(env.reversed().stream().filter(b -> b.nm().equals(ty.nm())).findFirst().orElseThrow());
-            case TyCon ty ->
-                new Con(ty.nm());
-            case TyUnion ty ->
-                new Union(ty.tys().stream().map(tt -> toType(tt, env)).collect(Collectors.toList()));
-            case TyTuple ty ->
-                new Tuple(ty.tys().stream().map(tt -> toType(tt, env)).collect(Collectors.toList()));
-            case TyExist ty -> {
-                String name;
-                Type low;
-                Type up;
-                if (ty.v() instanceof TyVar tvar) {
-                    name = tvar.nm();
-                    name = name.equals("???") ? "t" + gen++ : name;
-                    low = toType(tvar.low(), env);
-                    up = toType(tvar.up(), env);
-                } else {
-                    var inst = (TyInst) ty.v();
-                    if (!inst.tys().isEmpty()) {
-                        throw new RuntimeException("Should be a TyVar but is a type: " + ty);
-                    }
-                    name = inst.nm();
-                    low = none;
-                    up = any;
-                }
-                var b = new Bound(name, low, up);
-                var newenv = new ArrayList<>(env);
-                newenv.add(b);
-                yield new Exist(b, toType(ty.ty(), newenv));
-            }
-            default ->
-                throw new RuntimeException("Unknown type: " + t);
-        };
-    }
-
-    // Unwrap the existentials in the type, and return the bounds in the order they appear.
-    // Called with a type declaration, so there should only be instances and existentials.
-    List<Bound> getBounds(Type t, List<Bound> env) {
-        assert t != null;
-        if (t instanceof Inst) {
-            return env;
-        }
-        var ty = (Exist) t;
-        env.addLast(ty.b());
-        return getBounds(ty.ty(), env);
-    }
-
-    Decl toDecl(InhNode n) {
-        var env = new ArrayList<Bound>();
-        var t = toType(n.decl.ty(), env);
-        var inst = toType(n.decl.parent(), getBounds(t, env));
-        var p = n.parent == null ? null : n.parent.d;
-        return new Decl(n.name, t, inst, p, n.decl.src());
-    }
-
-    Sig toSig(TySig n) {
-        var env = new ArrayList<Bound>();
-        var t = toType(n.ty(), env);
-        return new Sig(n.nm(), t, n.src());
-    }
-
     GenDB db; // our database of types and signatures
-    // The index is a map from type names to the corresponding node in the inheritance tree.
-    HashMap<String, InhNode> index = new HashMap<>();
+    HashMap<String, InhNode> index = new HashMap<>(); // Map from type names to corresponding node in the inheritance tree
 
-    public Generator(GenDB db) {
+    Generator(GenDB db) {
         this.db = db;
     }
 
-    void processTypes() {
+    public void gen() {
         for (var decl : db.tydb.values()) {
-            var node = new InhNode(decl);
-            index.put(node.name, node);
+            index.put(decl.nm(), new InhNode(decl));
         }
-        for (var node : index.values()) {
-            var pNode = index.get(node.parentName);
-            if (pNode == null) {
-                System.err.println("Warning: " + node.name + " has no parent " + node.parentName);
-                continue;
-            }
-            node.parent = pNode;
-            pNode.children.add(node);
+        for (var n : index.values()) {
+            n.fixUp();
         }
-
         var d = index.get("Any");
         printHierarchy(d, 0);
         build(d);
-    }
 
-    void processSigs() {
         for (var signodes : db.sigdb.values()) {
-            for (var signode : signodes) {
+            for (var n : signodes) {
                 try {
-                    var s = toSig(signode);
+                    var s = new Sig(n.nm(), n.ty().toType(new ArrayList<>()), n.src());
                     System.out.println(s);
                 } catch (Exception e) {
-                    System.err.println("Error: " + signode.nm() + " " + e.getMessage());
-                    System.err.println(Color.green("Failed at " + signode.src()));
+                    System.err.println("Error: " + n.nm() + " " + e.getMessage());
+                    System.err.println(Color.green("Failed at " + n.src()));
                 }
             }
         }
@@ -242,7 +163,7 @@ class Generator {
     void build(InhNode n) {
         Decl d;
         try {
-            d = toDecl(n);
+            d = n.toDecl();
             System.out.println(d);
         } catch (Exception e) {
             System.err.println("Error: " + n.name + " " + e.getMessage());
@@ -256,26 +177,53 @@ class Generator {
     class InhNode {
 
         String name;
-        TyDecl decl;
+        GenDB.TyDecl decl;
         Decl d = null;
         InhNode parent = null;
         String parentName;
         List< InhNode> children = new ArrayList<>();
 
-        public InhNode(TyDecl d) {
+        public InhNode(GenDB.TyDecl d) {
             this.decl = d;
             this.name = d.nm();
-            this.parentName = findName(d.parent());
+            this.parentName = ((GenDB.TyInst) d.parent()).nm();
+        }
+
+        void fixUp() {
+            if (name.equals("Any")) {
+                return;
+            }
+            var pNode = index.get(parentName);
+            parent = pNode;
+            if (pNode == null) {
+                System.err.println("Warning: " + name + " has no parent " + parentName);
+            } else {
+                pNode.children.add(this);
+            }
+        }
+
+        Decl toDecl() {
+            if (name.equals("Any")) {
+                return new Decl("Any", any, any, null, "");
+            }
+            var env = new ArrayList<Bound>();
+            var t = decl.ty().toType(env);
+            var inst = decl.parent().toType(getBounds(t, env));
+            return new Decl(name, t, inst, parent.d, decl.src());
+        }
+
+        // Unwrap the existentials in the type, and return the bounds in the order they appear.
+        // Called with a type declaration, so there should only be instances and existentials.
+        private List<Bound> getBounds(Type t, List<Bound> env) {
+            assert t != null;
+            if (t instanceof Inst) {
+                return env;
+            } else if (t instanceof Exist ty) {
+                env.addLast(ty.b());
+                return getBounds(ty.ty(), env);
+            }
+            throw new RuntimeException("Unknown type: " + t);
         }
     }
 
-    String findName(Ty ty) {
-        if (ty instanceof TyInst t) {
-            return t.nm();
-        }
-        if (ty instanceof TyUnion t) {
-            return "None";
-        }
-        throw new RuntimeException("Unknown type: " + ty);
-    }
 }
