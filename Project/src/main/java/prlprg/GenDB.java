@@ -109,7 +109,24 @@ class GenDB {
 
         @Override
         public Generator.Type toType(List<Generator.Bound> env) {
-            return new Generator.Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
+            List<TyVar> vars = tys.stream().filter(t -> t instanceof TyVar).map(t -> (TyVar) t).collect(Collectors.toList());
+            if (vars.isEmpty()) {
+                return new Generator.Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
+            }
+            var tys2 = tys.stream().map(tt -> unvar(tt)).collect(Collectors.toList());
+            Ty ty = new TyInst(nm, tys2);
+            for (var v : vars) {
+                ty = new TyExist(v, ty);
+            }
+            return ty.toType(env);
+        }
+
+        Ty unvar(Ty ty) {
+            if (ty instanceof TyVar tvar) {
+                return new TyInst(tvar.nm(), List.of());
+            } else {
+                return ty;
+            }
         }
     }
 
@@ -279,8 +296,6 @@ class GenDB {
             }
         }
 
-        static int gen = 0;
-
         @Override
         public Generator.Type toType(List<Generator.Bound> env) {
             String name;
@@ -288,7 +303,6 @@ class GenDB {
             Generator.Type up;
             if (v() instanceof TyVar tvar) {
                 name = tvar.nm();
-                name = name.equals("???") ? "t" + gen++ : name;
                 low = tvar.low().toType(env);
                 up = tvar.up().toType(env);
             } else {

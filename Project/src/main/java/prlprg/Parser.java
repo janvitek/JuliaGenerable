@@ -118,8 +118,6 @@ class BoundVar extends Type {
         this.upper = upper;
     }
 
-    static Type huh = new TypeInst(new TypeName("???"), null);
-
     static boolean gotParen(Parser p) {
         if (p.peek().delim("(")) {
             p.advance();
@@ -138,10 +136,13 @@ class BoundVar extends Type {
         }
     }
 
+    static int gen = 0;
+
     static Type parse(Parser p) {
         if (p.peek().delim("<:")) {
             boolean gotParen = gotParen(p.advance());
-            var b = new BoundVar(huh, null, UnionAllInst.parse(p));
+            var fresh = new TypeInst(new TypeName("?" + ++gen), null);
+            var b = new BoundVar(fresh, null, UnionAllInst.parse(p));
             getParen(p, gotParen);
             return b;
         } else {

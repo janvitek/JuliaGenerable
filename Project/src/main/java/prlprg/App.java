@@ -2,7 +2,7 @@ package prlprg;
 
 public class App {
 
-    static boolean debug = true;
+    static boolean debug = false;
     static GenDB db = new GenDB();
     static String dir = "../Inputs/";
     static String tstr = """
@@ -23,7 +23,7 @@ public class App {
         while (!p.peek().isEOF()) {
             db.addTyDecl(TypeDeclaration.parse(p).toTy());
         }
-        debug = true;
+        debug = false;
         p = new Parser();
         p = debug ? p.withString(str) : p.withFile(dir + "raicode_functions.jlg");
         while (!p.peek().isEOF()) {
