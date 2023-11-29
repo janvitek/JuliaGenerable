@@ -46,12 +46,6 @@ class GenDB {
                 System.err.println(CodeColors.variables("Failed at " + t0.src));
             }
         }
-        // add patched types if any
-        for (var name : pre_tydb.keySet()) {
-            if (!tydb.containsKey(name)) {
-                tydb.put(name, pre_tydb.get(name)); // no need to fixVars because this is a patched type
-            }
-        }
 
         for (var name : pre_sigdb.keySet()) {
             if (!sigdb.containsKey(name)) {
@@ -59,6 +53,12 @@ class GenDB {
             }
             for (var sig : pre_sigdb.get(name)) {
                 sigdb.get(name).add(sig.fixUp(new ArrayList<>()));
+            }
+        }
+        // add patched types if any
+        for (var name : pre_tydb.keySet()) {
+            if (!tydb.containsKey(name)) {
+                tydb.put(name, pre_tydb.get(name)); // no need to fixVars because this is a patched type
             }
         }
     }
