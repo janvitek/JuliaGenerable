@@ -8,8 +8,8 @@ public class App {
     static String[] defaultArgs = {//"-d", // run micro tests
         "-c LIGHT", // color the output
         "-r ../Inputs/", // root directory with input files
-        "-f raicode_functions.jlg", // file with function signatures
-        "-t raicode_types.jlg"}; // file with type declarations
+        "-f rai_functions.jlg", // file with function signatures
+        "-t rai_types.jlg"}; // file with type declarations
 
     public static void main(String[] args) {
         parseArgs(args);
