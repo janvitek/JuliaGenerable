@@ -113,7 +113,7 @@ class GenDB {
                 if (!pre_tydb.containsKey(nm)) {
                     System.err.println("Warning: " + nm + " not found in type database, patching");
                     var miss = new TyInst(nm, List.of());
-                    pre_tydb.put(nm, new TyDecl(nm, miss, Ty.any(), "(missing)"));
+                    pre_tydb.put(nm, new TyDecl("missing", nm, miss, Ty.any(), "(missing)"));
                 }
                 var args = new ArrayList<Ty>();
                 var vars = new ArrayList<TyVar>();
@@ -290,11 +290,11 @@ class GenDB {
 
     }
 
-    record TyDecl(String nm, Ty ty, Ty parent, String src) {
+    record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
 
         @Override
         public String toString() {
-            return nm + " = " + ty + " <: " + parent + CodeColors.variables("\n# " + src);
+            return nm + " = " + mod + " " + ty + " <: " + parent + CodeColors.variables("\n# " + src);
         }
 
         TyDecl fixUp() {
@@ -322,7 +322,7 @@ class GenDB {
             for (var arg : fixedArgs) {
                 t = new TyExist(arg, t);
             }
-            return new TyDecl(nm, t, fixedRHS, src);
+            return new TyDecl(mod, nm, t, fixedRHS, src);
         }
 
     }

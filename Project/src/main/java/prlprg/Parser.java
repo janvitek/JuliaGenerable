@@ -374,7 +374,8 @@ class TypeDeclaration {
         var parentTy = (parent == null || parent.toString().equals("Any")) ? GenDB.Ty.any() : parent.toTy();
         var args = typeParams.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
         var ty = new GenDB.TyInst(name.name(), args);
-        return new GenDB.TyDecl(name.toString(), ty, parentTy, sourceLine);
+        var mod = modifiers.contains("struct") ? "struct" : "type";
+        return new GenDB.TyDecl(mod, name.toString(), ty, parentTy, sourceLine);
     }
 
     @Override

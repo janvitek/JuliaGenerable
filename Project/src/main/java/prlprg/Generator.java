@@ -103,12 +103,12 @@ public class Generator {
     // A type declaration introduces a new type name, with a type instance and a parent.
     // The type Any has no parent, and is the root of the type hierarchy.
     // We do not print the case where the parent is Any, since it is the default.
-    record Decl(String nm, Type ty, Type inst, Decl parent, String src) {
+    record Decl(String mod, String nm, Type ty, Type inst, Decl parent, String src) {
 
         @Override
         public String toString() {
             var ignore = nm.equals("Any") || this.parent.nm.equals("Any"); // parent is null for Any
-            return "type " + nm + " ≡ " + ty + (ignore ? "" : " <: " + inst);
+            return nm + " ≡ " + mod + " " + ty + (ignore ? "" : " <: " + inst);
         }
     }
 
@@ -200,13 +200,13 @@ public class Generator {
 
         Decl toDecl() {
             if (name.equals("Any")) {
-                return d = new Decl("Any", any, any, null, "");
+                return d = new Decl("type", "Any", any, any, null, "");
             }
             var env = new ArrayList<Bound>();
             var t = decl.ty().toType(env);
             var inst = decl.parent().toType(getBounds(t, env));
             assert parent.d != null;
-            return d = new Decl(name, t, inst, parent.d, decl.src());
+            return d = new Decl(decl.mod(), name, t, inst, parent.d, decl.src());
         }
 
         // Unwrap the existentials in the type, and return the bounds in the order they appear.
