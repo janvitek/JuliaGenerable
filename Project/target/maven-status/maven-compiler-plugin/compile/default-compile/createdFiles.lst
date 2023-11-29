@@ -5,11 +5,11 @@ prlprg/Parser.class
 prlprg/Generator$Union.class
 prlprg/Generator$Sig.class
 prlprg/GenDB$TyDecl.class
-prlprg/Color.class
 prlprg/TypeDeclaration.class
 prlprg/GenDB.class
 prlprg/GenDB$TyExist.class
 prlprg/GenDB$TyVar.class
+prlprg/CodeColors.class
 prlprg/Generator$Tuple.class
 prlprg/Generator$InhNode.class
 prlprg/GenDB$TySig.class
@@ -29,6 +29,7 @@ prlprg/GenDB$TyUnion.class
 prlprg/Expression.class
 prlprg/Generator$Var.class
 prlprg/App.class
+prlprg/CodeColors$Mode.class
 prlprg/TypeInst.class
 prlprg/GenDB$TyInst.class
 prlprg/Param.class

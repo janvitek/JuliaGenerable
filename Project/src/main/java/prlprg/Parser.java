@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 abstract class Type {
 
+    // Creates the simpler format
     abstract GenDB.Ty toTy();
 }
 
@@ -21,6 +22,7 @@ class DependentType extends Type {
         this.value = value;
     }
 
+    // Creates the simpler format
     @Override
     GenDB.Ty toTy() {
         return new GenDB.TyCon(value);
@@ -55,38 +57,49 @@ class TypeInst extends Type {
             return dep;
         }
         var name = TypeName.parse(p);
-        var typeParams = new ArrayList<Type>();
+        var params = new ArrayList<Type>();
         var tok = p.peek();
         if (tok.isString()) { // Covers the case of MIME"xyz" which is a type
-            name.name += tok.toString();
+            var str = tok.toString().replaceAll("\"", "");
+            name = new TypeName(name.toString() + str);
             p.advance();
         }
-        if (tok.delim("{")) {
+        // Hack, Val{:el} is a tyoe
+        if (name.equals("Val")) {
+            var str = "";
+            if (p.peek().delim("{")) {
+                p.advance();
+                while (!p.peek().delim("}")) {
+                    str += p.next().toString();
+                }
+                p.advance();
+            }
+            params.add(new DependentType(str));
+            return new TypeInst(name, params);
+        } else if (tok.delim("{")) {
             tok = p.advance().peek();
             while (!tok.delim("}")) {
                 if (tok.delim(",")) {
                     tok = p.advance().peek();
                     continue;
                 } else {
-                    typeParams.add(BoundVar.parse(p));
+                    params.add(BoundVar.parse(p));
                 }
                 tok = p.peek();
             }
             p.next();
         }
-        return new TypeInst(name, typeParams);
+        return new TypeInst(name, params);
     }
 
+    // An instance of a datatype with zero or more type parameters.
+    // In the case of Union and Tuple types, create the specific types.
     @Override
     GenDB.Ty toTy() {
-        var params = new ArrayList<GenDB.Ty>();
-        for (var param : typeParams) {
-            params.add(param.toTy());
-        }
-
-        return name.name.equals("Tuple") ? new GenDB.TyTuple(params)
-                : name.name.equals("Union") ? new GenDB.TyUnion(params)
-                : new GenDB.TyInst(name.name, params);
+        var ps = typeParams.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
+        return name.equals("Tuple") ? new GenDB.TyTuple(ps)
+                : name.equals("Union") ? new GenDB.TyUnion(ps)
+                : new GenDB.TyInst(name.name(), ps);
     }
 
     @Override
@@ -166,6 +179,7 @@ class BoundVar extends Type {
         }
     }
 
+    // Create a bound variable, the default for lower and upper bouds are none (Union{}) and Any.
     @Override
     GenDB.Ty toTy() {
         return new GenDB.TyVar(name.toString(), lower == null ? GenDB.Ty.none() : lower.toTy(),
@@ -393,13 +407,7 @@ class TypeDeclaration {
     }
 }
 
-class TypeName {
-
-    String name;
-
-    TypeName(String name) {
-        this.name = name;
-    }
+record TypeName(String name) {
 
     static String readDotted(Parser p) {
         var tok = p.next();
@@ -411,6 +419,7 @@ class TypeName {
         }
         if (p.peek().isString()) {
             str += p.next().toString();
+            str = str.replaceAll("\"", "");
         }
         if (p.peek().delim(".")) {
             str += "." + p.advance().next().toString();
@@ -435,6 +444,17 @@ class TypeName {
             return new TypeName(str);
         } else {
             return new TypeName(TypeName.readDotted(p));
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof TypeName t) {
+            return name.equals(t.name);
+        } else if (o instanceof String s) {
+            return name.equals(s);
+        } else {
+            return false;
         }
     }
 
@@ -737,14 +757,24 @@ public class Parser {
 
     public Parser withFile(String path) {
         this.lines = getLines(path);
-        this.toks = tokenize(lines);
         return this;
     }
 
     public Parser withString(String s) {
         this.lines = s.split("\n");
-        this.toks = tokenize(lines);
         return this;
+    }
+
+    public void addLines(String s) {
+        var ls = s.split("\n");
+        var newLines = new String[lines.length + ls.length];
+        System.arraycopy(lines, 0, newLines, 0, lines.length);
+        System.arraycopy(ls, 0, newLines, lines.length, ls.length);
+        lines = newLines;
+    }
+
+    public void tokenize() {
+        toks = tokenize(lines);
     }
 
     private final String[] empty = new String[0];

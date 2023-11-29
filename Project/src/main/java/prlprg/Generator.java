@@ -24,12 +24,10 @@ public class Generator {
         return t instanceof Union u && u.tys.isEmpty();
     }
 
-    //The instance of a type constructor can have type parameters, examples are: Int32 and Vector{Int,N}.
-    // When occuring on the left hand side of a type declaration, an instance can only have bound variables.
-    // When occuring on the right hand side of a type declaration an instance can have a mix of types
-    // and variables (bound on the LHS of the <:).
-    // When generating results, the type instance should not have free variables.
-    // Furthermore, we expect that the constructor name is defined in the type db.
+    //A construtor instance may have type parameters, examples instances are: Int32 and Vector{Int,N}.
+    // When on the LHS of a type declaration, an instance can only have bound variables.
+    // When on the RHS of a type declaration an instance can have a mix of instance and variables (bound on LHS of <:).
+    // On its own, an instance should not have free variables.  Its name should be defined in the typedb.
     record Inst(String nm, List<Type> tys) implements Type {
 
         @Override
@@ -45,7 +43,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            return Color.yellow(b.nm());
+            return CodeColors.variables(b.nm());
         }
     }
 
@@ -56,7 +54,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            return (!isNone(low) ? low + "<:" : "") + Color.yellow(nm) + (!isAny(up) ? "<:" + up : "");
+            return (!isNone(low) ? low + "<:" : "") + CodeColors.light(nm) + (!isAny(up) ? "<:" + up : "");
         }
     }
 
@@ -74,7 +72,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            return Color.red("∃") + b + Color.red(".") + ty;
+            return CodeColors.standout("∃") + b + CodeColors.standout(".") + ty;
         }
     }
 
@@ -90,7 +88,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            return "[" + tys.stream().map(Type::toString).collect(Collectors.joining(Color.red("|"))) + "]";
+            return "[" + tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.standout("|"))) + "]";
         }
     }
 
@@ -109,7 +107,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            var ignore = this.parent == null || this.parent.nm.equals("Any");
+            var ignore = nm.equals("Any") || this.parent.nm.equals("Any"); // parent is null for Any
             return "type " + nm + " ≡ " + ty + (ignore ? "" : " <: " + inst);
         }
     }
@@ -135,6 +133,7 @@ public class Generator {
         }
         for (var n : index.values()) {
             n.fixUp();
+            System.err.println("Fixed up " + n.name + " " + n.parentName + " " + n.parent.d);
         }
         var d = index.get("Any");
         printHierarchy(d, 0);
@@ -147,14 +146,14 @@ public class Generator {
                     System.out.println(s);
                 } catch (Exception e) {
                     System.err.println("Error: " + n.nm() + " " + e.getMessage());
-                    System.err.println(Color.green("Failed at " + n.src()));
+                    System.err.println(CodeColors.variables("Failed at " + n.src()));
                 }
             }
         }
     }
 
     void printHierarchy(InhNode n, int pos) {
-        System.out.println(Color.red(".").repeat(pos) + n.name);
+        System.out.println(CodeColors.standout(".").repeat(pos) + n.name);
         for (var c : n.children) {
             printHierarchy(c, pos + 1);
         }
@@ -190,26 +189,26 @@ public class Generator {
         }
 
         void fixUp() {
+            System.err.println("Fixing up " + name + " " + parentName + " " + decl);
             if (name.equals("Any")) {
+                this.parent = this;
                 return;
             }
             var pNode = index.get(parentName);
-            parent = pNode;
-            if (pNode == null) {
-                System.err.println("Warning: " + name + " has no parent " + parentName);
-            } else {
-                pNode.children.add(this);
-            }
+            assert pNode != null;
+            this.parent = pNode;
+            pNode.children.add(this);
         }
 
         Decl toDecl() {
             if (name.equals("Any")) {
-                return new Decl("Any", any, any, null, "");
+                return d = new Decl("Any", any, any, null, "");
             }
             var env = new ArrayList<Bound>();
             var t = decl.ty().toType(env);
             var inst = decl.parent().toType(getBounds(t, env));
-            return new Decl(name, t, inst, parent.d, decl.src());
+            assert parent.d != null;
+            return d = new Decl(name, t, inst, parent.d, decl.src());
         }
 
         // Unwrap the existentials in the type, and return the bounds in the order they appear.
