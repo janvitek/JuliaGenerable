@@ -38,27 +38,13 @@ class GenDB {
         var keys = new ArrayList<>(pre_tydb.keySet());
         for (var name : keys) {
             var t0 = pre_tydb.get(name);
-            var t = t0.fixVars();
-            var f = t.freeVars();
-            if (!f.isEmpty()) {
-                System.out.println("Patching missing types " + t.freeVars() + " from " + t);
-                for (var v : f) {
-                    var missty = new TyInst(v, List.of()); // toString works because we only have variables
-                    pre_tydb.put(v, new TyDecl(v, missty, Ty.any(), "(missing)"));
-                }
-                t = t0.fixVars(); // re run with the new types
+            try {
+                var t = t0.fixUp();
+                tydb.put(name, t);
+            } catch (Exception e) {
+                System.err.println("Error: " + name + " " + e.getMessage());
+                System.err.println(CodeColors.variables("Failed at " + t0.src));
             }
-            assert t.freeVars().isEmpty();
-            var m = t.missingTyInst();
-            if (!m.isEmpty()) {
-                System.out.println("Patching missing parametric types " + m + " from " + t);
-                for (var v : m) {
-                    var missty = new TyInst(v, List.of()); // toString works because we only have variables
-                    pre_tydb.put(v, new TyDecl(v, missty, Ty.any(), "(missing)"));
-                }
-                t = t0.fixVars();
-            }
-            tydb.put(name, t);
         }
         // add patched types if any
         for (var name : pre_tydb.keySet()) {
@@ -72,7 +58,7 @@ class GenDB {
                 sigdb.put(name, new ArrayList<>());
             }
             for (var sig : pre_sigdb.get(name)) {
-                sigdb.get(name).add(sig.fixVars());
+                sigdb.get(name).add(sig.fixUp(new ArrayList<>()));
             }
         }
     }
@@ -92,13 +78,9 @@ class GenDB {
             return None;
         }
 
-        Ty fixVars();
-
         Generator.Type toType(List<Generator.Bound> env);
 
-        List<String> freeVars(List<String> bounds);
-
-        List<String> missingTyInst();
+        Ty fixUp(List<TyVar> bounds);
 
     }
 
@@ -111,61 +93,64 @@ class GenDB {
         }
 
         @Override
-        public boolean equals(Object o) {
-            return o instanceof TyInst t
-                    ? nm.equals(t.nm()) && tys.equals(t.tys()) : false;
-        }
-
-        @Override
-        public Ty fixVars() {
+        public Ty fixUp(List<TyVar> bounds) {
             if (nm().equals("Val")) {
                 return new TyCon(this.toString());
             } else if (nm().startsWith("typeof(")) { // typeof is a special case
                 return new TyCon(nm());
             } else if (nm().equals("Nothing")) {
                 return Ty.None;
-            } else if (tys.isEmpty() && !pre_tydb.containsKey(nm)) {
-                return new TyVar(nm, Ty.none(), Ty.any());
             } else {
-                return new TyInst(nm, tys.stream().map(Ty::fixVars).collect(Collectors.toList()));
+                for (var v : bounds) {
+                    if (v.nm().equals(nm())) {
+                        if (tys.isEmpty()) {
+                            return v;
+                        } else {
+                            throw new RuntimeException("Type " + nm() + " is a variable, but is used as a type");
+                        }
+                    }
+                }
+                if (!pre_tydb.containsKey(nm)) {
+                    System.err.println("Warning: " + nm + " not found in type database, patching");
+                    var miss = new TyInst(nm, List.of());
+                    pre_tydb.put(nm, new TyDecl(nm, miss, Ty.any(), "(missing)"));
+                }
+                var args = new ArrayList<Ty>();
+                var vars = new ArrayList<TyVar>();
+                var newBounds = new ArrayList<TyVar>(bounds);
+                for (var a : tys) {
+                    if (a instanceof TyVar tv && !inList(tv, bounds)) {
+                        tv = (TyVar) tv.fixUp(bounds);
+                        newBounds.add(tv);
+                        vars.add(tv);
+                        args.add(tv);
+                    } else {
+                        args.add(a.fixUp(newBounds));
+                    }
+                }
+                Ty t = new TyInst(nm, args);
+                for (var v : vars) {
+                    t = new TyExist(v, t);
+                }
+                return t;
             }
+        }
+
+        private boolean inList(TyVar tv, List<TyVar> bounds) {
+            for (var b : bounds) {
+                if (b.nm().equals(tv.nm())) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         @Override
-        public Generator.Type toType(List<Generator.Bound> env) {
-            List<TyVar> vars = tys.stream().filter(t -> t instanceof TyVar).map(t -> (TyVar) t).collect(Collectors.toList());
-            if (vars.isEmpty()) {
-                return new Generator.Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
-            }
-            var tys2 = tys.stream().map(tt -> unvar(tt)).collect(Collectors.toList());
-            Ty ty = new TyInst(nm, tys2);
-            for (var v : vars) {
-                ty = new TyExist(v, ty);
-            }
-            return ty.toType(env);
+        public Generator.Type toType(List<Generator.Bound> env
+        ) {
+            return new Generator.Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
         }
 
-        Ty unvar(Ty ty) {
-            if (ty instanceof TyVar tvar) {
-                return new TyInst(tvar.nm(), List.of());
-            } else {
-                return ty;
-            }
-        }
-
-        @Override
-        public List<String> freeVars(List<String> bounds) {
-            return tys.stream().flatMap(t -> t.freeVars(bounds).stream()).collect(Collectors.toList());
-        }
-
-        @Override
-        public List<String> missingTyInst() {
-            var miss = tys.stream().flatMap(t -> t.missingTyInst().stream()).collect(Collectors.toList());
-            if (!pre_tydb.containsKey(nm)) {
-                miss.add(nm);
-            }
-            return miss;
-        }
     }
 
     record TyVar(String nm, Ty low, Ty up) implements Ty {
@@ -173,17 +158,6 @@ class GenDB {
         @Override
         public String toString() {
             return (!low.equals(Ty.none()) ? low + "<:" : "") + CodeColors.light(nm) + (!up.equals(Ty.any()) ? "<:" + up : "");
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            return o instanceof TyVar t
-                    ? nm.equals(t.nm()) && low.equals(t.low()) && up.equals(t.up()) : false;
-        }
-
-        @Override
-        public Ty fixVars() {
-            return new TyVar(nm, low.fixVars(), up.fixVars());
         }
 
         @Override
@@ -197,24 +171,10 @@ class GenDB {
         }
 
         @Override
-        public List<String> freeVars(List<String> bounds) {
-            var ls = low.freeVars(bounds);
-            var us = up.freeVars(bounds);
-            var combined = new ArrayList<>(ls);
-            combined.addAll(us);
-            if (!bounds.contains(nm)) {
-                combined.add(nm);
-            }
-            return combined;
+        public Ty fixUp(List<TyVar> bounds) {
+            return new TyVar(nm, low.fixUp(bounds), up.fixUp(bounds));
         }
 
-        @Override
-        public List<String> missingTyInst() {
-            var mup = this.up.missingTyInst();
-            var mlow = this.low.missingTyInst();
-            mlow.addAll(mup);
-            return mlow;
-        }
     }
 
     record TyCon(String nm) implements Ty {
@@ -225,30 +185,14 @@ class GenDB {
         }
 
         @Override
-        public boolean equals(Object o) {
-            return o instanceof TyCon t
-                    ? nm.equals(t.nm()) : false;
-        }
-
-        @Override
-        public Ty fixVars() {
-            return this;
-        }
-
-        @Override
 
         public Generator.Type toType(List<Generator.Bound> env) {
             return new Generator.Con(nm);
         }
 
         @Override
-        public List<String> freeVars(List<String> bounds) {
-            return List.of();
-        }
-
-        @Override
-        public List<String> missingTyInst() {
-            return List.of();
+        public Ty fixUp(List<TyVar> bounds) {
+            return this;
         }
     }
 
@@ -260,30 +204,15 @@ class GenDB {
         }
 
         @Override
-        public boolean equals(Object o) {
-            return o instanceof TyTuple t
-                    ? tys.equals(t.tys()) : false;
-        }
-
-        @Override
-        public Ty fixVars() {
-            return new TyTuple(tys.stream().map(Ty::fixVars).collect(Collectors.toList()));
-        }
-
-        @Override
         public Generator.Type toType(List<Generator.Bound> env) {
             return new Generator.Tuple(tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
         }
 
         @Override
-        public List<String> freeVars(List<String> bounds) {
-            return tys.stream().flatMap(t -> t.freeVars(bounds).stream()).collect(Collectors.toList());
+        public Ty fixUp(List<TyVar> bounds) {
+            return new TyTuple(tys.stream().map(t -> t.fixUp(bounds)).collect(Collectors.toList()));
         }
 
-        @Override
-        public List<String> missingTyInst() {
-            return tys.stream().flatMap(t -> t.missingTyInst().stream()).collect(Collectors.toList());
-        }
     }
 
     record TyUnion(List<Ty> tys) implements Ty {
@@ -294,29 +223,15 @@ class GenDB {
         }
 
         @Override
-        public boolean equals(Object o) {
-            return o instanceof TyUnion t ? tys.equals(t.tys()) : false;
-        }
-
-        @Override
-        public Ty fixVars() {
-            return new TyUnion(tys.stream().map(Ty::fixVars).collect(Collectors.toList()));
-        }
-
-        @Override
         public Generator.Type toType(List<Generator.Bound> env) {
             return new Generator.Union(tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
         }
 
         @Override
-        public List<String> freeVars(List<String> bounds) {
-            return tys.stream().flatMap(t -> t.freeVars(bounds).stream()).collect(Collectors.toList());
+        public Ty fixUp(List<TyVar> bounds) {
+            return new TyUnion(tys.stream().map(t -> t.fixUp(bounds)).collect(Collectors.toList()));
         }
 
-        @Override
-        public List<String> missingTyInst() {
-            return tys.stream().flatMap(t -> t.missingTyInst().stream()).collect(Collectors.toList());
-        }
     }
 
     record TyExist(Ty v, Ty ty) implements Ty {
@@ -327,29 +242,23 @@ class GenDB {
         }
 
         @Override
-        public boolean equals(Object o) {
-            return o instanceof TyExist t
-                    ? v.equals(t.v()) && ty.equals(t.ty()) : false;
-        }
-
-        @Override
-        public Ty fixVars() {
+        public Ty fixUp(List<TyVar> bound) {
             var maybeVar = v();
             var body = ty();
             if (maybeVar instanceof TyVar defVar) {
-                var tv = new TyVar(defVar.nm(), defVar.low(), defVar.up());
-                return new TyExist(tv, body.fixVars());
+                var tv = new TyVar(defVar.nm(), defVar.low().fixUp(bound), defVar.up().fixUp(bound));
+                var newBound = new ArrayList<>(bound);
+                newBound.add(tv);
+                return new TyExist(tv, body.fixUp(newBound));
             } else if (maybeVar instanceof TyInst inst) {
                 assert inst.tys().isEmpty();
-                if (pre_tydb.containsKey(inst.nm())) {
-                    return body.fixVars(); // Somehow we got a type name in a list of variables. Funky.
-                }
                 var tv = new TyVar(inst.nm(), Ty.none(), Ty.any());
-                return new TyExist(tv, body.fixVars());
+                var newBound = new ArrayList<>(bound);
+                newBound.add(tv);
+                return new TyExist(tv, body.fixUp(newBound));
             } else if (maybeVar instanceof TyTuple) {
                 // struct RAICode.QueryEvaluator.Vectorized.Operators.var\"#21#22\"{var\"#10063#T\", var\"#10064#vars\", var_types, *, var\"#10065#target\", Tuple} <: Function end (from module RAICode.QueryEvaluator.Vectorized.Operators)
-                // TODO: the symbol * is treated as a type...
-                return body.fixVars();
+                throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: got tuple ");
             } else {
                 throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: " + maybeVar);
             }
@@ -379,20 +288,6 @@ class GenDB {
             return new Generator.Exist(b, ty().toType(newenv));
         }
 
-        @Override
-        public List<String> freeVars(List<String> bounds) {
-            var newBounds = new ArrayList<>(bounds);
-            var vname = ((TyVar) v()).nm();
-            newBounds.add(vname);
-            return ty().freeVars(newBounds);
-        }
-
-        @Override
-        public List<String> missingTyInst() {
-            var mty = ty().missingTyInst();
-            mty.addAll(v().missingTyInst());
-            return mty;
-        }
     }
 
     record TyDecl(String nm, Ty ty, Ty parent, String src) {
@@ -402,40 +297,34 @@ class GenDB {
             return nm + " = " + ty + " <: " + parent + CodeColors.variables("\n# " + src);
         }
 
-        @Override
-        public boolean equals(Object o) {
-            return o instanceof TyDecl t
-                    ? nm.equals(t.nm()) && ty.equals(t.ty()) && parent.equals(t.parent()) : false;
-        }
-
-        public TyDecl fixVars() {
-            return new TyDecl(nm, ty.fixVars(), parent.fixVars(), src);
-        }
-
-        public List<String> getBounds() {
-            var bounds = new ArrayList<String>();
-            var typ = ty();
-            while (typ instanceof TyExist e) {
-                var v = (TyVar) e.v();
-                bounds.add(v.nm());
-                typ = e.ty();
+        TyDecl fixUp() {
+            var lhs = (TyInst) ty;
+            var rhs = (TyInst) parent;
+            var fixedArgs = new ArrayList<TyVar>();
+            for (var targ : lhs.tys) {
+                switch (targ) {
+                    case TyVar tv ->
+                        fixedArgs.add((TyVar) tv.fixUp(fixedArgs));
+                    case TyInst ti -> {
+                        if (!ti.tys.isEmpty()) {
+                            throw new RuntimeException("Should be a TyVar but is a type: " + targ);
+                        }
+                        fixedArgs.add(new TyVar(ti.nm(), Ty.none(), Ty.any()));
+                    }
+                    default ->
+                        throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: " + targ);
+                }
             }
-            return bounds;
+            var fixedRHS = (TyInst) rhs.fixUp(fixedArgs);
+            var args = new ArrayList<Ty>();
+            args.addAll(fixedArgs);
+            Ty t = new TyInst(lhs.nm(), args);
+            for (var arg : fixedArgs) {
+                t = new TyExist(arg, t);
+            }
+            return new TyDecl(nm, t, fixedRHS, src);
         }
 
-        List<String> freeVars() {
-            var bs = getBounds();
-            var frees = ty.freeVars(List.of());
-            var parentFrees = parent.freeVars(bs);
-            frees.addAll(parentFrees);
-            return frees;
-        }
-
-        List<String> missingTyInst() {
-            var miss = ty.missingTyInst();
-            miss.addAll(parent.missingTyInst());
-            return miss;
-        }
     }
 
     record TySig(String nm, Ty ty, String src) {
@@ -446,8 +335,8 @@ class GenDB {
 
         }
 
-        public TySig fixVars() {
-            return new TySig(nm, ty.fixVars(), src);
+        TySig fixUp(List<TyVar> bounds) {
+            return new TySig(nm, ty.fixUp(bounds), src);
         }
 
     }

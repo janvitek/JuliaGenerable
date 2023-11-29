@@ -372,18 +372,8 @@ class TypeDeclaration {
 
     GenDB.TyDecl toTy() {
         var parentTy = (parent == null || parent.toString().equals("Any")) ? GenDB.Ty.any() : parent.toTy();
-        var boundVars = new ArrayList<GenDB.Ty>();
-        var args = new ArrayList<GenDB.Ty>();
-        for (Type t : typeParams) {
-            var ty = t.toTy();
-            boundVars.addLast(ty);
-            args.add(ty);
-        }
-        GenDB.Ty ty = new GenDB.TyInst(name.toString(), args);
-        var it = boundVars.listIterator(boundVars.size());
-        while (it.hasPrevious()) {
-            ty = new GenDB.TyExist(it.previous(), ty);
-        }
+        var args = typeParams.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
+        var ty = new GenDB.TyInst(name.name(), args);
         return new GenDB.TyDecl(name.toString(), ty, parentTy, sourceLine);
     }
 

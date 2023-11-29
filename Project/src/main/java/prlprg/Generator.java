@@ -133,7 +133,6 @@ public class Generator {
         }
         for (var n : index.values()) {
             n.fixUp();
-            System.err.println("Fixed up " + n.name + " " + n.parentName + " " + n.parent.d);
         }
         var d = index.get("Any");
         printHierarchy(d, 0);
@@ -189,7 +188,6 @@ public class Generator {
         }
 
         void fixUp() {
-            System.err.println("Fixing up " + name + " " + parentName + " " + decl);
             if (name.equals("Any")) {
                 this.parent = this;
                 return;
