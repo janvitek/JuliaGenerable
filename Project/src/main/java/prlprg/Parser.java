@@ -280,7 +280,6 @@ class TypeDeclaration {
         if (p.peek().delim("(")) {
             if (p.advance().next().ident("closure") && p.next().delim(")")) {
                 str += "(closure) ";
-                p.advance();
             } else {
                 p.failAt("Invalid type declaration, expected (closure) ", p.peek());
             }
@@ -374,7 +373,7 @@ class TypeDeclaration {
         var parentTy = (parent == null || parent.toString().equals("Any")) ? GenDB.Ty.any() : parent.toTy();
         var args = typeParams.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
         var ty = new GenDB.TyInst(name.name(), args);
-        var mod = modifiers.contains("struct") ? "struct" : "type";
+        var mod = modifiers;//modifiers.contains("struct") ? "struct" : "type";
         return new GenDB.TyDecl(mod, name.toString(), ty, parentTy, sourceLine);
     }
 

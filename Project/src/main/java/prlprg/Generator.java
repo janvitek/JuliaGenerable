@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Comparator;
 
 public class Generator {
 
@@ -54,7 +55,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            return (!isNone(low) ? low + "<:" : "") + CodeColors.light(nm) + (!isAny(up) ? "<:" + up : "");
+            return (!isNone(low) ? low + "<:" : "") + CodeColors.variables(nm) + (!isAny(up) ? "<:" + up : "");
         }
     }
 
@@ -88,7 +89,8 @@ public class Generator {
 
         @Override
         public String toString() {
-            return "[" + tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.standout("|"))) + "]";
+            var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.standout("|")));
+            return CodeColors.standout("[") + str + CodeColors.standout("]");
         }
     }
 
@@ -96,7 +98,8 @@ public class Generator {
 
         @Override
         public String toString() {
-            return "(" + tys.stream().map(Type::toString).collect(Collectors.joining(",")) + ")";
+            var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.standout(",")));
+            return CodeColors.standout("(") + str + CodeColors.standout(")");
         }
     }
 
@@ -108,7 +111,11 @@ public class Generator {
         @Override
         public String toString() {
             var ignore = nm.equals("Any") || this.parent.nm.equals("Any"); // parent is null for Any
-            return nm + " ≡ " + mod + " " + ty + (ignore ? "" : " <: " + inst);
+            return nm + " ≡ " + mod + " " + ty + (ignore ? "" : CodeColors.standout(" <: ") + inst);
+        }
+
+        public boolean isAbstract() {
+            return mod.contains("abstract");
         }
     }
 
@@ -135,9 +142,11 @@ public class Generator {
             n.fixUp();
         }
         var d = index.get("Any");
-        printHierarchy(d, 0);
         build(d);
-
+        if (App.PRINT_HIERARCHY) {
+            System.out.println("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
+            printHierarchy(d, 0);
+        }
         for (var signodes : db.sigdb.values()) {
             for (var n : signodes) {
                 try {
@@ -151,8 +160,22 @@ public class Generator {
         }
     }
 
+    static class NameOrder implements Comparator<InhNode> {
+
+        @Override
+        public int compare(InhNode n1, InhNode n2) {
+            return n1.name.compareTo(n2.name);
+        }
+    }
+
     void printHierarchy(InhNode n, int pos) {
-        System.out.println(CodeColors.standout(".").repeat(pos) + n.name);
+        if (!n.isGood()) { // a node that is not 'good' is a node that failed building, this happens
+            return;// when the structure of the type does not meet our expectations. Basically, it is unsuported features
+        } // of Julia. Here we choose not to print the children of such a node. Revisit this decision?
+        var str = n.d == null || n.d.isAbstract() ? CodeColors.light(n.name) : n.name;
+        str = n.d.mod().contains("missing") ? CodeColors.standout(str) : str;
+        System.out.println(CodeColors.standout(".").repeat(pos) + str);
+        n.children.sort(new NameOrder());
         for (var c : n.children) {
             printHierarchy(c, pos + 1);
         }
@@ -174,6 +197,7 @@ public class Generator {
 
     class InhNode {
 
+        boolean good = false;
         String name;
         GenDB.TyDecl decl;
         Decl d = null;
@@ -185,6 +209,11 @@ public class Generator {
             this.decl = d;
             this.name = d.nm();
             this.parentName = ((GenDB.TyInst) d.parent()).nm();
+        }
+
+        // Is this a fully built node ?
+        boolean isGood() {
+            return good;
         }
 
         void fixUp() {
@@ -200,13 +229,15 @@ public class Generator {
 
         Decl toDecl() {
             if (name.equals("Any")) {
-                return d = new Decl("type", "Any", any, any, null, "");
+                d = new Decl("type", "Any", any, any, null, "");
+            } else {
+                var env = new ArrayList<Bound>();
+                var t = decl.ty().toType(env);
+                var inst = decl.parent().toType(getBounds(t, env));
+                d = new Decl(decl.mod(), name, t, inst, parent.d, decl.src());
             }
-            var env = new ArrayList<Bound>();
-            var t = decl.ty().toType(env);
-            var inst = decl.parent().toType(getBounds(t, env));
-            assert parent.d != null;
-            return d = new Decl(decl.mod(), name, t, inst, parent.d, decl.src());
+            good = true;
+            return d;
         }
 
         // Unwrap the existentials in the type, and return the bounds in the order they appear.

@@ -2,14 +2,18 @@ package prlprg;
 
 public class App {
 
-    static boolean debug = false;
+    public static boolean debug, PRINT_HIERARCHY, NO_CLOSURES;
     static GenDB db = new GenDB();
     static String dir, types, functions;
-    static String[] defaultArgs = {//"-d", // run micro tests
-        "-c LIGHT", // color the output
-        "-r ../Inputs/", // root directory with input files
-        "-f rai_functions.jlg", // file with function signatures
-        "-t rai_types.jlg"}; // file with type declarations
+    static String[] defaultArgs = {
+        "-d=FALSE", // run micro tests
+        "-c=LIGHT", // color the output
+        "-r=../Inputs/", // root directory with input files
+        "-f=raicode_functions.jlg", // file with function signatures
+        "-t=raicode_types.jlg", // file with type declarations
+        "-h=TRUE", // print hierarchy
+        "-i=FALSE", // ignore closures
+    };
 
     public static void main(String[] args) {
         parseArgs(args);
@@ -56,15 +60,21 @@ public class App {
             args = defaultArgs;
         }
         for (var arg : args) {
-            if (arg.equals("-d")) { // debug
-                debug = true;
-            } else if (arg.startsWith("-r ")) {  // root directory
+            if (arg.startsWith("-d")) { // debug
+                debug = arg.substring(3).strip().equals("TRUE");
+            } else if (arg.startsWith("-h")) { // debug
+                PRINT_HIERARCHY = arg.substring(3).strip().equals("TRUE");
+            } else if (arg.startsWith("-i")) { // debug
+                NO_CLOSURES = arg.substring(3).strip().equals("TRUE");
+            } else if (arg.startsWith("-d")) { // debug
+                debug = arg.substring(3).strip().equals("TRUE");
+            } else if (arg.startsWith("-r")) {  // root directory
                 dir = arg.substring(3).strip();
-            } else if (arg.startsWith("-t ")) {
+            } else if (arg.startsWith("-t")) {
                 types = arg.substring(3).strip();
-            } else if (arg.startsWith("-f ")) {
+            } else if (arg.startsWith("-f")) {
                 functions = arg.substring(3).strip();
-            } else if (arg.startsWith("-c ")) { // Color mode
+            } else if (arg.startsWith("-c")) { // Color mode
                 CodeColors.mode = switch (arg.substring(3).strip()) {
                     case "DARK" ->
                         CodeColors.Mode.DARK;

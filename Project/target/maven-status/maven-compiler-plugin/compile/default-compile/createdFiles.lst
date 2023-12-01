@@ -36,5 +36,6 @@ prlprg/Param.class
 prlprg/Generator$Type.class
 prlprg/Generator$Bound.class
 prlprg/Parser$Kind.class
+prlprg/Generator$NameOrder.class
 prlprg/TypeName.class
 prlprg/Function.class
