@@ -5,6 +5,7 @@ prlprg/Parser.class
 prlprg/Generator$Union.class
 prlprg/Generator$Sig.class
 prlprg/GenDB$TyDecl.class
+prlprg/Generator$Shortener.class
 prlprg/TypeDeclaration.class
 prlprg/GenDB.class
 prlprg/GenDB$TyExist.class

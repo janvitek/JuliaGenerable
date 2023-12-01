@@ -2,7 +2,7 @@ package prlprg;
 
 public class App {
 
-    public static boolean debug, PRINT_HIERARCHY, NO_CLOSURES;
+    public static boolean debug, PRINT_HIERARCHY, NO_CLOSURES, SHORTEN;
     static GenDB db = new GenDB();
     static String dir, types, functions;
     static String[] defaultArgs = {
@@ -13,10 +13,12 @@ public class App {
         "-t=raicode_types.jlg", // file with type declarations
         "-h=TRUE", // print hierarchy
         "-i=FALSE", // ignore closures
+        "-s=TRUE", // print shorter type names
     };
 
     public static void main(String[] args) {
-        parseArgs(args);
+        parseArgs(defaultArgs); // set default values
+        parseArgs(args); // override them with command line arguments
         var p = new Parser();
         p = debug ? p.withString(tstr) : p.withFile(dir + types);
         p.addLines(addType); // adding some builtin types (see below)
@@ -56,14 +58,13 @@ public class App {
     """;
 
     static void parseArgs(String[] args) {
-        if (args.length == 0) {
-            args = defaultArgs;
-        }
         for (var arg : args) {
             if (arg.startsWith("-d")) { // debug
                 debug = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-h")) { // debug
                 PRINT_HIERARCHY = arg.substring(3).strip().equals("TRUE");
+            } else if (arg.startsWith("-s")) { // debug
+                SHORTEN = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-i")) { // debug
                 NO_CLOSURES = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-d")) { // debug

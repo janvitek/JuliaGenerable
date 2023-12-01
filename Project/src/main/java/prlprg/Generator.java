@@ -2,6 +2,7 @@ package prlprg;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.Comparator;
@@ -34,7 +35,8 @@ public class Generator {
         @Override
         public String toString() {
             var args = tys.stream().map(Type::toString).collect(Collectors.joining(","));
-            return nm + (tys.isEmpty() ? "" : "{" + args + "}");
+            var snm = shortener.shorten(nm);
+            return snm + (tys.isEmpty() ? "" : "{" + args + "}");
         }
     }
 
@@ -80,14 +82,6 @@ public class Generator {
     record Union(List<Type> tys) implements Type {
 
         @Override
-        public boolean equals(Object o) {
-            if (o instanceof Union u) {
-                return tys.equals(u.tys);
-            }
-            return false;
-        }
-
-        @Override
         public String toString() {
             var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.standout("|")));
             return CodeColors.standout("[") + str + CodeColors.standout("]");
@@ -111,7 +105,8 @@ public class Generator {
         @Override
         public String toString() {
             var ignore = nm.equals("Any") || this.parent.nm.equals("Any"); // parent is null for Any
-            return nm + " ≡ " + mod + " " + ty + (ignore ? "" : CodeColors.standout(" <: ") + inst);
+            var snm = shortener.shorten(nm);
+            return snm + " ≡ " + mod + " " + ty + (ignore ? "" : CodeColors.standout(" <: ") + inst);
         }
 
         public boolean isAbstract() {
@@ -209,6 +204,7 @@ public class Generator {
             this.decl = d;
             this.name = d.nm();
             this.parentName = ((GenDB.TyInst) d.parent()).nm();
+            shortener.register(name);
         }
 
         // Is this a fully built node ?
@@ -254,4 +250,34 @@ public class Generator {
         }
     }
 
+    private final static Shortener shortener = new Shortener();
+
+    // Some type names are long, we try to shorten them while ensuring that there is no ambiguity.
+    // When there is ambiguity, we just use the full name. To do this, we make a pass over the database
+    // and first observe all short
+    private final static class Shortener {
+
+        HashMap<String, HashSet<String>> occurences = new HashMap<>();
+
+        void register(String s) {
+            var suffix = suffix(s);
+            var occs = occurences.getOrDefault(suffix, new HashSet<>());
+            occs.add(s);
+            occurences.put(suffix, occs);
+        }
+
+        private String suffix(String s) {
+            var i = s.lastIndexOf(".");
+            return i == -1 ? s : s.substring(i + 1);
+        }
+
+        String shorten(String s) {
+            if (App.SHORTEN) {
+                var suffix = suffix(s);
+                return occurences.get(suffix).size() == 1 ? suffix : s;
+            } else {
+                return s;
+            }
+        }
+    }
 }
