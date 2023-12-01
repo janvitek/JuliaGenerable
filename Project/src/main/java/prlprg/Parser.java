@@ -65,7 +65,7 @@ class TypeInst extends Type {
             p.advance();
         }
         // Hack, Val{:el} is a tyoe
-        if (name.equals("Val")) {
+        if (name.same("Val")) {
             var str = "";
             if (p.peek().delim("{")) {
                 p.advance();
@@ -97,8 +97,8 @@ class TypeInst extends Type {
     @Override
     GenDB.Ty toTy() {
         var ps = typeParams.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
-        return name.equals("Tuple") ? new GenDB.TyTuple(ps)
-                : name.equals("Union") ? new GenDB.TyUnion(ps)
+        return name.same("Tuple") ? new GenDB.TyTuple(ps)
+                : name.same("Union") ? new GenDB.TyUnion(ps)
                 : new GenDB.TyInst(name.name(), ps);
     }
 
@@ -437,15 +437,8 @@ record TypeName(String name) {
         }
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (o instanceof TypeName t) {
-            return name.equals(t.name);
-        } else if (o instanceof String s) {
-            return name.equals(s);
-        } else {
-            return false;
-        }
+    public boolean same(String s) {
+        return name.equals(s);
     }
 
     @Override
