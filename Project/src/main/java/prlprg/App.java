@@ -9,8 +9,8 @@ public class App {
         "-d=FALSE", // run micro tests
         "-c=LIGHT", // color the output
         "-r=../Inputs/", // root directory with input files
-        "-f=raicode_functions.jlg", // file with function signatures
-        "-t=raicode_types.jlg", // file with type declarations
+        "-f=f-test.jlg", // file with function signatures
+        "-t=t.jlg", // file with type declarations
         "-h=TRUE", // print hierarchy
         "-i=FALSE", // ignore closures
         "-s=TRUE", // print shorter type names
@@ -21,16 +21,13 @@ public class App {
         parseArgs(args); // override them with command line arguments
         var p = new Parser();
         p = debug ? p.withString(tstr) : p.withFile(dir + types);
-        p.addLines(addType); // adding some builtin types (see below)
-        p.tokenize();
-        while (!p.peek().isEOF()) {
-            db.addTyDecl(TypeDeclaration.parse(p).toTy());
+        while (!p.isEmpty()) {
+            db.addTyDecl(TypeDeclaration.parse(p.sliceLine()).toTy());
         }
         p = new Parser();
         p = debug ? p.withString(str) : p.withFile(dir + functions);
-        p.tokenize();
-        while (!p.peek().isEOF()) {
-            db.addSig(Function.parse(p).toTy());
+        while (!p.isEmpty()) {
+            db.addSig(Function.parse(p.sliceLine()).toTy());
         }
         db.cleanUp();
         new Generator(db).gen();
@@ -45,12 +42,13 @@ public class App {
     // RHS has a bound we support
     //   struct C{T<:Tuple{}, A<:B{Tuple{}}} <: B{T} end (from)
     static String tstr = """
-      struct A{T<:B{<:B}} <: B end
       struct C{T<:Tuple{}, A<:B{Tuple{}}} <: B{T} end (from)
+      struct A{T<:B{<:B}} <: B end
       abstract type R <: Vector{Val{:el}} end
       struct D{T, S, E} <: B{E} end (asdsa)
     """;
     static String str = """
+     function two(a::Int32, b::Int32)
      function a(x::N{K, V, E}, y::Union{BV1{K, V, E}, BV2{K, V, E}} where {K, V, E}, w::Union{B1{K, V, E}, B2{K, V, E}}) where {K, V, E}
      function _tuplen(t::Type{<:Tuple}) in RAICode.QueryEva...uQQtils.jl:103 (method for generic function _tuplen)
      function f() @  asda/asds
@@ -90,8 +88,4 @@ public class App {
             }
         }
     }
-    // add any type declarations that cannot be found or patched.
-    static String addType = """
-        abstract type Any end
-        """;
 }
