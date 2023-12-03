@@ -1,4 +1,3 @@
-prlprg/DependentType.class
 prlprg/FunctionName.class
 prlprg/GenDB$Ty.class
 prlprg/Parser.class
@@ -6,6 +5,7 @@ prlprg/Generator$Union.class
 prlprg/Generator$Sig.class
 prlprg/GenDB$TyDecl.class
 prlprg/Generator$Shortener.class
+prlprg/Parser$Lex.class
 prlprg/TypeDeclaration.class
 prlprg/GenDB.class
 prlprg/GenDB$TyExist.class
@@ -13,21 +13,19 @@ prlprg/GenDB$TyVar.class
 prlprg/CodeColors.class
 prlprg/Generator$Tuple.class
 prlprg/Generator$InhNode.class
+prlprg/Parser$Lex$Tok.class
 prlprg/GenDB$TySig.class
 prlprg/Generator$Con.class
-prlprg/Parser$Lexer.class
 prlprg/GenDB$TyCon.class
 prlprg/Generator$Decl.class
 prlprg/GenDB$TyTuple.class
 prlprg/Type.class
-prlprg/Parser$Token.class
 prlprg/UnionAllInst.class
 prlprg/Generator.class
 prlprg/BoundVar.class
 prlprg/Generator$Inst.class
 prlprg/Generator$Exist.class
 prlprg/GenDB$TyUnion.class
-prlprg/Expression.class
 prlprg/Generator$Var.class
 prlprg/App.class
 prlprg/CodeColors$Mode.class
