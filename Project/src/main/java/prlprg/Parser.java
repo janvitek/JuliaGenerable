@@ -6,33 +6,75 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 interface Type {
 
     // Creates the simpler format
     GenDB.Ty toTy();
+
+    // Type names can include string and numbers and concatenated vars
+    static String parseTypeName(Parser p) {
+        var tok = p.take();
+        if (tok.is("typeof") || tok.is("keytype")) {
+            var str = tok.toString();
+            var q = p.sliceMatchedDelims("(", ")");
+            if (q.isEmpty()) {
+                return str; // typeof or keytype without parens (odd?)
+            }
+            str += "(";
+            while (q.isEmpty()) {
+                str += q.take().toString();
+            }
+            str += ")";
+            return str;
+        } else {
+            var nm = tok.toString();
+            if (nm.startsWith("\"") && nm.endsWith("\"")) {
+                return nm; // A quoted string, leave it as is.
+            } else {
+                return nm.replaceAll("\"", ""); // Get rid of quotes in case of MIME"xyz"
+            }
+        }
+    }
+
+    // Functions can inlucde concatenated vars as well as parenthesized stuff.
+    static String parseFunctionName(Parser p) {
+        var q = p.sliceMatchedDelims("(", ")"); // for parenthesized funtion names
+        if (q.isEmpty()) {
+            return p.take().toString().replaceAll("\"", "");  // Get rid of quotes in case of "fun"
+        }
+        var str = "";
+        while (!q.isEmpty()) {
+            str += q.take().toString();
+        }
+        return str;
+    }
+
 }
 
-// An instance of a datatype constructor (not a union all or bound)
+// An instance of a datatype constructor (not a union all or bound var).
 record TypeInst(String nm, List<Type> ps) implements Type {
 
     static Type parse(Parser p) {
-        var name = TypeName.parse(p).toString();
-        var params = new ArrayList<Type>();
+        var name = Type.parseTypeName(p);
+        List<Type> params = new ArrayList<>();
         var q = p.sliceMatchedDelims("{", "}");
         while (!q.isEmpty()) {
-            params.add(BoundVar.parse(q));
-            if (q.has(",")) {
-                q.drop().failIfEmpty("Missing type parameter", p.peek());
-            }
+            params.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
         }
         return new TypeInst(name, params);
     }
 
+    static Pattern pattern = Pattern.compile("[-+]?\\d*\\.?\\d+([eE][-+]?\\d+)?");
+
     // An instance of a datatype with zero or more type parameters.
-    // In the case of Union and Tuple types, create the specific types.
+    // In the case the nm is Union or Tuple, create the specific types.
     @Override
     public GenDB.Ty toTy() {
+        if (ps.isEmpty() && (nm.startsWith(":") || nm.startsWith("\"") || pattern.matcher(nm).matches())) {
+            return new GenDB.TyCon(nm);
+        }
         var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
         return nm.equals("Tuple") ? new GenDB.TyTuple(tys)
                 : nm.equals("Union") ? new GenDB.TyUnion(tys)
@@ -46,6 +88,9 @@ record TypeInst(String nm, List<Type> ps) implements Type {
     }
 }
 
+// A variable with optional upper and lower bounds. At this point we are still a little shaky
+// on which is which, so we parse all of them to Type. Also, if we get an implicit variable
+// name, we create a fesh name for it. thwse names start with a question mark.
 record BoundVar(Type name, Type lower, Type upper) implements Type {
 
     BoundVar(Type name, Type lower, Type upper) {
@@ -119,8 +164,7 @@ record UnionAllInst(Type body, List<Type> bounds) implements Type {
         var ty = body.toTy();
         var it = bounds.listIterator(bounds.size());
         while (it.hasPrevious()) {
-            var boundVar = it.previous().toTy();
-            ty = new GenDB.TyExist(boundVar, ty);
+            ty = new GenDB.TyExist(it.previous().toTy(), ty);
         }
         return ty;
     }
@@ -154,15 +198,12 @@ record TypeDeclaration(String modifiers, String nm, List<Type> ps, Type parent, 
 
     static TypeDeclaration parse(Parser p) {
         var modifiers = parseModifiers(p);
-        var name = TypeName.parse(p).toString();
-        var sourceLine = p.last.getLine();
-        var typeParams = new ArrayList<Type>();
+        var name = Type.parseTypeName(p);
+        var src = p.last.getLine();
+        var ps = new ArrayList<Type>();
         var q = p.sliceMatchedDelims("{", "}");
         while (!q.isEmpty()) {
-            typeParams.add(BoundVar.parse(q));
-            if (q.has(",")) {
-                q.drop().failIfEmpty("Missing type parameter", p.peek());
-            }
+            ps.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
         }
         if (p.peek().isNumber()) {
             p.drop();
@@ -177,7 +218,7 @@ record TypeDeclaration(String modifiers, String nm, List<Type> ps, Type parent, 
         }
         p.drop();
         p.sliceMatchedDelims("(", ")");
-        return new TypeDeclaration(modifiers, name, typeParams, parent, sourceLine);
+        return new TypeDeclaration(modifiers, name, ps, parent, src);
     }
 
     GenDB.TyDecl toTy() {
@@ -192,53 +233,6 @@ record TypeDeclaration(String modifiers, String nm, List<Type> ps, Type parent, 
         return modifiers + nm
                 + (ps.isEmpty() ? "" : ("{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}"))
                 + (parent == null ? "" : (" <: " + parent));
-    }
-}
-
-record TypeName(String nm) {
-
-    static TypeName parse(Parser p) {
-        var tok = p.take();
-        if (tok.is("typeof") || tok.is("keytype")) {
-            var str = tok.toString();
-            var q = p.sliceMatchedDelims("(", ")");
-            if (q.isEmpty()) {
-                return new TypeName(str); // typeof or keytype without parens (odd?)
-            }
-            str += "(";
-            while (q.isEmpty()) {
-                str += q.take().toString();
-            }
-            str += ")";
-            return new TypeName(str);
-        } else {
-            return new TypeName(tok.toString().replaceAll("\"", "")); // Get rid of quotes in case of MIME"xyz"
-        }
-    }
-
-    @Override
-    public String toString() {
-        return nm;
-    }
-}
-
-record FunctionName(String nm) {
-
-    static FunctionName parse(Parser p) {
-        var q = p.sliceMatchedDelims("(", ")"); // for parenthesized funtion names
-        if (q.isEmpty()) {
-            return new FunctionName(p.take().toString().replaceAll("\"", ""));  // Get rid of quotes in case of "fun"
-        }
-        var str = "";
-        while (!q.isEmpty()) {
-            str += q.take().toString();
-        }
-        return new FunctionName(str);
-    }
-
-    @Override
-    public String toString() {
-        return nm;
     }
 }
 
@@ -293,7 +287,7 @@ record Function(String nm, List<Param> ps, List<Type> wheres, String src) {
         if (p.has("function")) {
             p.drop();
         }
-        var name = FunctionName.parse(p);
+        var name = Type.parseFunctionName(p);
         var source = p.last.getLine();
         var q = p.sliceMatchedDelims("(", ")");
         var params = new ArrayList<Param>();
@@ -463,13 +457,10 @@ public class Parser {
                 return toString().equals(s);
             }
 
+            static Pattern pattern = Pattern.compile("[-+]?\\d*\\.?\\d+([eE][-+]?\\d+)?");
+
             boolean isNumber() {
-                try {
-                    Float.parseFloat(toString());
-                    return true;
-                } catch (NumberFormatException e) {
-                    return false;
-                }
+                return pattern.matcher(toString()).matches();
             }
 
             boolean isEOF() {

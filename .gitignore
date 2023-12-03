@@ -16,4 +16,4 @@
 *.aux
 *.bbl
 *~
-Project/target/maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst
+Project/target

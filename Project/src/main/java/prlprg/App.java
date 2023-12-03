@@ -6,7 +6,7 @@ public class App {
     static GenDB db = new GenDB();
     static String dir, types, functions;
     static String[] defaultArgs = {
-        "-d=FALSE", // run micro tests
+        "-d=TRUE", // run micro tests
         "-c=LIGHT", // color the output
         "-r=../Inputs/", // root directory with input files
         "-f=f-test.jlg", // file with function signatures
@@ -42,17 +42,24 @@ public class App {
     // RHS has a bound we support
     //   struct C{T<:Tuple{}, A<:B{Tuple{}}} <: B{T} end (from)
     static String tstr = """
-      struct C{T<:Tuple{}, A<:B{Tuple{}}} <: B{T} end (from)
-      struct A{T<:B{<:B}} <: B end
-      abstract type R <: Vector{Val{:el}} end
-      struct D{T, S, E} <: B{E} end (asdsa)
+      abstract type Tuple end
+      abstract type B{X} end
+      struct C{T<:Tuple{}, A<:B{Tuple{}}} <: B{T} end
+      struct A{T<:B{<:B}} <: B{T} end
+      abstract type Val{X} end
+      abstract type R <: B{Val{:el}} end
+      struct D{T, S, E} <: B{E} end
+      struct Int32 end
+      struct T1 <: Val{:el} end
+      struct T2 <: Val{10} end
+      -struct T3 <: Val{\"hi\"} end
     """;
     static String str = """
-     function two(a::Int32, b::Int32)
-     function a(x::N{K, V, E}, y::Union{BV1{K, V, E}, BV2{K, V, E}} where {K, V, E}, w::Union{B1{K, V, E}, B2{K, V, E}}) where {K, V, E}
-     function _tuplen(t::Type{<:Tuple}) in RAICode.QueryEva...uQQtils.jl:103 (method for generic function _tuplen)
+     function two(a::A{Int32}, b::Int32)
+     function a(x::D{K, V}, y::Union{B1{K, V}, B2{K, V}} where {K, V}, w::Union{B1{K, V}, B2{K, V}}) where {K, V}
+     function _tl(t::Type{<:Tuple})
      function f() @  asda/asds
-     function ch(A::Stride{v } where v<:Union{  ComplexF64}, ::Type{LUp })
+     function ch(A::B{v} where v<:Union{Int32}, ::Type{A})
     """;
 
     static void parseArgs(String[] args) {
