@@ -1,4 +1,3 @@
-prlprg/FunctionName.class
 prlprg/GenDB$Ty.class
 prlprg/Parser.class
 prlprg/Generator$Union.class
@@ -36,5 +35,4 @@ prlprg/Generator$Type.class
 prlprg/Generator$Bound.class
 prlprg/Parser$Kind.class
 prlprg/Generator$NameOrder.class
-prlprg/TypeName.class
 prlprg/Function.class

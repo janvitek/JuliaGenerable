@@ -94,60 +94,51 @@ class GenDB {
 
         @Override
         public Ty fixUp(List<TyVar> bounds) {
-            if (nm().equals("Val")) {
-                return new TyCon(this.toString());
-            } else if (nm().startsWith("typeof(")) { // typeof is a special case
-                return new TyCon(nm());
-            } else if (nm().equals("Nothing")) {
-                return Ty.None;
-            } else {
-                for (var v : bounds) {
-                    if (v.nm().equals(nm())) {
-                        if (tys.isEmpty()) {
-                            return v;
+            var varOrNull = bounds.stream().filter(v -> v.nm().equals(nm())).findFirst();
+            if (varOrNull.isPresent()) {
+                if (tys.isEmpty()) {
+                    return varOrNull.get();
+                }
+                throw new RuntimeException("Type " + nm() + " is a variable, but is used as a type");
+            }
+            switch (nm()) {
+                case "typeof": // typeof is a special case
+                    return new TyCon(toString());
+                case "Nothing":
+                    return Ty.None;
+                default:
+                    if (!pre_tydb.containsKey(nm)) {
+                        System.err.println("Warning: " + nm + " not found in type database, patching");
+                        var miss = new TyInst(nm, List.of());
+                        pre_tydb.put(nm, new TyDecl("missing", nm, miss, Ty.any(), "(missing)"));
+                    }
+                    var args = new ArrayList<Ty>();
+                    var vars = new ArrayList<TyVar>();
+                    var newBounds = new ArrayList<TyVar>(bounds);
+                    for (var a : tys) {
+                        if (a instanceof TyVar tv && !inList(tv, bounds)) {
+                            tv = (TyVar) tv.fixUp(bounds);
+                            newBounds.add(tv);
+                            vars.add(tv);
+                            args.add(tv);
                         } else {
-                            throw new RuntimeException("Type " + nm() + " is a variable, but is used as a type");
+                            args.add(a.fixUp(newBounds));
                         }
                     }
-                }
-                if (!pre_tydb.containsKey(nm)) {
-                    System.err.println("Warning: " + nm + " not found in type database, patching");
-                    var miss = new TyInst(nm, List.of());
-                    pre_tydb.put(nm, new TyDecl("missing", nm, miss, Ty.any(), "(missing)"));
-                }
-                var args = new ArrayList<Ty>();
-                var vars = new ArrayList<TyVar>();
-                var newBounds = new ArrayList<TyVar>(bounds);
-                for (var a : tys) {
-                    if (a instanceof TyVar tv && !inList(tv, bounds)) {
-                        tv = (TyVar) tv.fixUp(bounds);
-                        newBounds.add(tv);
-                        vars.add(tv);
-                        args.add(tv);
-                    } else {
-                        args.add(a.fixUp(newBounds));
+                    Ty t = new TyInst(nm, args);
+                    for (var v : vars) {
+                        t = new TyExist(v, t);
                     }
-                }
-                Ty t = new TyInst(nm, args);
-                for (var v : vars) {
-                    t = new TyExist(v, t);
-                }
-                return t;
+                    return t;
             }
         }
 
         private boolean inList(TyVar tv, List<TyVar> bounds) {
-            for (var b : bounds) {
-                if (b.nm().equals(tv.nm())) {
-                    return true;
-                }
-            }
-            return false;
+            return bounds.stream().anyMatch(b -> b.nm().equals(tv.nm()));
         }
 
         @Override
-        public Generator.Type toType(List<Generator.Bound> env
-        ) {
+        public Generator.Type toType(List<Generator.Bound> env) {
             return new Generator.Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
         }
 
@@ -360,8 +351,7 @@ class CodeColors {
 
     // Default mode (light mode)
     static enum Mode {
-        LIGHT,
-        DARK, NONE
+        LIGHT, DARK, NONE
     }
 
     static Mode mode = Mode.LIGHT;

@@ -22,12 +22,10 @@ interface Type {
             if (q.isEmpty()) {
                 return str; // typeof or keytype without parens (odd?)
             }
-            str += "(";
             while (q.isEmpty()) {
                 str += q.take().toString();
             }
-            str += ")";
-            return str;
+            return "(" + str + " )";
         } else {
             var nm = tok.toString();
             if (nm.startsWith("\"") && nm.endsWith("\"")) {
@@ -93,12 +91,6 @@ record TypeInst(String nm, List<Type> ps) implements Type {
 // name, we create a fesh name for it. thwse names start with a question mark.
 record BoundVar(Type name, Type lower, Type upper) implements Type {
 
-    BoundVar(Type name, Type lower, Type upper) {
-        this.name = name;
-        this.lower = lower;
-        this.upper = upper;
-    }
-
     static int gen = 0;
 
     // can get ::  T   |   T <: U   |   L <: T <: U
@@ -118,7 +110,7 @@ record BoundVar(Type name, Type lower, Type upper) implements Type {
                 return new BoundVar(t, null, u);
             }
         } else {
-            return new BoundVar(t, null, null);
+            return t;
         }
     }
 
@@ -163,7 +155,7 @@ record UnionAllInst(Type body, List<Type> bounds) implements Type {
     public GenDB.Ty toTy() {
         var ty = body.toTy();
         var it = bounds.listIterator(bounds.size());
-        while (it.hasPrevious()) {
+        while (it.hasPrevious()) { // Going backwards, building Exists inside out
             ty = new GenDB.TyExist(it.previous().toTy(), ty);
         }
         return ty;
@@ -306,7 +298,7 @@ record Function(String nm, List<Param> ps, List<Type> wheres, String src) {
             }
             p.drop();
         }
-        return new Function(name.toString(), params, wheres, source);
+        return new Function(name, params, wheres, source);
     }
 
     GenDB.TySig toTy() {
@@ -628,5 +620,4 @@ public class Parser {
             failAt(msg, last);
         }
     }
-
 }

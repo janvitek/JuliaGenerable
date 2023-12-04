@@ -6,7 +6,7 @@ public class App {
     static GenDB db = new GenDB();
     static String dir, types, functions;
     static String[] defaultArgs = {
-        "-d=TRUE", // run micro tests
+        "-d=FALSE", // run micro tests
         "-c=LIGHT", // color the output
         "-r=../Inputs/", // root directory with input files
         "-f=f-test.jlg", // file with function signatures
@@ -52,7 +52,7 @@ public class App {
       struct Int32 end
       struct T1 <: Val{:el} end
       struct T2 <: Val{10} end
-      -struct T3 <: Val{\"hi\"} end
+      struct T3 <: Val{\"hi\"} end
     """;
     static String str = """
      function two(a::A{Int32}, b::Int32)
