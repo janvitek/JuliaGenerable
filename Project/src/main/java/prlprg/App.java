@@ -9,8 +9,8 @@ public class App {
         "-d=FALSE", // run micro tests
         "-c=DARK", // color the output
         "-r=../Inputs/", // root directory with input files
-        "-f=f.jlg", // file with function signatures
-        "-t=t.jlg", // file with type declarations
+        "-f=func.jlg", // file with function signatures
+        "-t=type.jlg", // file with type declarations
         "-h=TRUE", // print hierarchy
         "-i=FALSE", // ignore closures
         "-s=TRUE", // print shorter type names
@@ -33,18 +33,10 @@ public class App {
         new Generator(db).gen();
     }
 
-    /// TODO: this is not supported struct R{v, a, *, vv, Tuple} <: Function end
-    /// Currenetly, we only support types that have variables in the arguments. It is unclear why one would
-    /// want to have '*' and 'Tuple'
-    //
-    // TODO: this is not supported
-    //    struct C{T<:Tuple{}, A<:B{Tuple{}}} <: B{T<:Tuple{}} end (from)
-    // RHS has a bound we support
-    //   struct C{T<:Tuple{}, A<:B{Tuple{}}} <: B{T} end (from)
     static String tstr = """
       abstract type Tuple end
       abstract type B{X} end
-      struct C{T<:Tuple{}, A<:B{Tuple{}}} <: B{T} end
+      struct C{T<:Tuple{}, A<:B{Tuple{} } } <: B{T} end
       struct A{T<:B{<:B}} <: B{T} end
       abstract type Val{X} end
       abstract type R <: B{Val{:el}} end
@@ -55,67 +47,51 @@ public class App {
       struct T3 <: Val{\"hi\"} end
     """;
     static String str = """
-      !(::Missing)
-!=(T::Type, S::Type)
-!==(x, y)
-&(::Integer, ::Missing)
-(::Colon)(I::CartesianIndex{N}, S::CartesianIndex{N}, J::CartesianIndex{N}) where N
-(::Tar.var"#1#2")(::Any)
-(f::Base.RedirectStdStream)(thunk::Function, stream)
-*(a, b, c, xs...)
-*(a::T, b::Union{AbstractChar, AbstractString, T}...) where T<:AbstractPath
-*(α::Number, β::Number, C::AbstractMatrix, D::AbstractMatrix)
-+(A::LinearAlgebra.UnitUpperTriangular, B::LinearAlgebra.UnitUpperTriangular)
--(A::AbstractArray)
-/(::Missing, ::Number)
-<(a::DataStructures.SparseIntSet, b::DataStructures.SparseIntSet)
-<=(a::Integer, b::SentinelArrays.ChainedVectorIndex)
-==(T::TypeVar, S::Type)
-===(...) Core none:0 (method for builtin function \"==\")
->(a::Integer, b::SentinelArrays.ChainedVectorIndex)
->=(x) Base operators.jl:1173 (method for generic function \">=\")
->>(x::Integer, c::Integer)
->>(x::Union{Int128, Int16, Int32, Int64, Int8, UInt128, UInt16, UInt32, UInt64, UInt8}, y::Int64)
->>>(x::Integer, c::Int64)
-IntrinsicFunction(...)
-LogBINV(::Val{:ℯ}, ::Type{Float32})
-LogBL(::Val{10}, ::Type{Float32})
-Path(pieces::Tuple{Vararg{String}})
-\\(D::LinearAlgebra.Diagonal, T::LinearAlgebra.Tridiagonal)
-^(::Irrational{:ℯ}, A::AbstractMatrix)
-_markdown_parse_cell(io::IOContext, cell::Nothing; kwargs...)
-_maybe_reindex(V, I, ::Tuple{})
-_newsentinel!(arrays::SentinelArrays.SentinelArray{T, N, S, V, A} where A<:AbstractArray{T, N}...; newsent, force) where {T, N, S, V}
-axpby!(α, x::AbstractArray, β, y::AbstractArray)
-broadcast(::typeof(*), x::SparseArrays.AbstractCompressedVector{Tx}, y::SparseArrays.AbstractCompressedVector{Ty}) where {Tx, Ty}
-broadcast(::typeof(-), x::SparseArrays.AbstractSparseVector{Tx}, y::SparseArrays.AbstractSparseVector{Ty}) where {Tx, Ty}
-broadcasted(::Base.Broadcast.DefaultArrayStyle{1}, ::typeof(/), r::AbstractRange, x::Number)
-cmp(<, x, y)
-convert(T::Type{<:FilePathsBase.AbstractPath}, x::AbstractString)
-map!(::typeof(Core.Compiler.:(==)), dest::Core.Compiler.BitArray, A::Core.Compiler.BitArray, B::Core.Compiler.BitArray)
-map!(::typeof(Core.Compiler.:<), dest::Core.Compiler.BitArray, A::Core.Compiler.BitArray, B::Core.Compiler.BitArray)
-map(::Union{typeof(max), typeof(|)}, A::BitArray, B::BitArray)
-map(f, ::Tuple{}...)
-round(::Type{>:Missing}, ::Missing)
-rowaccess(::Type{<:Union{DataFrames.DataFrameColumns, DataFrames.DataFrameRows}})
-show(io::IO, ::MIME{Symbol(\"application/x-latex\")}, s::LaTeXStrings.LaTeXString)
-tryparsenext(d::Dates.DatePart{'E'}, source, pos, len, b, code, locale)
-var\"#AnsiTextCell#106\"(context::Tuple, ::Type{PrettyTables.AnsiTextCell}, renderfn::Function)
-|(::Integer, ::Missing)
-~(::Missing)
-~(n::Integer)
-~(n::Integer)
-⊑(::Core.Compiler.JLTypeLattice, a::Type, b::Type)
-⊇(a, b)
-⊊(a, b)
-∘(f)
-⊑ₒ(a, b)
-⊑ₑ(x::Core.Compiler.EscapeAnalysis.EscapeInfo, y::Core.Compiler.EscapeAnalysis.EscapeInfo)
+    function ceil(::T) where T>:Missing
+    a(::B{>:Missing}, ::Missing)
+    !=(T::Type, S::Type)
+    !==(x, y)
+    &(::Integer, ::Missing)
+    (::Colon)(I::CartesianIndex{N}, S::CartesianIndex{N}, J::CartesianIndex{N}) where N
+    (::Tar.var"#1#2")(::Any)
+    (f::Base.RedirectStdStream)(thunk::Function, stream)
+    *(a, b, c, xs...)
+    *(a::T, b::Union{AbstractChar, AbstractString, T}...) where T<:AbstractPath
+    *(α::Number, β::Number, C::AbstractMatrix, D::AbstractMatrix)
+    +(A::LinearAlgebra.UnitUpperTriangular, B::LinearAlgebra.UnitUpperTriangular)
+    /(::Missing, ::Number)
+    <(a::DataStructures.SparseIntSet, b::DataStructures.SparseIntSet)
+    ===(...)
+    >(a::Integer, b::SentinelArrays.ChainedVectorIndex)
+    >=(x)
+    >>>(x::Integer, c::Int64)
+    LogBINV(::Val{:ℯ}, ::Type{Float32})
+    LogBL(::Val{10}, ::Type{Float32})
+    \\(D::LinearAlgebra.Diagonal, T::LinearAlgebra.Tridiagonal)
+    ^(::Irrational{:ℯ}, A::AbstractMatrix)
+    _markdown_parse_cell(io::IOContext, cell::Nothing; kwargs...)
+    _maybe_reindex(V, I, ::Tuple{})
+    _newsentinel!(::SentinelArray{T, N, S, V, A} where A<:AbstractArray{T, N}...; newsent, force) where {T, N, S, V}
+    axpby!(α, x::AbstractArray, β, y::AbstractArray)
+    broadcast(::typeof(*), x::CompressedVector{Tx}, y::CompressedVector{Ty}) where {Tx, Ty}
+    broadcast(::typeof(-), x::SparseArrays.AbstractSparseVector{Tx}, y::SparseArrays.AbstractSparseVector{Ty}) where {Tx, Ty}
+    broadcasted(::Base.Broadcast.DefaultArrayStyle{1}, ::typeof(/), r::AbstractRange, x::Number)
+    cmp(<, x, y)
+    convert(T::Type{<:FilePathsBase.AbstractPath}, x::AbstractString)
+    map!(::typeof(Core.Compiler.:(==)), dest::Core.Compiler.BitArray, A::Core.Compiler.BitArray, B::Core.Compiler.BitArray)
+    map!(::typeof(Core.Compiler.:<), dest::Core.Compiler.BitArray, A::Core.Compiler.BitArray, B::Core.Compiler.BitArray)
+    map(::Union{typeof(max), typeof(|)}, A::BitArray, B::BitArray)
+    map(f, ::Tuple{}...)
+    round(::Type{>:Missing}, ::Missing)
+    rowaccess(::Type{<:Union{DataFrames.DataFrameColumns, DataFrames.DataFrameRows}})
+    show(io::IO, ::MIME{Symbol(\"application/x-latex\")}, s::LaTeXStrings.LaTeXString)
+    tryparsenext(d::Dates.DatePart{'E'}, source, pos, len, b, code, locale)
+    var\"#AnsiTextCell#106\"(context::Tuple, ::Type{PrettyTables.AnsiTextCell}, renderfn::Function)
+    ⊑(::Core.Compiler.JLTypeLattice, a::Type, b::Type)
      broadcast(::typeof(*), x::Vector{Tx}, y::Vector{Ty}) where {Tx, Ty}
      function two(a::A{Int32}, b::Int32)
      function a(x::D{K, V}, y::Union{B1{K, V}, B2{K, V}} where {K, V}, w::Union{B1{K, V}, B2{K, V}}) where {K, V}
      function _tl(t::Type{<:Tuple})
-     function f() @  asda/asds
      function ch(A::B{v} where v<:Union{Int32}, ::Type{A})
     """;
 
