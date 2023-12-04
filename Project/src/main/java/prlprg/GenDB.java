@@ -15,7 +15,7 @@ class GenDB {
 
     final void addTyDecl(TyDecl ty) {
         if (pre_tydb.containsKey(ty.nm())) {
-            System.out.println("Warning: " + ty.nm() + " already exists, replacing");
+            System.out.println("Warning: " + ty.nm() + " already exists, replacing: ");
         }
         pre_tydb.put(ty.nm(), ty);
     }
@@ -43,7 +43,7 @@ class GenDB {
                 tydb.put(name, t);
             } catch (Exception e) {
                 System.err.println("Error: " + name + " " + e.getMessage());
-                System.err.println(CodeColors.variables("Failed at " + t0.src));
+                System.err.println(CodeColors.comment("Failed at " + t0.src));
             }
         }
 
@@ -148,7 +148,7 @@ class GenDB {
 
         @Override
         public String toString() {
-            return (!low.equals(Ty.none()) ? low + "<:" : "") + CodeColors.light(nm) + (!up.equals(Ty.any()) ? "<:" + up : "");
+            return (!low.equals(Ty.none()) ? low + "<:" : "") + CodeColors.variable(nm) + (!up.equals(Ty.any()) ? "<:" + up : "");
         }
 
         @Override
@@ -229,7 +229,7 @@ class GenDB {
 
         @Override
         public String toString() {
-            return CodeColors.standout("∃") + v + CodeColors.standout(".") + ty;
+            return CodeColors.exists("∃") + v + CodeColors.exists(".") + ty;
         }
 
         @Override
@@ -285,7 +285,7 @@ class GenDB {
 
         @Override
         public String toString() {
-            return nm + " = " + mod + " " + ty + " <: " + parent + CodeColors.variables("\n# " + src);
+            return nm + " = " + mod + " " + ty + " <: " + parent + CodeColors.comment("\n# " + src);
         }
 
         TyDecl fixUp() {
@@ -310,7 +310,7 @@ class GenDB {
             var args = new ArrayList<Ty>();
             args.addAll(fixedArgs);
             Ty t = new TyInst(lhs.nm(), args);
-            for (var arg : fixedArgs) {
+            for (var arg : fixedArgs.reversed()) {
                 t = new TyExist(arg, t);
             }
             return new TyDecl(mod, nm, t, fixedRHS, src);
@@ -322,7 +322,7 @@ class GenDB {
 
         @Override
         public String toString() {
-            return "function " + nm + " " + ty + CodeColors.variables("\n# " + src);
+            return "function " + nm + " " + ty + CodeColors.comment("\n# " + src);
 
         }
 
@@ -339,15 +339,20 @@ class CodeColors {
 
     // ANSI escape codes for text colors in light mode
     static String lightRed = "\u001B[31m";
-    static String lightResetText = "\u001B[0m";
     static String lightGreen = "\u001B[32m";
     static String lightYellow = "\u001B[33m";
-
     // ANSI escape codes for text colors in dark mode
     static String darkRed = "\u001B[91m";
-    static String darkResetText = "\u001B[0m";
+    static String ResetText = "\u001B[0m";
     static String darkGreen = "\u001B[92m";
     static String darkYellow = "\u001B[93m";
+    static String BLUE = "\u001B[34m";
+    static String MAGENTA = "\u001B[35m";
+    static String CYAN = "\u001B[36m";
+    static String LIGHT_WHITE = "\u001B[37m";
+    static String BRIGHT_YELLOW = "\u001B[93m";
+    static String BRIGHT_MAGENTA = "\u001B[95m";
+    static String BRIGHT_CYAN = "\u001B[96m";
 
     // Default mode (light mode)
     static enum Mode {
@@ -359,29 +364,38 @@ class CodeColors {
     // Helper method to get the appropriate ANSI escape code based on the current mode
     static String getTextColor(String color) {
         return switch (mode) {
+            case LIGHT ->
+                ""; // not implemented
             case DARK ->
                 switch (color) {
-                    case "red" ->
-                        darkRed;
-                    case "reset" ->
-                        darkResetText;
-                    case "green" ->
-                        darkGreen;
-                    case "yellow" ->
-                        darkYellow;
-                    default ->
-                        "";
-                };
-            case LIGHT ->
-                switch (color) {
-                    case "red" ->
+                    case "LightRed" ->
                         lightRed;
-                    case "reset" ->
-                        lightResetText;
-                    case "green" ->
+                    case "LightGreen" ->
                         lightGreen;
-                    case "yellow" ->
+                    case "LightYellow" ->
                         lightYellow;
+                    case "Red" ->
+                        darkRed;
+                    case "Green" ->
+                        darkGreen;
+                    case "Yellow" ->
+                        darkYellow;
+                    case "reset" ->
+                        ResetText;
+                    case "Blue" ->
+                        BLUE;
+                    case "Magenta" ->
+                        MAGENTA;
+                    case "Cyan" ->
+                        CYAN;
+                    case "LightWhite" ->
+                        LIGHT_WHITE;
+                    case "BrightYellow" ->
+                        BRIGHT_YELLOW;
+                    case "BrightMagenta" ->
+                        BRIGHT_MAGENTA;
+                    case "BrightCyan" ->
+                        BRIGHT_CYAN;
                     default ->
                         "";
                 };
@@ -390,15 +404,35 @@ class CodeColors {
         };
     }
 
-    static String standout(String s) {
-        return getTextColor("red") + s + getTextColor("reset");
+    static String comment(String s) {
+        return color(s, "LightWhite");
     }
 
-    static String light(String s) {
-        return getTextColor("yellow") + s + getTextColor("reset");
+    static String variable(String s) {
+        return color(s, "Cyan");
     }
 
-    static String variables(String s) {
-        return getTextColor("green") + s + getTextColor("reset");
+    static String abstractType(String s) {
+        return color(s, "Green");
+    }
+
+    static String concreteType(String s) {
+        return color(s, "reset");
+    }
+
+    static String exists(String s) {
+        return color(s, "Red");
+    }
+
+    static String tuple(String s) {
+        return color(s, "Yellow");
+    }
+
+    static String union(String s) {
+        return color(s, "Cyan");
+    }
+
+    static String color(String s, String color) {
+        return getTextColor(color) + s + getTextColor("reset");
     }
 }

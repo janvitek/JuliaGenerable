@@ -46,7 +46,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            return CodeColors.variables(b.nm());
+            return CodeColors.variable(b.nm());
         }
     }
 
@@ -57,7 +57,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            return (!isNone(low) ? low + "<:" : "") + CodeColors.variables(nm) + (!isAny(up) ? "<:" + up : "");
+            return (!isNone(low) ? low + "<:" : "") + CodeColors.variable(nm) + (!isAny(up) ? "<:" + up : "");
         }
     }
 
@@ -67,7 +67,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            return nm;
+            return CodeColors.comment(nm);
         }
     }
 
@@ -75,7 +75,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            return CodeColors.standout("∃") + b + CodeColors.standout(".") + ty;
+            return CodeColors.exists("∃") + b + CodeColors.exists(".") + ty;
         }
     }
 
@@ -83,8 +83,8 @@ public class Generator {
 
         @Override
         public String toString() {
-            var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.standout("|")));
-            return CodeColors.standout("[") + str + CodeColors.standout("]");
+            var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.union("|")));
+            return CodeColors.union("[") + str + CodeColors.union("]");
         }
     }
 
@@ -92,8 +92,8 @@ public class Generator {
 
         @Override
         public String toString() {
-            var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.standout(",")));
-            return CodeColors.standout("(") + str + CodeColors.standout(")");
+            var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.tuple(",")));
+            return CodeColors.tuple("(") + str + CodeColors.tuple(")");
         }
     }
 
@@ -106,7 +106,7 @@ public class Generator {
         public String toString() {
             var ignore = nm.equals("Any") || this.parent.nm.equals("Any"); // parent is null for Any
             var snm = shortener.shorten(nm);
-            return snm + " ≡ " + mod + " " + ty + (ignore ? "" : CodeColors.standout(" <: ") + inst);
+            return CodeColors.comment(snm + " ≡ ") + mod + " " + ty + (ignore ? "" : CodeColors.comment(" <: ") + inst);
         }
 
         public boolean isAbstract() {
@@ -149,7 +149,7 @@ public class Generator {
                     System.out.println(s);
                 } catch (Exception e) {
                     System.err.println("Error: " + n.nm() + " " + e.getMessage());
-                    System.err.println(CodeColors.variables("Failed at " + n.src()));
+                    System.err.println(CodeColors.comment("Failed at " + n.src()));
                 }
             }
         }
@@ -167,9 +167,9 @@ public class Generator {
         if (!n.isGood()) { // a node that is not 'good' is a node that failed building, this happens
             return;// when the structure of the type does not meet our expectations. Basically, it is unsuported features
         } // of Julia. Here we choose not to print the children of such a node. Revisit this decision?
-        var str = n.d == null || n.d.isAbstract() ? CodeColors.light(n.name) : n.name;
-        str = n.d.mod().contains("missing") ? CodeColors.standout(str) : str;
-        System.out.println(CodeColors.standout(".").repeat(pos) + str);
+        var str = n.d == null || n.d.isAbstract() ? CodeColors.abstractType(n.name) : n.name;
+        str = n.d.mod().contains("missing") ? ("? " + CodeColors.abstractType(str)) : str;
+        System.out.println(CodeColors.comment(".").repeat(pos) + str);
         n.children.sort(new NameOrder());
         for (var c : n.children) {
             printHierarchy(c, pos + 1);

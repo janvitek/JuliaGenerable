@@ -22,10 +22,11 @@ interface Type {
             if (q.isEmpty()) {
                 return str; // typeof or keytype without parens (odd?)
             }
-            while (q.isEmpty()) {
+            str += "(";
+            while (!q.isEmpty()) {
                 str += q.take().toString();
             }
-            return "(" + str + " )";
+            return str + ")";
         } else {
             var nm = tok.toString();
             if (nm.startsWith("\"") && nm.endsWith("\"")) {
@@ -70,7 +71,8 @@ record TypeInst(String nm, List<Type> ps) implements Type {
     // In the case the nm is Union or Tuple, create the specific types.
     @Override
     public GenDB.Ty toTy() {
-        if (ps.isEmpty() && (nm.startsWith(":") || nm.startsWith("\"") || pattern.matcher(nm).matches())) {
+        if (ps.isEmpty() && (nm.startsWith(":") || nm.startsWith("\"") || nm.startsWith("\'")
+                || nm().startsWith("typeof(") || pattern.matcher(nm).matches())) {
             return new GenDB.TyCon(nm);
         }
         var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
@@ -93,22 +95,26 @@ record BoundVar(Type name, Type lower, Type upper) implements Type {
 
     static int gen = 0;
 
-    // can get ::  T   |   T <: U   |   L <: T <: U
+    static TypeInst fresh() {
+        return new TypeInst("?" + ++gen, new ArrayList<>());
+    }
+
+    // can get ::  T   |   T <: U   |   L <: T <: U   | T >: L |   >: L
     static Type parse(Parser p) {
-        if (p.has("<:")) {
+        if (p.has("<:") || p.has(">:")) {
+            var lt = p.has("<:");
             var t = UnionAllInst.parse(p.drop());
-            var fresh = new TypeInst("?" + ++gen, new ArrayList<>());
-            return new BoundVar(fresh, null, t);
+            return lt ? new BoundVar(fresh(), null, t) : new BoundVar(fresh(), t, null);
         }
         var t = UnionAllInst.parse(p);
         if (p.has("<:")) {
             var u = UnionAllInst.parse(p.drop());
-            if (p.has("<:")) {
-                var l = UnionAllInst.parse(p.drop());
-                return new BoundVar(l, t, u);
-            } else {
-                return new BoundVar(t, null, u);
-            }
+            return p.has("<:")
+                    ? new BoundVar(UnionAllInst.parse(p.drop()), t, u)
+                    : new BoundVar(t, null, u);
+        } else if (p.has(">:")) {
+            return p.isEmpty() ? new BoundVar(fresh(), t, null)
+                    : new BoundVar(t, UnionAllInst.parse(p.drop()), null);
         } else {
             return t;
         }
@@ -131,6 +137,10 @@ record BoundVar(Type name, Type lower, Type upper) implements Type {
 record UnionAllInst(Type body, List<Type> bounds) implements Type {
 
     static Type parse(Parser p) {
+        //  U<:(AbstractVector)   the input appears occasionally to have extraneous parens.
+        if (p.has("(")) { // this should get rid of them.
+            p = p.sliceMatchedDelims("(", ")");
+        }
         var type = TypeInst.parse(p);
         if (!p.has("where")) {
             return type;
@@ -276,7 +286,7 @@ record Function(String nm, List<Param> ps, List<Type> wheres, String src) {
     }
 
     static Function parse(Parser p) {
-        if (p.has("function")) {
+        if (p.has("function")) {  // keyword is optional
             p.drop();
         }
         var name = Type.parseFunctionName(p);
@@ -438,7 +448,7 @@ public class Parser {
 
             String errorAt(String msg) {
                 return "\n> " + l.lns[ln] + "\n> " + " ".repeat(start)
-                        + CodeColors.standout("^----" + msg + " at line " + ln);
+                        + CodeColors.color("^----" + msg + " at line " + ln, "Red");
             }
 
             String getLine() {
