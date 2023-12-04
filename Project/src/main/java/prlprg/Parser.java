@@ -145,8 +145,8 @@ record UnionAllInst(Type body, List<Type> bounds) implements Type {
         if (!p.has("where")) {
             return type;
         }
-        if (p.drop().has("(")) {
-            p = p.sliceMatchedDelims("(", ")");
+        if (p.drop().has("{")) {
+            p = p.sliceMatchedDelims("{", "}");
         }
         var boundVars = new ArrayList<Type>();
         while (!p.isEmpty()) {
@@ -278,7 +278,7 @@ record Function(String nm, List<Param> ps, List<Type> wheres, String src) {
             wheres.add(BoundVar.parse(p));
             if (p.has(",")) {
                 p.drop().failIfEmpty("Missing type parameter", p.peek());
-            } else if (p.has("in")) {
+            } else if (p.has("[")) { // comment with line/file info
                 break;
             }
         }
@@ -301,12 +301,8 @@ record Function(String nm, List<Param> ps, List<Type> wheres, String src) {
             params.add(Param.parse(r));
         }
         var wheres = parseWhere(p);
-        if (p.has("in")) {
-            p.drop();
-            while (!p.has(")")) {
-                p.drop();
-            }
-            p.drop();
+        if (p.has("[")) {
+            p.sliceMatchedDelims("[", "]"); // drops it
         }
         return new Function(name, params, wheres, source);
     }
@@ -357,7 +353,7 @@ public class Parser {
 
         String[] lns;
         int pos, off;
-        static char[] delimiters = {'{', '}', ':', ',', ';', '=', '(', ')', '[', ']', '#', '<'};
+        static char[] delimiters = {'{', '}', ':', ',', ';', '=', '(', ')', '[', ']', '#', '<', '>'};
 
         Lex(String[] lns) {
             this.lns = lns;
@@ -548,6 +544,7 @@ public class Parser {
                 failAt("Missing '" + e + "'", last);
             }
         }
+        drop();
         return p; // leading s and trailing e not included
     }
 

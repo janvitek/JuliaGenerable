@@ -2,57 +2,59 @@ package prlprg;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
 class GenDB {
 
-    final private static HashMap<String, TyDecl> pre_tydb = new HashMap<>();
-    final private static HashMap<String, List<TySig>> pre_sigdb = new HashMap<>();
+    final private static HashMap<String, TyDecl> pre_tydb = new HashMap<>(); // staging area for types and functions
+    final private static HashMap<String, List<TySig>> pre_sigdb = new HashMap<>(); // they are not fully formed yet
 
-    HashMap<String, TyDecl> tydb;
+    HashMap<String, TyDecl> tydb; // types and functions, fully formed
     HashMap<String, List<TySig>> sigdb;
+    HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused
 
     final void addTyDecl(TyDecl ty) {
         if (pre_tydb.containsKey(ty.nm())) {
-            System.out.println("Warning: " + ty.nm() + " already exists, replacing: ");
+            reusedNames.add(ty.nm()); // remember we have seen this type before and overwrite it
         }
         pre_tydb.put(ty.nm(), ty);
     }
 
     final void addSig(TySig sig) {
-        if (!pre_sigdb.containsKey(sig.nm())) {
-            pre_sigdb.put(sig.nm(), new ArrayList<>());
+        var e = pre_sigdb.get(sig.nm());
+        if (e == null) {
+            pre_sigdb.put(sig.nm(), e = new ArrayList<>());
         }
-        pre_sigdb.get(sig.nm()).add(sig);
+        e.add(sig);
     }
 
     public void cleanUp() {
         tydb = new HashMap<>();
         sigdb = new HashMap<>();
-        // At this point the definitions in the DB are ill-formed, as we don't
-        // know what identifiers refer to types and what identifiers refer to
-        // variables. We asume that we have seen all types declarations, so
-        // anything that is not in tydb is a variable.
-        // We try to clean up types by removing obvious variables.
-        var keys = new ArrayList<>(pre_tydb.keySet());
-        for (var name : keys) {
-            var t0 = pre_tydb.get(name);
+        // Definitions in the pre DB are ill-formed, as we don't know what identifiers refer to types or
+        // variables. We asume all types declarations have been processed, so anything not in tydb is
+        // is either a variable or a missing type.
+        for (var name : new ArrayList<>(pre_tydb.keySet())) {
             try {
-                var t = t0.fixUp();
-                tydb.put(name, t);
+                tydb.put(name, pre_tydb.get(name).fixUp());
             } catch (Exception e) {
-                System.err.println("Error: " + name + " " + e.getMessage());
-                System.err.println(CodeColors.comment("Failed at " + t0.src));
+                System.err.println("Error: " + name + " " + e.getMessage() + "\n"
+                        + CodeColors.comment("Failed at " + pre_tydb.get(name).src));
             }
         }
-
+        if (!reusedNames.isEmpty()) {
+            System.out.println("Warning: types defined more than once:" + reusedNames.stream().collect(Collectors.joining(", ")));
+            reusedNames.clear();
+        }
         for (var name : pre_sigdb.keySet()) {
-            if (!sigdb.containsKey(name)) {
-                sigdb.put(name, new ArrayList<>());
+            var entry = sigdb.get(name);
+            if (entry == null) {
+                sigdb.put(name, entry = new ArrayList<>());
             }
             for (var sig : pre_sigdb.get(name)) {
-                sigdb.get(name).add(sig.fixUp(new ArrayList<>()));
+                entry.add(sig.fixUp(new ArrayList<>()));
             }
         }
         // add patched types if any
