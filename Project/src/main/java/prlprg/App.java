@@ -53,7 +53,7 @@ public class App {
     !==(x, y)
     &(::Integer, ::Missing)
     (::Colon)(I::CartesianIndex{N}, S::CartesianIndex{N}, J::CartesianIndex{N}) where N
-    (::Tar.var"#1#2")(::Any)
+    (::Tar.var\"#1#2\")(::Any)
     (f::Base.RedirectStdStream)(thunk::Function, stream)
     *(a, b, c, xs...)
     *(a::T, b::Union{AbstractChar, AbstractString, T}...) where T<:AbstractPath
