@@ -1,11 +1,16 @@
 package prlprg;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
-import java.util.Comparator;
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+
+
 
 public class Generator {
 
@@ -13,6 +18,8 @@ public class Generator {
 
         @Override
         public String toString();
+
+
     }
 
     static Inst any = new Inst("Any", List.of());
@@ -38,6 +45,7 @@ public class Generator {
             var snm = shortener.shorten(nm);
             return snm + (tys.isEmpty() ? "" : "{" + args + "}");
         }
+
     }
 
     // Each variable occurence, must refer to a bound in an enclosing \Exist. At this point, we should have
@@ -48,6 +56,7 @@ public class Generator {
         public String toString() {
             return CodeColors.variable(b.nm());
         }
+        
     }
 
     // A bound introduces a variable, with an upper and a lower bound. Julia allows writing inconsistent bounds,
@@ -110,11 +119,38 @@ public class Generator {
         }
 
         public boolean isAbstract() {
-            return mod.contains("abstract");
+            return mod.contains("abstract") || mod.contains("missing");
         }
     }
 
     record Sig(String nm, Type ty, String src) {
+
+      boolean  isGround() {         
+            if (ty instanceof Tuple t) {
+                for (var typ : t.tys) {
+                    if (typ instanceof Inst inst) {
+                        if (!isConcrete(inst.nm())) {
+                            return false;
+                        }
+                    } else if (typ instanceof Exist) {
+                        return false; // not ground
+                    } else if (typ instanceof Union) {
+                        return false; // not ground either
+                    } else if (typ instanceof Var) {
+                        return false; // we should have rejected this earlier (at the exists)
+                    } else if (typ instanceof Con) {
+                        // ok
+                    } else if (typ instanceof Tuple) {
+                        return false; // not ground??
+                    } else {
+                        throw new RuntimeException("Unknown type: " + ty);
+                    }
+                }
+                return true;
+            } else {
+                return false; // i.e. the method has an existential type, definitely not ground
+            }
+       }
 
         @Override
         public String toString() {
@@ -122,11 +158,17 @@ public class Generator {
         }
     }
 
-    GenDB db; // our database of types and signatures
+    GenDB db; // our database of types and signatures -- these are still not complete
     HashMap<String, InhNode> index = new HashMap<>(); // Map from type names to corresponding node in the inheritance tree
+
+    HashMap<String, Decl> decls = new HashMap<>(); // Map from type names to corresponding Decl. Final.
+    HashMap<String, Sig> sigs = new HashMap<>(); // Map from function names to corresponding Sig. Final.
+
+    static Generator self;
 
     Generator(GenDB db) {
         this.db = db;
+        self = this;
     }
 
     public void gen() {
@@ -146,6 +188,7 @@ public class Generator {
             for (var n : signodes) {
                 try {
                     var s = new Sig(n.nm(), n.ty().toType(new ArrayList<>()), n.src());
+                    sigs.put(n.nm(), s);
                     System.out.println(s);
                 } catch (Exception e) {
                     System.err.println("Error: " + n.nm() + " " + e.getMessage());
@@ -153,6 +196,26 @@ public class Generator {
                 }
             }
         }
+
+       try {
+        var  w = new BufferedWriter(new FileWriter("test.jl"));
+        for (var s : sigs.values()) {
+            if (s.isGround()) {
+                System.err.println("Ground: " + s );
+                var str = ((Tuple)s.ty).tys.stream().map(Type::toString).collect(Collectors.joining(","));
+                var content = "code_warntype(" + s.nm +",[" + str +"])\n";                
+                w.write(content);
+              
+            }   
+         }
+         } catch (IOException e) {
+                   throw new Error(e);
+                }
+    }
+
+    // Is this a concrete type ? This can only be used once decls is populated in build().
+    static boolean isConcrete(String nm) {
+        return self.decls.containsKey(nm) && !self.decls.get(nm).isAbstract();
     }
 
     static class NameOrder implements Comparator<InhNode> {
@@ -180,6 +243,7 @@ public class Generator {
         Decl d;
         try {
             d = n.toDecl();
+            decls.put(n.name, d);
             System.out.println(d);
         } catch (Exception e) {
             System.err.println("Error: " + n.name + " " + e.getMessage());
@@ -190,7 +254,7 @@ public class Generator {
         }
     }
 
-    class InhNode {
+    private final class InhNode {
 
         boolean good = false;
         String name;
@@ -200,7 +264,7 @@ public class Generator {
         String parentName;
         List< InhNode> children = new ArrayList<>();
 
-        public InhNode(GenDB.TyDecl d) {
+        InhNode(GenDB.TyDecl d) {
             this.decl = d;
             this.name = d.nm();
             this.parentName = ((GenDB.TyInst) d.parent()).nm();
@@ -225,7 +289,7 @@ public class Generator {
 
         Decl toDecl() {
             if (name.equals("Any")) {
-                d = new Decl("type", "Any", any, any, null, "");
+                d = new Decl("abstract type", "Any", any, any, null, "");
             } else {
                 var env = new ArrayList<Bound>();
                 var t = decl.ty().toType(env);

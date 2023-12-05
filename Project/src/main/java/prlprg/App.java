@@ -13,7 +13,7 @@ public class App {
         "-t=type.jlg", // file with type declarations
         "-h=TRUE", // print hierarchy
         "-i=FALSE", // ignore closures
-        "-s=TRUE", // print shorter type names
+        "-s=FALSE", // print shorter type names
     };
 
     public static void main(String[] args) {
