@@ -1,0 +1,4 @@
+name = "TypeDiscover"
+uuid = "d68fd110-c3cc-486a-a898-9fd16622c4c2"
+authors = ["Jan Ječmen <jan.jecmen@gmail.com>"]
+version = "0.1.0"
