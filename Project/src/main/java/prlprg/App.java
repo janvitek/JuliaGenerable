@@ -12,8 +12,8 @@ public class App {
         "-f=func.jlg", // file with function signatures
         "-t=type.jlg", // file with type declarations
         "-h=TRUE", // print hierarchy
-        "-i=FALSE", // ignore closures
-        "-s=FALSE", // print shorter type names
+        "-i=TRUE", // ignore closures
+        "-s=TRUE", // print shorter type names
     };
 
     public static void main(String[] args) {
@@ -22,11 +22,13 @@ public class App {
         var p = new Parser();
         p = debug ? p.withString(tstr) : p.withFile(dir + types);
         while (!p.isEmpty()) {
+            Freshener.reset();
             db.addTyDecl(TypeDeclaration.parse(p.sliceLine()).toTy());
         }
         p = new Parser();
         p = debug ? p.withString(str) : p.withFile(dir + functions);
         while (!p.isEmpty()) {
+            Freshener.reset();
             db.addSig(Function.parse(p.sliceLine()).toTy());
         }
         db.cleanUp();
@@ -53,7 +55,7 @@ public class App {
     !==(x, y)
     &(::Integer, ::Missing)
     (::Colon)(I::CartesianIndex{N}, S::CartesianIndex{N}, J::CartesianIndex{N}) where N
-    (::Tar.var\"#1#2\")(::Any)
+    (::Tar.var"#1#2")(::Any)
     (f::Base.RedirectStdStream)(thunk::Function, stream)
     *(a, b, c, xs...)
     *(a::T, b::Union{AbstractChar, AbstractString, T}...) where T<:AbstractPath

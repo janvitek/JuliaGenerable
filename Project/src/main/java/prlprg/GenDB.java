@@ -16,6 +16,9 @@ class GenDB {
     HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused
 
     final void addTyDecl(TyDecl ty) {
+        if (App.NO_CLOSURES && ty.mod.contains("closure")) {
+            return;
+        }
         if (pre_tydb.containsKey(ty.nm())) {
             reusedNames.add(ty.nm()); // remember we have seen this type before and overwrite it
         }
@@ -23,6 +26,9 @@ class GenDB {
     }
 
     final void addSig(TySig sig) {
+        if (App.NO_CLOSURES && sig.nm.startsWith("var#")) {
+            return;
+        }
         var e = pre_sigdb.get(sig.nm());
         if (e == null) {
             pre_sigdb.put(sig.nm(), e = new ArrayList<>());

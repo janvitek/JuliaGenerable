@@ -10,16 +10,12 @@ import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 
-
-
 public class Generator {
 
     interface Type {
 
         @Override
         public String toString();
-
-
     }
 
     static Inst any = new Inst("Any", List.of());
@@ -33,10 +29,10 @@ public class Generator {
         return t instanceof Union u && u.tys.isEmpty();
     }
 
-    //A construtor instance may have type parameters, examples instances are: Int32 and Vector{Int,N}.
-    // When on the LHS of a type declaration, an instance can only have bound variables.
-    // When on the RHS of a type declaration an instance can have a mix of instance and variables (bound on LHS of <:).
-    // On its own, an instance should not have free variables.  Its name should be defined in the typedb.
+    // A construtor instance may have type parameters, examples are: Int32 and Vector{Int,N}. The LHS
+    // of a type declaration can only have bound variables. The RHS of a type declaration can have a
+    // mix of instance and variables (bound on LHS of <:). On its own, an instance should not have
+    // free variables.
     record Inst(String nm, List<Type> tys) implements Type {
 
         @Override
@@ -48,20 +44,19 @@ public class Generator {
 
     }
 
-    // Each variable occurence, must refer to a bound in an enclosing \Exist. At this point, we should have
-    // rejected types with free variables as ill-formed.
+    // A variable refers to a Bound in an enclosing Exist. Free variables are not expected.
     public record Var(Bound b) implements Type {
 
         @Override
         public String toString() {
             return CodeColors.variable(b.nm());
         }
-        
+
     }
 
-    // A bound introduces a variable, with an upper and a lower bound. Julia allows writing inconsistent bounds,
-    // i.e. !(low <: up). These are meaningless types which cannot be used. We do not check this. We do check
-    // that the types are well-formed (no undefined constructor and no free variables)
+    // A Bound introduces a variable, with an upper and a lower bound. Julia allows writing inconsistent
+    // bounds, i.e. !(low <: up). These are meaningless types which cannot be used. We do not check this.
+    // We check that types are well-formed (no undefined constructor and no free variables)
     record Bound(String nm, Type low, Type up) {
 
         @Override
@@ -78,6 +73,7 @@ public class Generator {
         public String toString() {
             return CodeColors.comment(nm);
         }
+
     }
 
     record Exist(Bound b, Type ty) implements Type {
@@ -86,6 +82,7 @@ public class Generator {
         public String toString() {
             return CodeColors.exists("∃") + b + CodeColors.exists(".") + ty;
         }
+
     }
 
     record Union(List<Type> tys) implements Type {
@@ -95,6 +92,7 @@ public class Generator {
             var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.union("|")));
             return CodeColors.union("[") + str + CodeColors.union("]");
         }
+
     }
 
     public record Tuple(List<Type> tys) implements Type {
@@ -104,6 +102,7 @@ public class Generator {
             var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.tuple(",")));
             return CodeColors.tuple("(") + str + CodeColors.tuple(")");
         }
+
     }
 
     // A type declaration introduces a new type name, with a type instance and a parent.
@@ -125,7 +124,7 @@ public class Generator {
 
     record Sig(String nm, Type ty, String src) {
 
-      boolean  isGround() {         
+        boolean isGround() {
             if (ty instanceof Tuple t) {
                 for (var typ : t.tys) {
                     if (typ instanceof Inst inst) {
@@ -150,7 +149,7 @@ public class Generator {
             } else {
                 return false; // i.e. the method has an existential type, definitely not ground
             }
-       }
+        }
 
         @Override
         public String toString() {
@@ -163,8 +162,9 @@ public class Generator {
 
     HashMap<String, Decl> decls = new HashMap<>(); // Map from type names to corresponding Decl. Final.
     HashMap<String, Sig> sigs = new HashMap<>(); // Map from function names to corresponding Sig. Final.
+    HashMap<String, List<String>> directInheritance = new HashMap<>();
 
-    static Generator self;
+    static Generator self; // hack to let static methods to access the instance, we have a single generator
 
     Generator(GenDB db) {
         this.db = db;
@@ -197,20 +197,20 @@ public class Generator {
             }
         }
 
-       try {
-        var  w = new BufferedWriter(new FileWriter("test.jl"));
-        for (var s : sigs.values()) {
-            if (s.isGround()) {
-                System.err.println("Ground: " + s );
-                var str = ((Tuple)s.ty).tys.stream().map(Type::toString).collect(Collectors.joining(","));
-                var content = "code_warntype(" + s.nm +",[" + str +"])\n";                
-                w.write(content);
-              
-            }   
-         }
-         } catch (IOException e) {
-                   throw new Error(e);
+        try {
+            var w = new BufferedWriter(new FileWriter("test.jl"));
+            for (var s : sigs.values()) {
+                if (s.isGround()) {
+                    System.err.println("Ground: " + s);
+                    var str = ((Tuple) s.ty).tys.stream().map(Type::toString).collect(Collectors.joining(","));
+                    var content = "code_warntype(" + s.nm + ",[" + str + "])\n";
+                    w.write(content);
+
                 }
+            }
+        } catch (IOException e) {
+            throw new Error(e);
+        }
     }
 
     // Is this a concrete type ? This can only be used once decls is populated in build().
@@ -227,13 +227,11 @@ public class Generator {
     }
 
     void printHierarchy(InhNode n, int pos) {
-        if (!n.isGood()) { // a node that is not 'good' is a node that failed building, this happens
-            return;// when the structure of the type does not meet our expectations. Basically, it is unsuported features
-        } // of Julia. Here we choose not to print the children of such a node. Revisit this decision?
         var str = n.d == null || n.d.isAbstract() ? CodeColors.abstractType(n.name) : n.name;
         str = n.d.mod().contains("missing") ? ("? " + CodeColors.abstractType(str)) : str;
         System.out.println(CodeColors.comment(".").repeat(pos) + str);
         n.children.sort(new NameOrder());
+        directInheritance.put(n.name, n.children.stream().map(c -> c.name).collect(Collectors.toList()));
         for (var c : n.children) {
             printHierarchy(c, pos + 1);
         }
@@ -256,7 +254,6 @@ public class Generator {
 
     private final class InhNode {
 
-        boolean good = false;
         String name;
         GenDB.TyDecl decl;
         Decl d = null;
@@ -269,11 +266,6 @@ public class Generator {
             this.name = d.nm();
             this.parentName = ((GenDB.TyInst) d.parent()).nm();
             shortener.register(name);
-        }
-
-        // Is this a fully built node ?
-        boolean isGood() {
-            return good;
         }
 
         void fixUp() {
@@ -296,14 +288,12 @@ public class Generator {
                 var inst = decl.parent().toType(getBounds(t, env));
                 d = new Decl(decl.mod(), name, t, inst, parent.d, decl.src());
             }
-            good = true;
             return d;
         }
 
         // Unwrap the existentials in the type, and return the bounds in the order they appear.
         // Called with a type declaration, so there should only be instances and existentials.
         private List<Bound> getBounds(Type t, List<Bound> env) {
-            assert t != null;
             if (t instanceof Inst) {
                 return env;
             } else if (t instanceof Exist ty) {
@@ -318,7 +308,7 @@ public class Generator {
 
     // Some type names are long, we try to shorten them while ensuring that there is no ambiguity.
     // When there is ambiguity, we just use the full name. To do this, we make a pass over the database
-    // and first observe all short
+    // and first observe all short names that are unique, and then use them.
     private final static class Shortener {
 
         HashMap<String, HashSet<String>> occurences = new HashMap<>();
@@ -344,4 +334,5 @@ public class Generator {
             }
         }
     }
+
 }

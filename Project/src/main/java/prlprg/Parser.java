@@ -88,15 +88,39 @@ record TypeInst(String nm, List<Type> ps) implements Type {
     }
 }
 
+// The goal is to generate name for type variables that are distinct from user generated
+// names, right now we are not doing that -- a typename could be a greek letter. If
+// this causes trouble, revisit and prefix with an invalid character. (I am trying to
+// keep names short, so I'll try to avoid doing that if possible.)
+class Freshener {
+
+    static int gen = 0;
+
+    static void reset() {
+        gen = 0;
+    }
+    static char[] varNames = {'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ',
+        'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ',
+        'χ', 'ψ', 'ω'};
+
+    static String fresh() {
+        var mult = gen / varNames.length;
+        var off = gen % varNames.length;
+        var ap = "\'";
+        var nm = varNames[off] + (mult == 0 ? "" : ap.repeat(mult));
+        gen++;
+        return nm;
+    }
+}
+
 // A variable with optional upper and lower bounds. At this point we are still a little shaky
 // on which is which, so we parse all of them to Type. Also, if we get an implicit variable
 // name, we create a fesh name for it. thwse names start with a question mark.
 record BoundVar(Type name, Type lower, Type upper) implements Type {
 
-    static int gen = 0;
-
     static TypeInst fresh() {
-        return new TypeInst("?" + ++gen, new ArrayList<>());
+        var nm = Freshener.fresh();
+        return new TypeInst(nm, new ArrayList<>());
     }
 
     // can get ::  T   |   T <: U   |   L <: T <: U   | T >: L |   >: L
