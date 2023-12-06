@@ -85,7 +85,7 @@ class Subtyper {
                 tyGens.add(tg);
                 tys.add(tg.next());
             }
-            next = new Tuple(tys);
+            next = new Tuple(new ArrayList<>(tys));
         }
 
         // Returns the perviously generated type, and builds the next one.
@@ -97,7 +97,7 @@ class Subtyper {
                 var tg = tyGens.get(i);
                 if (tg.hasNext()) {
                     tys.set(i, tg.next());
-                    next = new Tuple(tys);
+                    next = new Tuple(new ArrayList<>(tys));
                     return prev;
                 } else {
                     tg = make(t.tys().get(i), f);
@@ -124,6 +124,11 @@ class Subtyper {
             this.inst = inst;
             this.argGen = new TupleGen(new Tuple(inst.tys()), f);
             next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return super.hasNext() || (kids != null && kids.hasNext());
         }
 
         @Override
