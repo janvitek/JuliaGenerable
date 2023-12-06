@@ -602,7 +602,7 @@ public class Parser {
             return p;
         }
         int ln = peek().ln;
-        while (peek().ln == ln) {
+        while (!peek().isEOF() && peek().ln == ln) {
             p.add(take());
         }
         return p;

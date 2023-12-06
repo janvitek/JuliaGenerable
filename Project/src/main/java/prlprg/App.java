@@ -2,7 +2,7 @@ package prlprg;
 
 public class App {
 
-    public static boolean debug, PRINT_HIERARCHY, NO_CLOSURES, SHORTEN;
+    public static boolean debug, PRINT_HIERARCHY = true, NO_CLOSURES, SHORTEN;
     static GenDB db = new GenDB();
     static String dir, types, functions;
     static String[] defaultArgs = {

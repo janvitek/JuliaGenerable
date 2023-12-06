@@ -1,5 +1,6 @@
 package prlprg;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import prlprg.Generator.Con;
@@ -7,6 +8,7 @@ import prlprg.Generator.Inst;
 import prlprg.Generator.Tuple;
 import prlprg.Generator.Type;
 
+// Generate subtypes of any given type, one a time, with a given fuel.
 class Subtyper {
 
     Generator gen;
@@ -68,8 +70,8 @@ class Subtyper {
     class TupleGen extends TypeGen {
 
         Tuple t;
-        List<TypeGen> tyGens;
-        List<Type> tys;
+        List<TypeGen> tyGens = new ArrayList<>();
+        List<Type> tys = new ArrayList<>();
 
         TupleGen(Tuple t, Fuel f) {
             super(null, f);
@@ -125,31 +127,54 @@ class Subtyper {
         }
 
         @Override
-        boolean hasNext() {
-            return super.hasNext();
-        }
-
-        @Override
         Type next() {
             var prev = next;
-            next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
-            return prev;
+            if (kids == null) {
+                kids = new KidGen((Inst) prev, f);
+                if (kids.hasNext()) {
+                    next = kids.next();
+                    return prev;
+                } else {
+                    kids = null;
+                    next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
+                }
+                return prev;
+            } else {
+                next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
+                return prev;
+            }
         }
     }
 
     class KidGen extends TypeGen {
 
         Inst inst;
+        List<String> kids;
+        InstGen tg;
 
-        KidGen(Type t, Fuel f) {
-            super(t, f);
-
+        KidGen(Inst inst, Fuel f) {
+            super(null, f);
+            this.inst = inst;
+            this.kids = gen.directInheritance.getOrDefault(inst.nm(), new ArrayList<>());
+            if (!kids.isEmpty()) {
+                var it = new Inst(kids.removeFirst(), inst.tys());
+                tg = new InstGen(it, f);
+                next = tg.next();
+            }
         }
 
         @Override
         Generator.Type next() {
             var prev = next;
-            next = null;
+            if (tg.hasNext()) {
+                next = tg.next();
+            } else if (!kids.isEmpty()) {
+                var it = new Inst(kids.removeFirst(), inst.tys());
+                tg = new InstGen(it, f);
+                next = tg.next();
+            } else {
+                next = null;
+            }
             return prev;
         }
     }
@@ -184,7 +209,8 @@ class Subtyper {
         var gen = new Generator(App.db);
         gen.gen();
         var sub = new Subtyper(gen);
-        var tup = new Tuple(List.of(new Inst("A", List.of()), new Inst("B", List.of())));
+        var a = new Inst("A", List.of());
+        var tup = new Tuple(List.of(a, new Inst("B", List.of())));
         var tg = sub.make(tup, new Fuel(10));
         while (tg.hasNext()) {
             System.out.println(tg.next());
@@ -192,11 +218,11 @@ class Subtyper {
     }
 
     static String tstr = """
-    abstract A end
-    abstract B end
-    abstract AA <: A end
-    abstract BB <: B end
-    abstract BC <: B end
+    abstract type A end
+    abstract type B end
+    abstract type AA <: A end
+    abstract type BB <: B end
+    abstract type BC <: B end
     """;
     static String str = """
     function ceil(::T) where T>:Missing
