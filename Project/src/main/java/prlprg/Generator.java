@@ -265,6 +265,37 @@ public class Generator {
         public String toString() {
             return "function " + nm + " " + ty;
         }
+
+        public void add_pkgs(HashSet<String> pkgs) {
+            if (nm.contains(".")) {
+                pkgs.add(nm.split("\\.", 2)[0]);
+            }
+            if (ty instanceof Tuple t) {
+                for (var typ : t.tys) {
+                    // TODO: recurse into other kinds of type
+                    if (typ instanceof Inst inst) {
+                        if (inst.nm().contains(".")) {
+                            pkgs.add(inst.nm().split("\\.", 2)[0]);
+                        }
+                    }
+                }
+            }
+        }
+
+        public String juliaName() {
+            // FileWatching.|
+            // Pkg.Artifacts.var#verify_artifact#1
+            // Base.GMP.MPQ.//
+            var parts = nm.split("\\.");
+            var name = parts[parts.length - 1];
+            if (name.startsWith("var#")) {
+                name = name.substring(0, 3) + "\"" + name.substring(3) + "\"";
+            } else if (!Character.isLetter(name.charAt(0)) && name.charAt(0) != '_') {
+                name = ":(" + name + ")";
+            }
+            parts[parts.length - 1] = name;
+            return String.join(".", parts);
+        }
     }
 
     GenDB db; // our database of types and signatures -- these are still not complete
@@ -310,17 +341,35 @@ public class Generator {
         }
 
         try {
-            var w = new BufferedWriter(new FileWriter("test.jl"));
+            HashSet<String> pkgs = new HashSet<>();
+            var w = new BufferedWriter(new FileWriter("tests.jl"));
             for (var b : sigs.values()) {
                 for (var s : b) {
                     if (s.isGround()) {
                         System.err.println("Ground: " + s);
-                        var str = ((Tuple) s.ty).tys.stream().map(Type::toString).collect(Collectors.joining(","));
-                        var content = "code_warntype(" + s.nm + ",[" + str + "])\n";
-                        w.write(content);
+
+                        s.add_pkgs(pkgs);
+
+                        w.write("isstablecall(");
+                        w.write(s.juliaName());
+                        w.write(", [");
+                        w.write(((Tuple) s.ty).tys.stream().map(Type::toString).collect(Collectors.joining(", ")));
+                        w.write("])\n");
                     }
                 }
             }
+            w.close();
+
+            pkgs.remove("Base");
+            pkgs.remove("Core");
+            var pkgsf = new BufferedWriter(new FileWriter("pkgs.txt"));
+            var importsf = new BufferedWriter(new FileWriter("imports.jl"));
+            for (var p : pkgs) {
+                pkgsf.write(p + "\n");
+                importsf.write("import " + p + "\n");
+            }
+            pkgsf.close();
+            importsf.close();
         } catch (IOException e) {
             throw new Error(e);
         }
