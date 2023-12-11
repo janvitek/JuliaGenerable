@@ -64,7 +64,6 @@ class Subtyper {
         Type next() {
             return null;
         }
-
     }
 
     class TupleGen extends TypeGen {
@@ -108,7 +107,6 @@ class Subtyper {
             next = null;
             return prev;
         }
-
     }
 
     // A parametric type, tries to generate all possible instantiations of the
@@ -127,11 +125,6 @@ class Subtyper {
         }
 
         @Override
-        public boolean hasNext() {
-            return super.hasNext() || (kids != null && kids.hasNext());
-        }
-
-        @Override
         Type next() {
             var prev = next;
             if (kids == null) {
@@ -144,7 +137,11 @@ class Subtyper {
                     next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
                 }
                 return prev;
+            } else if (kids.hasNext()) {
+                next = kids.next();
+                return prev;
             } else {
+                kids = null;
                 next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
                 return prev;
             }
@@ -160,7 +157,7 @@ class Subtyper {
         KidGen(Inst inst, Fuel f) {
             super(null, f);
             this.inst = inst;
-            this.kids = gen.directInheritance.getOrDefault(inst.nm(), new ArrayList<>());
+            this.kids = new ArrayList<>(gen.directInheritance.getOrDefault(inst.nm(), new ArrayList<>()));
             if (!kids.isEmpty()) {
                 var it = new Inst(kids.removeFirst(), inst.tys());
                 tg = new InstGen(it, f);
@@ -169,7 +166,7 @@ class Subtyper {
         }
 
         @Override
-        Generator.Type next() {
+        Type next() {
             var prev = next;
             if (tg.hasNext()) {
                 next = tg.next();
@@ -191,7 +188,7 @@ class Subtyper {
         }
 
         @Override
-        Generator.Type next() {
+        Type next() {
             var prev = next;
             next = null;
             return prev;
@@ -214,8 +211,7 @@ class Subtyper {
         var gen = new Generator(App.db);
         gen.gen();
         var sub = new Subtyper(gen);
-        var a = new Inst("A", List.of());
-        var tup = new Tuple(List.of(a, new Inst("B", List.of())));
+        var tup = new Tuple(List.of(new Inst("A", List.of()), new Inst("B", List.of()), new Inst("C", List.of())));
         var tg = sub.make(tup, new Fuel(10));
         while (tg.hasNext()) {
             System.out.println(tg.next());
