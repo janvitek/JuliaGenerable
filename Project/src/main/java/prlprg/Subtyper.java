@@ -137,7 +137,11 @@ class Subtyper {
                     next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
                 }
                 return prev;
+            } else if (kids.hasNext()) {
+                next = kids.next();
+                return prev;
             } else {
+                kids = null;
                 next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
                 return prev;
             }
