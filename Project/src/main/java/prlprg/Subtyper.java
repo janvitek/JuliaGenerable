@@ -157,7 +157,7 @@ class Subtyper {
         KidGen(Inst inst, Fuel f) {
             super(null, f);
             this.inst = inst;
-            this.kids = gen.directInheritance.getOrDefault(inst.nm(), new ArrayList<>());
+            this.kids = new ArrayList<>(gen.directInheritance.getOrDefault(inst.nm(), new ArrayList<>()));
             if (!kids.isEmpty()) {
                 var it = new Inst(kids.removeFirst(), inst.tys());
                 tg = new InstGen(it, f);
