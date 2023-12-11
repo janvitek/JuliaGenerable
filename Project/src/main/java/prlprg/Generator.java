@@ -16,6 +16,9 @@ public class Generator {
 
         @Override
         public String toString();
+
+        Type deepClone(HashMap<Bound, Bound> map);
+
     }
 
     static Inst any = new Inst("Any", List.of());
@@ -42,14 +45,24 @@ public class Generator {
             return snm + (tys.isEmpty() ? "" : "{" + args + "}");
         }
 
+        @Override
+        public Type deepClone(HashMap<Bound, Bound> map) {
+            return new Inst(nm, tys.stream().map(t -> t.deepClone(map)).collect(Collectors.toList()));
+        }
+
     }
 
     // A variable refers to a Bound in an enclosing Exist. Free variables are not expected.
-    public record Var(Bound b) implements Type {
+    record Var(Bound b) implements Type {
 
         @Override
         public String toString() {
             return CodeColors.variable(b.nm());
+        }
+
+        @Override
+        public Type deepClone(HashMap<Bound, Bound> map) {
+            return new Var(map.get(b));
         }
 
     }
@@ -63,6 +76,13 @@ public class Generator {
         public String toString() {
             return (!isNone(low) ? low + "<:" : "") + CodeColors.variable(nm) + (!isAny(up) ? "<:" + up : "");
         }
+
+        public Bound deepClone(HashMap<Bound, Bound> map) {
+            var me = new Bound(nm, low, up); // fix up and low
+            map.put(this, me);
+            return me;
+        }
+
     }
 
     // A constant, such as a number, character or string. The implementation of the parser does not attempt
@@ -74,6 +94,10 @@ public class Generator {
             return CodeColors.comment(nm);
         }
 
+        @Override
+        public Type deepClone(HashMap<Bound, Bound> map) {
+            return this;
+        }
     }
 
     record Exist(Bound b, Type ty) implements Type {
@@ -81,6 +105,12 @@ public class Generator {
         @Override
         public String toString() {
             return CodeColors.exists("∃") + b + CodeColors.exists(".") + ty;
+        }
+
+        @Override
+        public Type deepClone(HashMap<Bound, Bound> map) {
+            var newmap = new HashMap<Bound, Bound>(map);
+            return new Exist(b.deepClone(newmap), ty.deepClone(newmap));
         }
 
     }
@@ -93,14 +123,24 @@ public class Generator {
             return CodeColors.union("[") + str + CodeColors.union("]");
         }
 
+        @Override
+        public Type deepClone(HashMap<Bound, Bound> map) {
+            return new Union(tys.stream().map(t -> t.deepClone(map)).collect(Collectors.toList()));
+        }
+
     }
 
-    public record Tuple(List<Type> tys) implements Type {
+    record Tuple(List<Type> tys) implements Type {
 
         @Override
         public String toString() {
             var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.tuple(",")));
             return CodeColors.tuple("(") + str + CodeColors.tuple(")");
+        }
+
+        @Override
+        public Type deepClone(HashMap<Bound, Bound> map) {
+            return new Tuple(tys.stream().map(t -> t.deepClone(map)).collect(Collectors.toList()));
         }
 
     }
@@ -161,7 +201,7 @@ public class Generator {
     HashMap<String, InhNode> index = new HashMap<>(); // Map from type names to corresponding node in the inheritance tree
 
     HashMap<String, Decl> decls = new HashMap<>(); // Map from type names to corresponding Decl. Final.
-    HashMap<String, Sig> sigs = new HashMap<>(); // Map from function names to corresponding Sig. Final.
+    HashMap<String, List<Sig>> sigs = new HashMap<>(); // Map from function names to corresponding Sig. Final.
     HashMap<String, List<String>> directInheritance = new HashMap<>();
 
     static Generator self; // hack to let static methods to access the instance, we have a single generator
@@ -188,7 +228,9 @@ public class Generator {
             for (var n : signodes) {
                 try {
                     var s = new Sig(n.nm(), n.ty().toType(new ArrayList<>()), n.src());
-                    sigs.put(n.nm(), s);
+                    var bundle = sigs.getOrDefault(n.nm(), new ArrayList<>());
+                    bundle.add(s);
+                    sigs.put(n.nm(), bundle);
                     System.out.println(s);
                 } catch (Exception e) {
                     System.err.println("Error: " + n.nm() + " " + e.getMessage());
@@ -199,13 +241,14 @@ public class Generator {
 
         try {
             var w = new BufferedWriter(new FileWriter("test.jl"));
-            for (var s : sigs.values()) {
-                if (s.isGround()) {
-                    System.err.println("Ground: " + s);
-                    var str = ((Tuple) s.ty).tys.stream().map(Type::toString).collect(Collectors.joining(","));
-                    var content = "code_warntype(" + s.nm + ",[" + str + "])\n";
-                    w.write(content);
-
+            for (var b : sigs.values()) {
+                for (var s : b) {
+                    if (s.isGround()) {
+                        System.err.println("Ground: " + s);
+                        var str = ((Tuple) s.ty).tys.stream().map(Type::toString).collect(Collectors.joining(","));
+                        var content = "code_warntype(" + s.nm + ",[" + str + "])\n";
+                        w.write(content);
+                    }
                 }
             }
         } catch (IOException e) {
