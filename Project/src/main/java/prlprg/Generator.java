@@ -19,13 +19,13 @@ public class Generator {
     }
 
     static Inst any = new Inst("Any", List.of());
-    static Union none = new Union(List.of());
+    static Union bottom = new Union(List.of());
 
     static boolean isAny(Type t) {
         return t instanceof Inst i && i.nm.equals("Any");
     }
 
-    static boolean isNone(Type t) {
+    static boolean isBottom(Type t) {
         return t instanceof Union u && u.tys.isEmpty();
     }
 
@@ -41,7 +41,6 @@ public class Generator {
             var snm = shortener.shorten(nm);
             return snm + (tys.isEmpty() ? "" : "{" + args + "}");
         }
-
     }
 
     // A variable refers to a Bound in an enclosing Exist. Free variables are not expected.
@@ -51,7 +50,6 @@ public class Generator {
         public String toString() {
             return CodeColors.variable(b.nm());
         }
-
     }
 
     // A Bound introduces a variable, with an upper and a lower bound. Julia allows writing inconsistent
@@ -61,19 +59,18 @@ public class Generator {
 
         @Override
         public String toString() {
-            return (!isNone(low) ? low + "<:" : "") + CodeColors.variable(nm) + (!isAny(up) ? "<:" + up : "");
+            return (isBottom(low) ? "" : low + "<:") + CodeColors.variable(nm) + (isAny(up) ? "" : "<:" + up);
         }
     }
 
     // A constant, such as a number, character or string. The implementation of the parser does not attempt
-    // do much we constant, they are treated as uninterpreted strings.
+    // to do much with constants, they are treated as uninterpreted strings.
     public record Con(String nm) implements Type {
 
         @Override
         public String toString() {
             return CodeColors.comment(nm);
         }
-
     }
 
     record Exist(Bound b, Type ty) implements Type {
@@ -82,7 +79,6 @@ public class Generator {
         public String toString() {
             return CodeColors.exists("∃") + b + CodeColors.exists(".") + ty;
         }
-
     }
 
     record Union(List<Type> tys) implements Type {
@@ -92,7 +88,6 @@ public class Generator {
             var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.union("|")));
             return CodeColors.union("[") + str + CodeColors.union("]");
         }
-
     }
 
     public record Tuple(List<Type> tys) implements Type {
@@ -102,7 +97,6 @@ public class Generator {
             var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.tuple(",")));
             return CodeColors.tuple("(") + str + CodeColors.tuple(")");
         }
-
     }
 
     // A type declaration introduces a new type name, with a type instance and a parent.
@@ -334,5 +328,4 @@ public class Generator {
             }
         }
     }
-
 }

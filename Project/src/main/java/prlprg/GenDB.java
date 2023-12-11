@@ -278,7 +278,7 @@ class GenDB {
                     throw new RuntimeException("Should be a TyVar but is a type: " + ty);
                 }
                 name = inst.nm();
-                low = Generator.none;
+                low = Generator.bottom;
                 up = Generator.any;
             }
             var b = new Generator.Bound(name, low, up);
