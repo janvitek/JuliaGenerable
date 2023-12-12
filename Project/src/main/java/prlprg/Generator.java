@@ -87,7 +87,7 @@ public class Generator {
 
     // A constant, such as a number, character or string. The implementation of the parser does not attempt
     // do much we constant, they are treated as uninterpreted strings.
-     record Con(String nm) implements Type {
+    record Con(String nm) implements Type {
 
         @Override
         public String toString() {

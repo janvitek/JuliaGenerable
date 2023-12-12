@@ -4,7 +4,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
+
+import javax.crypto.SealedObject;
 
 import prlprg.Generator.Bound;
 import prlprg.Generator.Con;
@@ -14,6 +17,7 @@ import prlprg.Generator.Inst;
 import prlprg.Generator.Tuple;
 import prlprg.Generator.Type;
 import prlprg.Generator.Union;
+import prlprg.Generator.Var;
 
 // Generate subtypes of any given type, one a time, with a given fuel.
 class Subtyper {
@@ -35,7 +39,7 @@ class Subtyper {
             case Union u ->
                 new UnionGen(u, f);
             default ->
-                throw new RuntimeException("Unknown type: " + t);
+                throw new RuntimeException("Unexpected type: " + t); // E,g, Var
         };
     }
 
@@ -198,8 +202,11 @@ class Subtyper {
             if (kids.isEmpty()) {
                 return null;
             }
-            var it = new Inst(kids.removeFirst(), inst_arg_tys);
-            tg = new InstGen(it, f);
+            var nm = kids.removeFirst();
+            var d = gen.decls.get(nm);
+            failIf(d == null);
+            var res =  (Inst) unifyDeclToInstance(d, new Tuple(inst_arg_tys));           
+            tg = new InstGen(res, f);
             return tg.next();
         }
 
@@ -252,33 +259,138 @@ class Subtyper {
         var lhs =(Exist) d.ty(); 
         var rhsargs = d.inst().tys();
         var upargs = t.tys();
-        failfINot(rhsargs.size() == upargs.size());
-        failfINot(!freeVars(lhs).isEmpty());
-        failfINot(!freeVars(t).isEmpty());
-        // Some invariant:
+        // sanity checking
+        failIf(rhsargs.size() != upargs.size());
+        failIf(!freeVars(lhs).isEmpty());
+        var freerhs = freeVars(t);
+        failIf(!freerhs.isEmpty());
         //   rhs may have free variables defined in lhs
-        //   upargs is the tuple of types in the query, it does not have free variables
-
-
-        return null;
+        var bounds = grabLeadingBounds(lhs);
+        freerhs.removeAll(bounds);
+        failIf(!freerhs.isEmpty());
+        // sane.
+        var subst = new HashMap<Bound, Type>();
+        for (int i=0; i<rhsargs.size(); i++) {
+            var rhsarg = rhsargs.get(i);
+            var uparg = upargs.get(i);
+            if (!unifyType(rhsarg, uparg, subst)) {
+                throw new RuntimeException("Failed to unify " + rhsarg + " with " + uparg);
+            }
+        }
+        var res = substitute(lhs, subst);        
+        return res;
     }
 
-    void failfINot(booolean b) {
-        if (!b) {
+    Type substitute(Type t, HashMap<Bound,Type> subst) {
+        return switch (t) {
+            case Var v -> {
+               var res = subst.get(v.b());
+               yield res == null ? v : res;
+            }
+            case Con c -> c;
+            case Inst i -> new Inst(i.nm(), i.tys().stream().map(ty -> substitute(ty, subst)).collect(Collectors.toCollection(ArrayList::new)));
+            case Tuple p -> new Tuple(p.tys().stream().map(ty -> substitute(ty, subst)).collect(Collectors.toCollection(ArrayList::new)));
+            case Union u -> new Union(u.tys().stream().map(ty -> substitute(ty, subst)).collect(Collectors.toCollection(ArrayList::new)));
+            case Exist e -> {
+                var found = subst.get(e.b());
+                if (found == null) {
+                    var up = substitute(e.b().up(), subst);
+                    var low = substitute(e.b().low(), subst);
+                    var ty = substitute(e.ty(), subst);
+                    yield new Exist(new Bound(e.b().nm(), up, low), ty);
+                } else {
+                    yield substitute(e.ty(), subst);
+                }
+            }
+            default -> throw new RuntimeException("Unknown type: " + t);
+        };
+    }
+
+    // unifyType( A{Vector{Int}}, A{Vector{Int}}, {} )
+    // unifyType( A{Vector{T}}, A{Vector{Int}}, {T -> Int} )
+    // unifyType( A{T}, A{Vector{Int}}, {T -> Vector{Int}} )
+    boolean unifyType(Type t, Type u, HashMap<Bound, Type> subst) {
+        return    switch (t) {
+            case Var v -> { 
+                var ty = subst.get(v.b());
+                if (ty == null) {
+                    subst.put(v.b(), u);
+                }
+                // expect that multiple occurences of a var are ok
+                // keep the first binding. Revisit if we should check for equality
+                yield true;
+            }
+            case Con c -> u instanceof Con && c.nm().equals(((Con) u).nm());
+            case Inst i -> {
+                if (u instanceof Inst ui) {
+                    if (!i.nm().equals(ui.nm())) {
+                        yield false;
+                    }
+                    var uis = ui.tys();
+                    if (i.tys().size() != uis.size()) {
+                        yield false;
+                    }
+                    for (int j=0; j<i.tys().size(); j++) {
+                        if (!unifyType(i.tys().get(j), uis.get(j), subst)) {
+                            yield false;
+                        }
+                    }
+                    yield true;
+                }  else { yield false;}
+            }
+            case Tuple p -> {
+                if (u instanceof Tuple up) {
+                    if (p.tys().size() != up.tys().size()) {
+                        yield false;
+                    }
+                    for (int j=0; j<p.tys().size(); j++) {
+                        if (!unifyType(p.tys().get(j), up.tys().get(j), subst)) {
+                            yield false;
+                        }
+                    }
+                    yield true;
+                }  else { yield false;}
+            }
+            case Union tu -> {
+                if (u instanceof Union un) {
+                    if (tu.tys().size() != un.tys().size()) {
+                        yield false;
+                    }
+                    for (int j=0; j<tu.tys().size(); j++) {
+                        if (!unifyType(tu.tys().get(j), un.tys().get(j), subst)) {
+                            yield false;
+                        }
+                    }
+                    yield true;
+                }  else { yield false;}
+            }
+            case Exist e -> {
+                if (u instanceof Exist) {
+                    // That is hard, for now ignore this case. Revisit?
+                    yield true;
+                }  else { yield false;}
+            }
+            default -> false;
+        };        
+    }
+
+    void failIf(boolean b) {
+        if (b) {
             throw new RuntimeException("Fail");
         }
     }
 
-HashSet<Bound> freeVars(Type t) {
+Set<Bound> freeVars(Type t) {
     return switch (t) {
-        case Con c -> new HashSet<>();
+        case Var v -> Set.of(v.b());
+        case Con c -> Set.of();
         case Inst i -> i.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
         case Tuple p -> p.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
         case Union u -> u.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
         case Exist e -> {
             var up = freeVars(e.b().up());
             var low = freeVars(e.b().low());
-            var free = freeVars(e.ty());
+            var free = new HashSet<Bound>(freeVars(e.ty()));
             free.remove(e.b()) ; 
             free.addAll(up);
             free.addAll(low);
@@ -287,6 +399,17 @@ HashSet<Bound> freeVars(Type t) {
         default -> throw new RuntimeException("Unknown type: " + t);
     };
 }
+
+    List<Bound> grabLeadingBounds(Exist e) {
+        var bounds = new ArrayList<Bound>();
+        var ty = e.ty();
+        while (ty instanceof Exist) {
+            var ex = (Exist) ty;
+            bounds.add(ex.b());
+            ty = ex.ty();
+        }
+        return bounds;
+    }
 
     public static void main(String[] args) {
         App.debug = true;
@@ -322,12 +445,19 @@ HashSet<Bound> freeVars(Type t) {
     abstract type BB <: B end
     abstract type BC <: B end
     abstract type D end
+    abstract type F{T} end
+    abstract type G{T} <: F{T} end
+    abstract type H{T} end
+    abstract type HH{T} <: H{Vector{T}} end
+    abstract type Int end
     """;
     static String str = """
     function a(::A, ::A)
     function a(::A, ::B, ::A)
     function a(::Tuple{AA,D}, ::BB)
     function a(::Union{AA,D}, ::BC)
+    function a(::F{Int})
+    function a(::H{Vector{Int}})
     """;
 
 }
