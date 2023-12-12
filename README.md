@@ -22,10 +22,19 @@ And run the tests
 
 If all goes well, you should see results such as
 
-    Results: Passed 100.0% of 1771 tests
-          PASSED: 1771
+    Results: Passed 100.0% of 5473 tests
+          PASSED: 5473
           FAILED: 0
-          STABLE: 1446
-        UNSTABLE: 325
+          STABLE: 3608
+        UNSTABLE: 1865
 
-> TODO: there's a bug and some modules make it into the tests, eg. `isstablecall(Base, [])`. For now, these need to be commented out manually.
+> TODO: there are some bugs in the generated tests:
+>
+> `isstablecall(Base, [])`
+> `isstablecall(Core.Compiler, [])`
+> `isstablecall(Core.Compiler.merge, [NamedTuple, NamedTuple{EOF}])` and such should replace EOFs with `()`
+> `isstablecall(Base.iterate, [Base.Iterators.ProductIterator{()}])` should take `Tuple{}` not `()`
+> `isstablecall(Core.Compiler.iterate, [Core.Compiler.Iterators.ProductIterator{()}])` same
+> `isstablecall(Core.Compiler.lift_comparison!, [typeof(===), Core.Compiler.IncrementalCompact, Int64, Expr, Core.Compiler.IdDict{Pair{[Core.Compiler.NewSSAValue|Core.Compiler.OldSSAValue|Core.SSAValue],Any},[Core.Compiler.NewSSAValue|Core.Compiler.OldSSAValue|Core.SSAValue]}])` and such printing unions
+>
+> For now, these need to be commented out manually.
