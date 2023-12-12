@@ -19,6 +19,8 @@ public class Generator {
 
         Type deepClone(HashMap<Bound, Bound> map);
 
+        boolean structuralEquals(Type t);
+
     }
 
     static Inst any = new Inst("Any", List.of());
@@ -50,6 +52,22 @@ public class Generator {
             return new Inst(nm, tys.stream().map(t -> t.deepClone(map)).collect(Collectors.toList()));
         }
 
+        @Override
+        public boolean structuralEquals(Type t) {
+            if (t instanceof Inst i) {
+                if (!nm.equals(i.nm) || tys.size() != i.tys.size()) {
+                    return false;
+                }
+                for (int j = 0; j < tys.size(); j++) {
+                    if (!tys.get(j).structuralEquals(i.tys.get(j))) {
+                        return false;
+                    }
+                }
+                return true;
+            } 
+            return false;
+        }
+
     }
 
     // A variable refers to a Bound in an enclosing Exist. Free variables are not expected.
@@ -63,6 +81,11 @@ public class Generator {
         @Override
         public Type deepClone(HashMap<Bound, Bound> map) {
             return new Var(map.get(b));
+        }
+
+        @Override
+        public boolean structuralEquals(Type t) {
+            return t instanceof Var v && b.nm() .equals( v.b.nm());
         }
 
     }
@@ -83,6 +106,9 @@ public class Generator {
             return me;
         }
 
+        public boolean structuralEquals(Bound b) {
+            return nm.equals(b.nm) && low.structuralEquals(b.low) && up.structuralEquals(b.up);
+        }
     }
 
     // A constant, such as a number, character or string. The implementation of the parser does not attempt
@@ -98,6 +124,11 @@ public class Generator {
         public Type deepClone(HashMap<Bound, Bound> map) {
             return this;
         }
+
+        @Override
+        public boolean structuralEquals(Type t) {
+            return t instanceof Con c && nm.equals(c.nm);
+        }
     }
 
     record Exist(Bound b, Type ty) implements Type {
@@ -111,6 +142,11 @@ public class Generator {
         public Type deepClone(HashMap<Bound, Bound> map) {
             var newmap = new HashMap<Bound, Bound>(map);
             return new Exist(b.deepClone(newmap), ty.deepClone(newmap));
+        }
+
+        @Override
+        public boolean structuralEquals(Type t) {
+            return t instanceof Exist e && b.structuralEquals(e.b) && ty.structuralEquals(e.ty);
         }
 
     }
@@ -128,6 +164,22 @@ public class Generator {
             return new Union(tys.stream().map(t -> t.deepClone(map)).collect(Collectors.toList()));
         }
 
+        @Override
+        public boolean structuralEquals(Type t) {
+            if (t instanceof Union u) {
+                if (tys.size() != u.tys.size()) {
+                    return false;
+                }
+                for (int i = 0; i < tys.size(); i++) {
+                    if (!tys.get(i).structuralEquals(u.tys.get(i))) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            return false;
+        }
+
     }
 
     record Tuple(List<Type> tys) implements Type {
@@ -141,6 +193,23 @@ public class Generator {
         @Override
         public Type deepClone(HashMap<Bound, Bound> map) {
             return new Tuple(tys.stream().map(t -> t.deepClone(map)).collect(Collectors.toList()));
+        }
+
+
+        @Override
+        public boolean structuralEquals(Type t) {
+            if (t instanceof Tuple tu) {
+                if (tys.size() != tu.tys.size()) {
+                    return false;
+                }
+                for (int i = 0; i < tys.size(); i++) {
+                    if (!tys.get(i).structuralEquals(tu.tys.get(i))) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            return false;
         }
 
     }
