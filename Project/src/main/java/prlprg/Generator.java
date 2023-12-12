@@ -87,7 +87,7 @@ public class Generator {
 
     // A constant, such as a number, character or string. The implementation of the parser does not attempt
     // do much we constant, they are treated as uninterpreted strings.
-    public record Con(String nm) implements Type {
+     record Con(String nm) implements Type {
 
         @Override
         public String toString() {
@@ -148,7 +148,8 @@ public class Generator {
     // A type declaration introduces a new type name, with a type instance and a parent.
     // The type Any has no parent, and is the root of the type hierarchy.
     // We do not print the case where the parent is Any, since it is the default.
-    record Decl(String mod, String nm, Type ty, Type inst, Decl parent, String src) {
+    
+    record Decl(String mod, String nm, Type ty, Inst inst, Decl parent, String src) {
 
         @Override
         public String toString() {
@@ -329,7 +330,7 @@ public class Generator {
                 var env = new ArrayList<Bound>();
                 var t = decl.ty().toType(env);
                 var inst = decl.parent().toType(getBounds(t, env));
-                d = new Decl(decl.mod(), name, t, inst, parent.d, decl.src());
+                d = new Decl(decl.mod(), name, t, (Inst) inst, parent.d, decl.src());
             }
             return d;
         }

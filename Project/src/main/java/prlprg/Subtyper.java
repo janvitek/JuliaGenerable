@@ -2,10 +2,14 @@ package prlprg;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import prlprg.Generator.Bound;
 import prlprg.Generator.Con;
+import prlprg.Generator.Decl;
+import prlprg.Generator.Exist;
 import prlprg.Generator.Inst;
 import prlprg.Generator.Tuple;
 import prlprg.Generator.Type;
@@ -72,57 +76,48 @@ class Subtyper {
 
     }
 
-    class TupleGen extends TypeGen {
-
-        CombinerGen combiner;
-
-        TupleGen(Tuple t, Fuel f) {
-            super(null, f);
-            this.combiner = new CombinerGen(t.tys(), f);
-        }
-
-        @Override
-        public boolean hasNext() {
-            return combiner.hasNext();
-        }
-
-        // Returns the perviously generated type, and builds the next one.
-        // If the next one is null, then we have exhausted all possible types.
-        @Override
-        public Type next() {
-            return combiner.next();
-        }
-    }
-
     class UnionGen extends TypeGen {
 
-        CombinerGen combiner;
+        List<TypeGen> tyGens = new ArrayList<>();
+        int off = 0;
 
         UnionGen(Union u, Fuel f) {
             super(null, f);
-            this.combiner = new CombinerGen(u.tys(), f);
+            this.tyGens = u.tys().stream().map(ty -> make(ty, f)).collect(Collectors.toCollection(ArrayList::new));
+            this.next = tyGens.get(0).next();
         }
 
         @Override
         public boolean hasNext() {
-            return combiner.hasNext();
+            return super.hasNext();
         }
 
         @Override
         public Type next() {
-            var t = (Tuple) combiner.next();
-            return new Union(t.tys());
+            var prev = next;
+            for (int i=0; i<tyGens.size(); i++) {
+                var offset = (off + i) % tyGens.size();
+                var tg = tyGens.get(offset);
+                if (tg.hasNext()) {
+                    next = tg.next();
+                    return prev;
+                }
+            }
+            next = null;
+            return prev;
         }
     }
 
-    class CombinerGen extends TypeGen {
+    class TupleGen extends TypeGen {
 
-        List<TypeGen> tyGens = new ArrayList<>();
-        List<Type> tys = new ArrayList<>();
+        final Tuple t;
+        List<TypeGen> tyGens;
+        final List<Type> tys;
 
-        CombinerGen(List<Type> ogtys, Fuel f) {
+        TupleGen(Tuple t, Fuel f) {
             super(null, f);
-            this.tyGens = ogtys.stream().map(ty -> make(ty, f)).collect(Collectors.toCollection(ArrayList::new));
+            this.t = t;
+            this.tyGens = t.tys().stream().map(ty -> make(ty, f)).collect(Collectors.toCollection(ArrayList::new));
             this.tys = tyGens.stream().map(tg -> tg.next()).collect(Collectors.toCollection(ArrayList::new));
             this.next = new Tuple(new ArrayList<>(tys));
             nullCheck();
@@ -145,7 +140,7 @@ class Subtyper {
                     next = new Tuple(new ArrayList<>(tys));
                     return prev;
                 } else {
-                    tg = make(tys.get(i), f);
+                    tg = make(t.tys().get(i), f);
                     tyGens.set(i, tg);
                     tys.set(i, tg.next());
                 }
@@ -167,58 +162,45 @@ class Subtyper {
             super(null, f);
             this.inst = (Inst) inst.deepClone(new HashMap<>());
             this.argGen = new TupleGen(new Tuple(inst.tys()), f);
-            next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
+            this.next = nextInstWithArgsOrNull();
         }
 
-        @Override
-        public boolean hasNext() {
-            return super.hasNext() || (kids != null && kids.hasNext());
+        private Inst nextInstWithArgsOrNull() {
+            return argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
         }
 
         @Override
         Type next() {
             var prev = next;
-            if (kids == null) {
-                kids = new KidGen((Inst) prev, f);
-                if (kids.hasNext()) {
-                    next = kids.next();
-                    return prev;
-                } else {
-                    kids = null;
-                    next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
-                }
-                return prev;
-            } else {
-                next = argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
-                if (prev == null && next == null) {
-                    return kids.next();
-                }
-                return prev;
-            }
+            // kids == null when we have not yet started generating kids for this inst{args} combo
+            // in this case, prev == inst{args}
+            kids = kids == null ? new KidGen((Inst) prev, f) : kids;
+            kids = kids.hasNext() ? kids : null; //if there are no more kids, reset the kids generator
+            next = (kids != null && kids.hasNext()) ? kids.next() : nextInstWithArgsOrNull();
+            return prev;
         }
     }
 
     class KidGen extends TypeGen {
 
-        final Inst inst;
+        final List<Type> inst_arg_tys;
         final List<String> kids;
-        InstGen tg;
+        InstGen tg = null;
 
         KidGen(Inst inst, Fuel f) {
             super(null, f);
-            this.inst = (Inst) inst.deepClone(new HashMap<>());
+            this.inst_arg_tys = new ArrayList<>(inst.tys());
             this.kids = new ArrayList<>(gen.directInheritance.getOrDefault(inst.nm(), new ArrayList<>()));
             this.next = grabNextKidOrNull();
         }
 
         private Type grabNextKidOrNull() {
-            if (!kids.isEmpty()) {
-                var it = new Inst(kids.removeFirst(), inst.tys());
-                tg = new InstGen(it, f);
-                return tg.next();
-            } else {
+            if (kids.isEmpty()) {
                 return null;
             }
+            var it = new Inst(kids.removeFirst(), inst_arg_tys);
+            tg = new InstGen(it, f);
+            return tg.next();
         }
 
         @Override
@@ -242,6 +224,69 @@ class Subtyper {
             return prev;
         }
     }
+
+    // Attempt to bind variables in a subtype. Use case is that we want to generate
+    // subtypes of an instance A{Vector{Int}}, the instance does not have free variables,
+    // and we have Decls:
+    //    abstract type A{T} end
+    //    abstract type B{T,N} <: A{T} end
+    //    abstract type C{T} <: A{Vector{T}} end
+    // The types we should generate are:
+    //  \Exist x. B{Vector{Int}, x} 
+    //  C{Int}
+    // The algorithm unifies the tuple of types in the query with the arguments of the rhs
+    // (i.e. the parent) and returns the lhs with the bound variables substituted.
+    //
+    // This implementation performs structural unification, which is not always correct so
+    // we may fail to unify in some cases. For example, if the query is:
+    //    A{Union{Int, Float64}}
+    // and the decl is:
+    //   abstract type B{T} <: A{Union{Float64,T}} end
+    // To get that we would have to do some normalization of type terms. Given the complexity
+    // of the type language, it is not clear how far to go. These are rare cases, perhaps we
+    // could complain and let humans deal with it.
+     Type unifyDeclToInstance(Decl d, Tuple t){
+        if (!(d.ty() instanceof Exist)) {
+            return (Inst) d.ty(); // nothing to do, it is an instance, the cast is just sanity checking
+        }
+        var lhs =(Exist) d.ty(); 
+        var rhsargs = d.inst().tys();
+        var upargs = t.tys();
+        failfINot(rhsargs.size() == upargs.size());
+        failfINot(!freeVars(lhs).isEmpty());
+        failfINot(!freeVars(t).isEmpty());
+        // Some invariant:
+        //   rhs may have free variables defined in lhs
+        //   upargs is the tuple of types in the query, it does not have free variables
+
+
+        return null;
+    }
+
+    void failfINot(booolean b) {
+        if (!b) {
+            throw new RuntimeException("Fail");
+        }
+    }
+
+HashSet<Bound> freeVars(Type t) {
+    return switch (t) {
+        case Con c -> new HashSet<>();
+        case Inst i -> i.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
+        case Tuple p -> p.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
+        case Union u -> u.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
+        case Exist e -> {
+            var up = freeVars(e.b().up());
+            var low = freeVars(e.b().low());
+            var free = freeVars(e.ty());
+            free.remove(e.b()) ; 
+            free.addAll(up);
+            free.addAll(low);
+            yield free;
+        }
+        default -> throw new RuntimeException("Unknown type: " + t);
+    };
+}
 
     public static void main(String[] args) {
         App.debug = true;
@@ -279,8 +324,8 @@ class Subtyper {
     abstract type D end
     """;
     static String str = """
-    function a(::B)
-    function a(::A, ::B)
+    function a(::A, ::A)
+    function a(::A, ::B, ::A)
     function a(::Tuple{AA,D}, ::BB)
     function a(::Union{AA,D}, ::BC)
     """;
