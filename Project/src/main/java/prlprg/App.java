@@ -1,4 +1,5 @@
 package prlprg;
+import prlprg.Subtyper.Fuel;
 
 public class App {
 
@@ -32,7 +33,19 @@ public class App {
             db.addSig(Function.parse(p.sliceLine()).toTy());
         }
         db.cleanUp();
-        new Generator(db).gen();
+       var g = new Generator(db);
+       g.gen();
+       var sub = new Subtyper(g);
+       for (var funs : g.sigs.values()) {
+        for (var m : funs) {
+            System.err.println("Generating subtypes of " + m);
+            var tup = m.ty();
+            var tg = sub.make(tup, new Fuel(10));
+            while (tg.hasNext()) {
+                System.out.println(tg.next());
+            }
+        }
+       }
     }
 
     static String tstr = """

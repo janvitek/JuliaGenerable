@@ -28,6 +28,9 @@ class Subtyper {
 
     TypeGen make(Type t, Fuel f) {
         failIf(!freeVars(t).isEmpty());
+        if (f.isZero()) {
+            return new TypeGen(null, f);
+        }
         return switch (t) {
             case Con con ->
                 new ConGen(con, f);
@@ -81,6 +84,8 @@ class Subtyper {
 
     }
 
+    // Generates subtypes of a union by generating subtypes of each of its members,
+    // pulls subtypes in a round robin fashion. 
     class UnionGen extends TypeGen {
 
         List<TypeGen> tyGens = new ArrayList<>();
@@ -90,11 +95,6 @@ class Subtyper {
             super(null, f);
             this.tyGens = u.tys().stream().map(ty -> make(ty, f)).collect(Collectors.toCollection(ArrayList::new));
             this.next = tyGens.isEmpty() ? null : tyGens.get(0).next();
-        }
-
-        @Override
-        public boolean hasNext() {
-            return super.hasNext();
         }
 
         @Override
@@ -113,6 +113,10 @@ class Subtyper {
         }
     }
 
+    // Generates subtypes of a tuple by generating subtypes by combining the subtypes
+    // of each of its members. Iterates on members from left to right. If we wanted to
+    // a more uniform distribution, a different implementation would be needed, ie.
+    // one that remembers what was explored.
     class TupleGen extends TypeGen {
 
         final Tuple t;
@@ -120,7 +124,7 @@ class Subtyper {
         final List<Type> tys;
 
         TupleGen(Tuple t, Fuel f) {
-            super(null, f);
+            super(null, f.dec());
             this.t = t;
             this.tyGens = t.tys().stream().map(ty -> make(ty, f)).collect(Collectors.toCollection(ArrayList::new));
             this.tys = tyGens.stream().map(tg -> tg.next()).collect(Collectors.toCollection(ArrayList::new));
@@ -147,6 +151,8 @@ class Subtyper {
         }
     }
 
+    // Generates subtypes of an existential by generating subtypes of its bound values, substituting
+    // them into the body of the existential, and generating subtypes of the result.
     class ExistGen extends TypeGen {
 
         final Exist e; // the original existential
@@ -154,11 +160,10 @@ class Subtyper {
         TypeGen currTypeGen; // the generator for the body of the existential
 
         ExistGen(Exist e, Fuel f) {
-            super(null, f);
+            super(null, f.dec());
             this.e = e; // recall the orignal existential, this should not be modified
-            this.boundGen = make(e.b().up(), f); // make the generator for the bound values, ignoring lower bounds
+            this.boundGen = make(e.b().up(), this.f); // make the generator for the bound values, ignoring lower bounds
             this.next = makeNext();
-            failIf(next == null); // sanity check
         }
 
         private Type subst(Type t, Bound b, Type repl) {
@@ -187,7 +192,7 @@ class Subtyper {
         }
 
         private Type makeNext() {
-            if (boundGen.hasNext()) {
+            if (boundGen.hasNext()) { 
                 var repl = boundGen.next(); // grab the next bound value
                 var sub = subst(e.ty(), e.b(), repl); // substitute it into the body of the existential
                 currTypeGen = make(sub, f); // create a generator for the body of the existential
@@ -199,71 +204,34 @@ class Subtyper {
         @Override
         Type next() {
             var prev = next;
-            next = currTypeGen.hasNext() ? currTypeGen.next() : makeNext();
+            next = currTypeGen == null ? null : (currTypeGen.hasNext() ? currTypeGen.next() : makeNext());
             return prev;
         }
     }
 
-    // A parametric type, tries to generate all possible instantiations of the
-    // parameters within budget, and for each generates all subtypes.
+    // Generates subtypes of an instance of a possibly parametric type. The arguments must be ground types.
     class InstGen extends TypeGen {
-
-        final Inst inst;
-        final TupleGen argGen;
-        KidGen kids;
+        final List<Type> inst_arg_tys;  // reference, should not be modified
+        final List<String> kids; // copy of the kids array, updated
+        TypeGen tg = null; // current generator
 
         InstGen(Inst inst, Fuel f) {
-            super(null, f);
-            this.inst = (Inst) inst.deepClone(new HashMap<>());
-            this.argGen = new TupleGen(new Tuple(inst.tys()), f);
-            this.next = nextInstWithArgsOrNull();
-        }
-
-        private Inst nextInstWithArgsOrNull() {
-            return argGen.hasNext() ? new Inst(inst.nm(), ((Tuple) argGen.next()).tys()) : null;
-        }
-
-        @Override
-        Type next() {
-            var prev = next;
-            // kids == null when we have not yet started generating kids for this inst{args} combo
-            // in this case, prev == inst{args}
-            kids = kids == null ? new KidGen((Inst) prev, f) : kids;
-            kids = kids.hasNext() ? kids : null; //if there are no more kids, reset the kids generator
-            next = (kids != null && kids.hasNext()) ? kids.next() : nextInstWithArgsOrNull();
-            return prev;
-        }
-    }
-
-    class KidGen extends TypeGen {
-
-        final List<Type> inst_arg_tys;
-        final List<String> kids;
-        TypeGen tg = null;
-
-        KidGen(Inst inst, Fuel f) {
-            super(null, f);
-            this.inst_arg_tys = new ArrayList<>(inst.tys());
+            super(null, f.dec());
+            this.inst_arg_tys = inst.tys();
             this.kids = new ArrayList<>(gen.directInheritance.getOrDefault(inst.nm(), new ArrayList<>()));
-            this.next = grabNextKidOrNull();
+            this.next = this.f.isZero() ? null : ( Generator.isAny(inst) ? nextKid() : inst);
         }
 
-        private Type grabNextKidOrNull() {
-            if (kids.isEmpty()) {
-                return null;
-            }
+        private Type nextKid() {
             var nm = kids.removeFirst();
-            var d = gen.decls.get(nm);
-            failIf(d == null);
-            var res = unifyDeclToInstance(d, new Tuple(inst_arg_tys));
-            tg = make(res, f);
-            return tg.next();
+            var res = unifyDeclToInstance(gen.decls.get(nm), new Tuple(inst_arg_tys));
+            return (tg = make(res, f)).next();
         }
 
         @Override
         Type next() {
             var prev = next;
-            next = tg.hasNext() ? tg.next() : grabNextKidOrNull();
+            next = (tg != null && tg.hasNext()) ? tg.next() : (kids.isEmpty() ? null : nextKid());
             return prev;
         }
     }
@@ -489,9 +457,19 @@ class Subtyper {
         return bounds;
     }
 
+    static int run = 0;
+
     public static void main(String[] args) {
-        //test(tstr, str);
-        test3();
+        switch (run) {
+            case 0 ->
+                test(tstr, str);
+            case 1 ->
+                test1();
+            case 2 ->
+                test2();
+            case 3 ->
+                test3();
+        }
     }
 
     static void test1() {
@@ -506,6 +484,7 @@ class Subtyper {
         test(tys, funs);
     }
 
+    // This generates repeated entries because when we get A, we generate AA as a kid, and then we itterate and get AA again.
     static void test2() {
         var tys = """
     abstract type A end
@@ -579,6 +558,7 @@ class Subtyper {
     function a(::F{Int})
     function a(::H{Vector{Int}})
     function a(::T)  where T<:G{Int}
+    function a(::Any)
     """;
 
 }
