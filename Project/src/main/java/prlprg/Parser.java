@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
+import com.sun.source.tree.IfTree;
+
 interface Type {
 
     // Creates the simpler format
@@ -71,9 +73,13 @@ record TypeInst(String nm, List<Type> ps) implements Type {
     // In the case the nm is Union or Tuple, create the specific types.
     @Override
     public GenDB.Ty toTy() {
-        if (ps.isEmpty() && (nm.startsWith(":") || nm.startsWith("\"") || nm.startsWith("\'")
+        if (ps.isEmpty() && (nm.equals("true") || nm.equals("false") || nm.startsWith(":") 
+                || nm.startsWith("\"") || nm.startsWith("\'")
                 || nm().startsWith("typeof(") || pattern.matcher(nm).matches())) {
             return new GenDB.TyCon(nm);
+        }
+        if (nm.equals("nothing")) {
+            return GenDB.Ty.none();
         }
         var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
         return nm.equals("Tuple") ? new GenDB.TyTuple(tys)

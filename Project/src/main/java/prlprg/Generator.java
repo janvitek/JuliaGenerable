@@ -186,7 +186,7 @@ public class Generator {
 
         @Override
         public String toString() {
-            var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.tuple(",")));
+            var str = tys.stream().map(t -> t==null? "NULL": t.toString()).collect(Collectors.joining(CodeColors.tuple(",")));
             return CodeColors.tuple("(") + str + CodeColors.tuple(")");
         }
 

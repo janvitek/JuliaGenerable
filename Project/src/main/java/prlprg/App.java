@@ -1,4 +1,5 @@
 package prlprg;
+
 import prlprg.Subtyper.Fuel;
 
 public class App {
@@ -8,7 +9,7 @@ public class App {
     static String dir, types, functions;
     static String[] defaultArgs = {
         "-d=FALSE", // run micro tests
-        "-c=DARK", // color the output
+        "-c=NONE", // color the output : DARK, LIGHT, NONE
         "-r=../Inputs/", // root directory with input files
         "-f=func.jlg", // file with function signatures
         "-t=type.jlg", // file with type declarations
@@ -16,6 +17,9 @@ public class App {
         "-i=TRUE", // ignore closures
         "-s=TRUE", // print shorter type names
     };
+
+    static int FUEL = 2;
+    static int MAX_PRINT = 10000;
 
     public static void main(String[] args) {
         parseArgs(defaultArgs); // set default values
@@ -33,19 +37,27 @@ public class App {
             db.addSig(Function.parse(p.sliceLine()).toTy());
         }
         db.cleanUp();
-       var g = new Generator(db);
-       g.gen();
-       var sub = new Subtyper(g);
-       for (var funs : g.sigs.values()) {
-        for (var m : funs) {
-            System.err.println("Generating subtypes of " + m);
-            var tup = m.ty();
-            var tg = sub.make(tup, new Fuel(10));
-            while (tg.hasNext()) {
-                System.out.println(tg.next());
+        var g = new Generator(db);
+        g.gen();
+        var sub = new Subtyper(g);
+        for (var funs : g.sigs.values()) {
+            for (var m : funs) {
+                if (m.isGround()) {
+                    continue; // Skip trivial cases
+                }
+                System.err.println("Generating subtypes of " + m);
+                var tup = m.ty();
+                var tg = sub.make(tup, new Fuel(FUEL));
+                var i = 0;
+                while (tg.hasNext()) {
+                    System.out.println(tg.next());
+                    if (i++ > MAX_PRINT) {
+                        System.out.println("...");
+                        break;
+                    }
+                }
             }
         }
-       }
     }
 
     static String tstr = """

@@ -21,6 +21,7 @@ import prlprg.Generator.Var;
 class Subtyper {
 
     Generator gen;
+    final TypeGen nullGen = new TypeGen(null, new Fuel(0));
 
     Subtyper(Generator gen) {
         this.gen = gen;
@@ -29,9 +30,9 @@ class Subtyper {
     TypeGen make(Type t, Fuel f) {
         failIf(!freeVars(t).isEmpty());
         if (f.isZero()) {
-            return new TypeGen(null, f);
+            return nullGen;
         }
-        return switch (t) {
+        var tg = switch (t) {
             case Con con ->
                 new ConGen(con, f);
             case Inst inst ->
@@ -45,6 +46,7 @@ class Subtyper {
             default ->
                 throw new RuntimeException("Unexpected type: " + t); // E,g, Var
         };
+        return tg.hasNext() ? tg : nullGen;
     }
 
     static class Fuel {
@@ -85,7 +87,7 @@ class Subtyper {
     }
 
     // Generates subtypes of a union by generating subtypes of each of its members,
-    // pulls subtypes in a round robin fashion. 
+    // pulls subtypes in a round robin fashion.
     class UnionGen extends TypeGen {
 
         List<TypeGen> tyGens = new ArrayList<>();
@@ -124,9 +126,15 @@ class Subtyper {
         final List<Type> tys;
 
         TupleGen(Tuple t, Fuel f) {
-            super(null, f.dec());
+            super(null, f);
             this.t = t;
             this.tyGens = t.tys().stream().map(ty -> make(ty, f)).collect(Collectors.toCollection(ArrayList::new));
+            // If one of the members is empty, then the tuple is empty.
+            if (tyGens.stream().anyMatch(tg -> !tg.hasNext())) {
+                this.next = null;
+                this.tys = null;
+                return;
+            }
             this.tys = tyGens.stream().map(tg -> tg.next()).collect(Collectors.toCollection(ArrayList::new));
             this.next = new Tuple(new ArrayList<>(tys));
         }
@@ -160,9 +168,9 @@ class Subtyper {
         TypeGen currTypeGen; // the generator for the body of the existential
 
         ExistGen(Exist e, Fuel f) {
-            super(null, f.dec());
+            super(null, f);
             this.e = e; // recall the orignal existential, this should not be modified
-            this.boundGen = make(e.b().up(), this.f); // make the generator for the bound values, ignoring lower bounds
+            this.boundGen = make(e.b().up(), f.dec()); // make the generator for the bound values, ignoring lower bounds
             this.next = makeNext();
         }
 
@@ -192,7 +200,7 @@ class Subtyper {
         }
 
         private Type makeNext() {
-            if (boundGen.hasNext()) { 
+            if (boundGen.hasNext()) {
                 var repl = boundGen.next(); // grab the next bound value
                 var sub = subst(e.ty(), e.b(), repl); // substitute it into the body of the existential
                 currTypeGen = make(sub, f); // create a generator for the body of the existential
@@ -211,20 +219,32 @@ class Subtyper {
 
     // Generates subtypes of an instance of a possibly parametric type. The arguments must be ground types.
     class InstGen extends TypeGen {
+
         final List<Type> inst_arg_tys;  // reference, should not be modified
         final List<String> kids; // copy of the kids array, updated
         TypeGen tg = null; // current generator
 
         InstGen(Inst inst, Fuel f) {
-            super(null, f.dec());
+            super(null, f);
             this.inst_arg_tys = inst.tys();
             this.kids = new ArrayList<>(gen.directInheritance.getOrDefault(inst.nm(), new ArrayList<>()));
-            this.next = this.f.isZero() ? null : ( Generator.isAny(inst) ? nextKid() : inst);
+            this.next = Generator.isAny(inst) ? nextKid() : inst;
         }
 
         private Type nextKid() {
             var nm = kids.removeFirst();
             var res = unifyDeclToInstance(gen.decls.get(nm), new Tuple(inst_arg_tys));
+            // Unify fails with a null return when we try to instantiate a subclass
+            // with generic parameters which do not fit its definition.
+            // For example, if we have a query for subtypes of A{Int} and
+            //   abstract type A{T} end
+            //   abstract type B{T} <: A{Vector{T}} end
+            // We cannot instantiate B to be a subtype of A{Int}.
+            // TOOD: Check that these are truly the only cases where unify fails.
+            //       The logic is tricky enough that some corner cases may be missed.
+            if (res == null) {
+                return kids.isEmpty() ? null : nextKid();
+            }
             return (tg = make(res, f)).next();
         }
 
@@ -287,8 +307,11 @@ class Subtyper {
         var lhs = (Exist) d.ty();
         var rhsargs = d.inst().tys();
         var upargs = t.tys();
+        if (upargs.isEmpty()) {
+            return d.ty(); // nothing to do, we are called with no arguments
+        }
         // sanity checking
-        failIf(rhsargs.size() != upargs.size());
+        failIf(rhsargs.size() < upargs.size()); // upargs can have fewer arguments
         failIf(!freeVars(lhs).isEmpty());
         var freerhs = freeVars(t);
         failIf(!freerhs.isEmpty());
@@ -299,11 +322,12 @@ class Subtyper {
         // sane.
         var subst = new HashMap<Bound, Type>();
         // subst maps bounds to instances without free variables
-        for (int i = 0; i < rhsargs.size(); i++) {
+        for (int i = 0; i < upargs.size(); i++) {
             var rhsarg = rhsargs.get(i);
             var uparg = upargs.get(i);
             if (!unifyType(rhsarg, uparg, subst)) {
-                throw new RuntimeException("Failed to unify " + rhsarg + " with " + uparg);
+                return null; // failed to unify
+                //throw new RuntimeException("Failed to unify " + rhsarg + " with " + uparg);
             }
         }
         for (var ty : subst.values()) {
@@ -457,7 +481,8 @@ class Subtyper {
         return bounds;
     }
 
-    static int run = 0;
+    static int run = 4;
+    static int FUEL = 4;
 
     public static void main(String[] args) {
         switch (run) {
@@ -469,6 +494,8 @@ class Subtyper {
                 test2();
             case 3 ->
                 test3();
+            case 4 ->
+                test4();
         }
     }
 
@@ -509,6 +536,18 @@ class Subtyper {
         test(tys, funs);
     }
 
+    static void test4() {
+        var tys = """
+    abstract type A end
+    abstract type B{T} end
+    abstract type AA <: A end
+    """;
+        var funs = """
+    function a(::Any, ::Any)
+    """;
+        test(tys, funs);
+    }
+
     static void test(String tstr, String str) {
         App.debug = true;
         var p = new Parser().withString(tstr);
@@ -529,7 +568,7 @@ class Subtyper {
         for (var m : functions) {
             System.err.println("Generating subtypes of " + m);
             var tup = m.ty();
-            var tg = sub.make(tup, new Fuel(10));
+            var tg = sub.make(tup, new Fuel(FUEL));
             while (tg.hasNext()) {
                 System.out.println(tg.next());
             }
