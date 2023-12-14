@@ -112,8 +112,9 @@ class GenDB {
             switch (nm()) {
                 case "typeof": // typeof is a special case
                     return new TyCon(toString());
-                case "Nothing":
-                    return Ty.None;
+                // TODO: Core.TypeofBottom and Nothing are different!
+                // case "Nothing":
+                //     return Ty.None;
                 default:
                     if (!pre_tydb.containsKey(nm)) {
                         System.err.println("Warning: " + nm + " not found in type database, patching");

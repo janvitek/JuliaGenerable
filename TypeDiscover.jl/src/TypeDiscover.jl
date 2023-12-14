@@ -235,12 +235,17 @@ end
 baseShowMethodCustom(io::IO, m::Method, kind::String) = begin
     tv, decls, file, line = Base.arg_decl_parts(m)
     sig = Base.unwrap_unionall(m.sig)
+    mod = try
+        first(sig.parameters).name.module
+    catch _
+        m.module
+    end
     if sig === Tuple
         # Builtin
-        print(io, m.module, ".", m.name, "(...)  [", kind, "]")
+        print(io, mod, ".", m.name, "(...)  [", kind, "]")
         return
     end
-    print(io, m.module, ".", decls[1][2], "(")
+    print(io, mod, ".", decls[1][2], "(")
     join(
         io,
         String[isempty(d[2]) ? d[1] : string(d[1], "::", d[2]) for d in decls[2:end]],
@@ -356,8 +361,8 @@ typediscover(mods::AbstractVector{Module}=Base.loaded_modules_array();
     typefile=nothing,
     skip_macros=true,
     skip_lambdas=true,
-    skip_constructors=false,
-    skip_callable=false,
+    skip_constructors=true,
+    skip_callable=true,
     skip_builtins=true,
     skip_intrinsics=true,
     skip_generics=false,
