@@ -171,7 +171,7 @@ class Subtyper {
             super(null, f);
             this.e = e; // recall the orignal existential, this should not be modified
             this.boundGen = make(e.b().up(), f.dec()); // make the generator for the bound values, ignoring lower bounds
-            this.next = makeNext();
+            this.next = e; // the first value is the original existential
         }
 
         private Type subst(Type t, Bound b, Type repl) {

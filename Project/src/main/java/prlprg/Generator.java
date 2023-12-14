@@ -21,6 +21,8 @@ public class Generator {
 
         boolean structuralEquals(Type t);
 
+        String toJulia();
+
     }
 
     static Inst any = new Inst("Any", List.of());
@@ -64,8 +66,14 @@ public class Generator {
                     }
                 }
                 return true;
-            } 
+            }
             return false;
+        }
+
+        @Override
+        public String toJulia() {
+            var args = tys.stream().map(Type::toJulia).collect(Collectors.joining(","));
+            return nm + (tys.isEmpty() ? "" : "{" + args + "}");
         }
 
     }
@@ -85,7 +93,12 @@ public class Generator {
 
         @Override
         public boolean structuralEquals(Type t) {
-            return t instanceof Var v && b.nm() .equals( v.b.nm());
+            return t instanceof Var v && b.nm().equals(v.b.nm());
+        }
+
+        @Override
+        public String toJulia() {
+            return b.nm();
         }
 
     }
@@ -109,6 +122,10 @@ public class Generator {
         public boolean structuralEquals(Bound b) {
             return nm.equals(b.nm) && low.structuralEquals(b.low) && up.structuralEquals(b.up);
         }
+
+        public String toJulia() {
+            return (!isNone(low) ? low.toJulia() + "<:" : "") + nm + (!isAny(up) ? "<:" + up.toJulia() : "");
+        }
     }
 
     // A constant, such as a number, character or string. The implementation of the parser does not attempt
@@ -129,6 +146,11 @@ public class Generator {
         public boolean structuralEquals(Type t) {
             return t instanceof Con c && nm.equals(c.nm);
         }
+
+        @Override
+        public String toJulia() {
+            return nm;
+        }
     }
 
     record Exist(Bound b, Type ty) implements Type {
@@ -147,6 +169,11 @@ public class Generator {
         @Override
         public boolean structuralEquals(Type t) {
             return t instanceof Exist e && b.structuralEquals(e.b) && ty.structuralEquals(e.ty);
+        }
+
+        @Override
+        public String toJulia() {
+            return ty.toJulia() + " where " + b.toJulia();
         }
 
     }
@@ -180,13 +207,18 @@ public class Generator {
             return false;
         }
 
+        @Override
+        public String toJulia() {
+            var str = tys.stream().map(Type::toJulia).collect(Collectors.joining(","));
+            return "Union{" + str + "}";
+        }
     }
 
     record Tuple(List<Type> tys) implements Type {
 
         @Override
         public String toString() {
-            var str = tys.stream().map(t -> t==null? "NULL": t.toString()).collect(Collectors.joining(CodeColors.tuple(",")));
+            var str = tys.stream().map(t -> t == null ? "NULL" : t.toString()).collect(Collectors.joining(CodeColors.tuple(",")));
             return CodeColors.tuple("(") + str + CodeColors.tuple(")");
         }
 
@@ -194,7 +226,6 @@ public class Generator {
         public Type deepClone(HashMap<Bound, Bound> map) {
             return new Tuple(tys.stream().map(t -> t.deepClone(map)).collect(Collectors.toList()));
         }
-
 
         @Override
         public boolean structuralEquals(Type t) {
@@ -212,12 +243,17 @@ public class Generator {
             return false;
         }
 
+        @Override
+        public String toJulia() {
+            var str = tys.stream().map(Type::toJulia).collect(Collectors.joining(","));
+            return "Tuple{" + str + "}";
+        }
+
     }
 
     // A type declaration introduces a new type name, with a type instance and a parent.
     // The type Any has no parent, and is the root of the type hierarchy.
     // We do not print the case where the parent is Any, since it is the default.
-    
     record Decl(String mod, String nm, Type ty, Inst inst, Decl parent, String src) {
 
         @Override
@@ -265,6 +301,21 @@ public class Generator {
         public String toString() {
             return "function " + nm + " " + ty;
         }
+
+        String toJulia() {
+            var t = ty;
+            var bounds = new ArrayList<Bound>();
+            while (t instanceof Exist e) {
+                bounds.add(e.b());
+                t = e.ty();
+            }
+            Tuple args = (Tuple) t;
+            var str = args.tys.stream().map(Type::toJulia).collect(Collectors.joining(","));
+            return "function " + nm + "(" + str + ")"
+                    + (bounds.isEmpty() ? ""
+                    : (" where {" + bounds.stream().map(Bound::toJulia).collect(Collectors.joining(",")) + "}"));
+        }
+
     }
 
     GenDB db; // our database of types and signatures -- these are still not complete

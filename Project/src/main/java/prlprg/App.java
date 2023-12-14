@@ -1,5 +1,6 @@
 package prlprg;
 
+import prlprg.Generator.Sig;
 import prlprg.Subtyper.Fuel;
 
 public class App {
@@ -18,8 +19,8 @@ public class App {
         "-s=TRUE", // print shorter type names
     };
 
-    static int FUEL = 2;
-    static int MAX_PRINT = 10000;
+    static int FUEL = 4;
+    static int MAX_PRINT = 100;
 
     public static void main(String[] args) {
         parseArgs(defaultArgs); // set default values
@@ -40,6 +41,8 @@ public class App {
         var g = new Generator(db);
         g.gen();
         var sub = new Subtyper(g);
+        var tg0 = sub.make(Generator.any, new Fuel(FUEL));
+
         for (var funs : g.sigs.values()) {
             for (var m : funs) {
                 if (m.isGround()) {
@@ -50,7 +53,9 @@ public class App {
                 var tg = sub.make(tup, new Fuel(FUEL));
                 var i = 0;
                 while (tg.hasNext()) {
-                    System.out.println(tg.next());
+                    var t = tg.next();
+                    var newm = new Sig(m.nm(), t, m.src());
+                    System.out.println(newm.toJulia());
                     if (i++ > MAX_PRINT) {
                         System.out.println("...");
                         break;
