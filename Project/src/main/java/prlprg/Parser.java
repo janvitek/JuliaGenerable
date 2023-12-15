@@ -8,360 +8,361 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
-interface Type {
+class Parser {
 
-    // Creates the simpler format
-    GenDB.Ty toTy();
+    interface ParsedType {
 
-    // Type names can include string and numbers and concatenated vars
-    static String parseTypeName(Parser p) {
-        var tok = p.take();
-        if (tok.is("typeof") || tok.is("keytype")) {
-            var str = tok.toString();
-            var q = p.sliceMatchedDelims("(", ")");
-            if (q.isEmpty()) {
-                return str; // typeof or keytype without parens (odd?)
+        // Creates the simpler format
+        GenDB.Ty toTy();
+
+        // ParsedType names can include string and numbers and concatenated vars
+        static String parseTypeName(Parser p) {
+            var tok = p.take();
+            if (tok.is("typeof") || tok.is("keytype")) {
+                var str = tok.toString();
+                var q = p.sliceMatchedDelims("(", ")");
+                if (q.isEmpty()) {
+                    return str; // typeof or keytype without parens (odd?)
+                }
+                str += "(";
+                while (!q.isEmpty()) {
+                    str += q.take().toString();
+                }
+                return str + ")";
+            } else {
+                var nm = tok.toString();
+                if (nm.startsWith("\"") && nm.endsWith("\"")) {
+                    return nm; // A quoted string, leave it as is.
+                } else {
+                    return nm.replaceAll("\"", ""); // Get rid of quotes in case of MIME"xyz"
+                }
             }
-            str += "(";
+        }
+
+        // Functions can inlucde concatenated vars as well as parenthesized stuff.
+        static String parseFunctionName(Parser p) {
+            var q = p.sliceMatchedDelims("(", ")"); // for parenthesized funtion names
+            if (q.isEmpty()) {
+                return p.take().toString().replaceAll("\"", "");  // Get rid of quotes in case of "fun"
+            }
+            var str = "";
             while (!q.isEmpty()) {
                 str += q.take().toString();
             }
-            return str + ")";
-        } else {
-            var nm = tok.toString();
-            if (nm.startsWith("\"") && nm.endsWith("\"")) {
-                return nm; // A quoted string, leave it as is.
-            } else {
-                return nm.replaceAll("\"", ""); // Get rid of quotes in case of MIME"xyz"
-            }
+            return str;
         }
-    }
 
-    // Functions can inlucde concatenated vars as well as parenthesized stuff.
-    static String parseFunctionName(Parser p) {
-        var q = p.sliceMatchedDelims("(", ")"); // for parenthesized funtion names
-        if (q.isEmpty()) {
-            return p.take().toString().replaceAll("\"", "");  // Get rid of quotes in case of "fun"
-        }
-        var str = "";
-        while (!q.isEmpty()) {
-            str += q.take().toString();
-        }
-        return str;
     }
-
-}
 
 // An instance of a datatype constructor (not a union all or bound var).
-record TypeInst(String nm, List<Type> ps) implements Type {
+    record TypeInst(String nm, List<ParsedType> ps) implements ParsedType {
 
-    static Type parse(Parser p) {
-        var name = Type.parseTypeName(p);
-        List<Type> params = new ArrayList<>();
-        var q = p.sliceMatchedDelims("{", "}");
-        while (!q.isEmpty()) {
-            params.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
+        static ParsedType parse(Parser p) {
+            var name = ParsedType.parseTypeName(p);
+            List<ParsedType> params = new ArrayList<>();
+            var q = p.sliceMatchedDelims("{", "}");
+            while (!q.isEmpty()) {
+                params.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
+            }
+            return new TypeInst(name, params);
         }
-        return new TypeInst(name, params);
-    }
 
-    static Pattern pattern = Pattern.compile("[-+]?\\d*\\.?\\d+([eE][-+]?\\d+)?");
+        static Pattern pattern = Pattern.compile("[-+]?\\d*\\.?\\d+([eE][-+]?\\d+)?");
 
-    // An instance of a datatype with zero or more type parameters.
-    // In the case the nm is Union or Tuple, create the specific types.
-    @Override
-    public GenDB.Ty toTy() {
-        if (ps.isEmpty() && (nm.equals("true") || nm.equals("false") || nm.startsWith(":")
-                || nm.startsWith("\"") || nm.startsWith("\'")
-                || nm().startsWith("typeof(") || pattern.matcher(nm).matches())) {
-            return new GenDB.TyCon(nm);
+        // An instance of a datatype with zero or more type parameters.
+        // In the case the nm is Union or Tuple, create the specific types.
+        @Override
+        public GenDB.Ty toTy() {
+            if (ps.isEmpty() && (nm.equals("true") || nm.equals("false") || nm.startsWith(":")
+                    || nm.startsWith("\"") || nm.startsWith("\'")
+                    || nm().startsWith("typeof(") || pattern.matcher(nm).matches())) {
+                return new GenDB.TyCon(nm);
+            }
+            if (nm.equals("nothing")) {
+                return GenDB.Ty.none();
+            }
+            var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
+            return nm.equals("Tuple") ? new GenDB.TyTuple(tys)
+                    : nm.equals("Union") ? new GenDB.TyUnion(tys)
+                    : new GenDB.TyInst(nm, tys);
         }
-        if (nm.equals("nothing")) {
-            return GenDB.Ty.none();
+
+        @Override
+        public String toString() {
+            return nm + (ps.isEmpty() ? ""
+                    : "{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}");
         }
-        var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
-        return nm.equals("Tuple") ? new GenDB.TyTuple(tys)
-                : nm.equals("Union") ? new GenDB.TyUnion(tys)
-                : new GenDB.TyInst(nm, tys);
     }
 
-    @Override
-    public String toString() {
-        return nm + (ps.isEmpty() ? ""
-                : "{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}");
+    // The goal is to generate name for type variables that are distinct from user generated
+    // names, right now we are not doing that -- a typename could be a greek letter. If
+    // this causes trouble, revisit and prefix with an invalid character. (I am trying to
+    // keep names short, so I'll try to avoid doing that if possible.)
+    class Freshener {
+
+        static int gen = 0;
+
+        static void reset() {
+            gen = 0;
+        }
+        static char[] varNames = {'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ',
+            'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ',
+            'χ', 'ψ', 'ω'};
+
+        static String fresh() {
+            var mult = gen / varNames.length;
+            var off = gen % varNames.length;
+            var ap = "\'";
+            var nm = varNames[off] + (mult == 0 ? "" : ap.repeat(mult));
+            gen++;
+            return nm;
+        }
     }
-}
-
-// The goal is to generate name for type variables that are distinct from user generated
-// names, right now we are not doing that -- a typename could be a greek letter. If
-// this causes trouble, revisit and prefix with an invalid character. (I am trying to
-// keep names short, so I'll try to avoid doing that if possible.)
-class Freshener {
-
-    static int gen = 0;
-
-    static void reset() {
-        gen = 0;
-    }
-    static char[] varNames = {'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ',
-        'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ',
-        'χ', 'ψ', 'ω'};
-
-    static String fresh() {
-        var mult = gen / varNames.length;
-        var off = gen % varNames.length;
-        var ap = "\'";
-        var nm = varNames[off] + (mult == 0 ? "" : ap.repeat(mult));
-        gen++;
-        return nm;
-    }
-}
 
 // A variable with optional upper and lower bounds. At this point we are still a little shaky
-// on which is which, so we parse all of them to Type. Also, if we get an implicit variable
+// on which is which, so we parse all of them to ParsedType. Also, if we get an implicit variable
 // name, we create a fesh name for it. thwse names start with a question mark.
-record BoundVar(Type name, Type lower, Type upper) implements Type {
+    record BoundVar(ParsedType name, ParsedType lower, ParsedType upper) implements ParsedType {
 
-    static TypeInst fresh() {
-        var nm = Freshener.fresh();
-        return new TypeInst(nm, new ArrayList<>());
-    }
-
-    // can get ::  T   |   T <: U   |   L <: T <: U   | T >: L |   >: L
-    static Type parse(Parser p) {
-        if (p.has("<:") || p.has(">:")) {
-            var lt = p.has("<:");
-            var t = UnionAllInst.parse(p.drop());
-            return lt ? new BoundVar(fresh(), null, t) : new BoundVar(fresh(), t, null);
+        static TypeInst fresh() {
+            var nm = Freshener.fresh();
+            return new TypeInst(nm, new ArrayList<>());
         }
-        var t = UnionAllInst.parse(p);
-        if (p.has("<:")) {
-            var u = UnionAllInst.parse(p.drop());
-            return p.has("<:")
-                    ? new BoundVar(UnionAllInst.parse(p.drop()), t, u)
-                    : new BoundVar(t, null, u);
-        } else if (p.has(">:")) {
-            return p.isEmpty() ? new BoundVar(fresh(), t, null)
-                    : new BoundVar(t, UnionAllInst.parse(p.drop()), null);
-        } else {
-            return t;
+
+        // can get ::  T   |   T <: U   |   L <: T <: U   | T >: L |   >: L
+        static ParsedType parse(Parser p) {
+            if (p.has("<:") || p.has(">:")) {
+                var lt = p.has("<:");
+                var t = UnionAllInst.parse(p.drop());
+                return lt ? new BoundVar(fresh(), null, t) : new BoundVar(fresh(), t, null);
+            }
+            var t = UnionAllInst.parse(p);
+            if (p.has("<:")) {
+                var u = UnionAllInst.parse(p.drop());
+                return p.has("<:")
+                        ? new BoundVar(UnionAllInst.parse(p.drop()), t, u)
+                        : new BoundVar(t, null, u);
+            } else if (p.has(">:")) {
+                return p.isEmpty() ? new BoundVar(fresh(), t, null)
+                        : new BoundVar(t, UnionAllInst.parse(p.drop()), null);
+            } else {
+                return t;
+            }
+        }
+
+        // Create a bound variable, the default for lower and upper bouds are none (Union{}) and Any.
+        @Override
+        public GenDB.Ty toTy() {
+            return new GenDB.TyVar(name.toString(), lower == null ? GenDB.Ty.none() : lower.toTy(),
+                    (upper == null || upper.toString().equals("Any")) ? GenDB.Ty.any() : upper.toTy());
+        }
+
+        @Override
+        public String toString() {
+            return (lower != null ? lower + " <: " : "") + name.toString() + (upper != null ? " <: " + upper : "");
         }
     }
-
-    // Create a bound variable, the default for lower and upper bouds are none (Union{}) and Any.
-    @Override
-    public GenDB.Ty toTy() {
-        return new GenDB.TyVar(name.toString(), lower == null ? GenDB.Ty.none() : lower.toTy(),
-                (upper == null || upper.toString().equals("Any")) ? GenDB.Ty.any() : upper.toTy());
-    }
-
-    @Override
-    public String toString() {
-        return (lower != null ? lower + " <: " : "") + name.toString() + (upper != null ? " <: " + upper : "");
-    }
-}
 
 // Int{X} where {Z <: X <: Y, Y <: Int} where {X <: Int}
-record UnionAllInst(Type body, List<Type> bounds) implements Type {
+    record UnionAllInst(ParsedType body, List<ParsedType> bounds) implements ParsedType {
 
-    static Type parse(Parser p) {
-        //  U<:(AbstractVector)   the input appears occasionally to have extraneous parens.
-        if (p.has("(")) { // this should get rid of them.
-            p = p.sliceMatchedDelims("(", ")");
-            if (p.isEmpty()) {
-                // This is a special case the whole type was '()' which apparently is an empty Tuple.
-                // But it is not a type... In our examples it ocrurs in the following context:
-                //    NamedTuple{()}
-                // not sure what to do. So return nothing.
-                return new TypeInst("Nothing", new ArrayList<>());
+        static ParsedType parse(Parser p) {
+            //  U<:(AbstractVector)   the input appears occasionally to have extraneous parens.
+            if (p.has("(")) { // this should get rid of them.
+                p = p.sliceMatchedDelims("(", ")");
+                if (p.isEmpty()) {
+                    // This is a special case the whole type was '()' which apparently is an empty Tuple.
+                    // But it is not a type... In our examples it ocrurs in the following context:
+                    //    NamedTuple{()}
+                    // not sure what to do. So return nothing.
+                    return new TypeInst("Nothing", new ArrayList<>());
+                }
             }
-        }
-        var type = TypeInst.parse(p);
-        if (!p.has("where")) {
-            return type;
-        }
-        if (p.drop().has("{")) {
-            p = p.sliceMatchedDelims("{", "}");
-        }
-        var boundVars = new ArrayList<Type>();
-        while (!p.isEmpty()) {
-            boundVars.add(BoundVar.parse(p));
-            if (p.has(",")) {
-                p.drop().failIfEmpty("Missing type parameter", p.peek());
+            var type = TypeInst.parse(p);
+            if (!p.has("where")) {
+                return type;
+            }
+            if (p.drop().has("{")) {
+                p = p.sliceMatchedDelims("{", "}");
+            }
+            var boundVars = new ArrayList<ParsedType>();
+            while (!p.isEmpty()) {
+                boundVars.add(BoundVar.parse(p));
+                if (p.has(",")) {
+                    p.drop().failIfEmpty("Missing type parameter", p.peek());
 
-            } else {
-                break;
+                } else {
+                    break;
+                }
             }
+            return new UnionAllInst(type, boundVars);
         }
-        return new UnionAllInst(type, boundVars);
+
+        @Override
+        public GenDB.Ty toTy() {
+            var ty = body.toTy();
+            var it = bounds.listIterator(bounds.size());
+            while (it.hasPrevious()) { // Going backwards, building Exists inside out
+                ty = new GenDB.TyExist(it.previous().toTy(), ty);
+            }
+            return ty;
+        }
+
+        @Override
+        public String toString() {
+            return body.toString() + (bounds.isEmpty() ? ""
+                    : " where " + bounds.stream().map(Object::toString).collect(Collectors.joining(", ")));
+        }
     }
 
-    @Override
-    public GenDB.Ty toTy() {
-        var ty = body.toTy();
-        var it = bounds.listIterator(bounds.size());
-        while (it.hasPrevious()) { // Going backwards, building Exists inside out
-            ty = new GenDB.TyExist(it.previous().toTy(), ty);
-        }
-        return ty;
-    }
+    record TypeDeclaration(String modifiers, String nm, List<ParsedType> ps, ParsedType parent, String src) {
 
-    @Override
-    public String toString() {
-        return body.toString() + (bounds.isEmpty() ? ""
-                : " where " + bounds.stream().map(Object::toString).collect(Collectors.joining(", ")));
-    }
-}
-
-record TypeDeclaration(String modifiers, String nm, List<Type> ps, Type parent, String src) {
-
-    static String parseModifiers(Parser p) {
-        var str = "";
-        if (p.has("(")) {
-            if (!p.drop().take().is("closure")) {
-                p.failAt("Expected 'closure'", p.peek());
+        static String parseModifiers(Parser p) {
+            var str = "";
+            if (p.has("(")) {
+                if (!p.drop().take().is("closure")) {
+                    p.failAt("Expected 'closure'", p.peek());
+                }
+                if (!p.take().is(")")) {
+                    p.failAt("Expected ')'", p.peek());
+                }
+                str += "(closure) ";
             }
-            if (!p.take().is(")")) {
-                p.failAt("Expected ')'", p.peek());
+            while (p.has("abstract") || p.has("primitive") || p.has("struct") || p.has("type")
+                    || p.has("mutable")) {
+                str += p.take().toString() + " ";
             }
-            str += "(closure) ";
+            return str;
         }
-        while (p.has("abstract") || p.has("primitive") || p.has("struct") || p.has("type")
-                || p.has("mutable")) {
-            str += p.take().toString() + " ";
-        }
-        return str;
-    }
 
-    static TypeDeclaration parse(Parser p) {
-        var modifiers = parseModifiers(p);
-        var name = Type.parseTypeName(p);
-        var src = p.last.getLine();
-        var ps = new ArrayList<Type>();
-        var copy = p.clone();
-        var q = p.sliceMatchedDelims("{", "}");
-        while (!q.isEmpty()) {
-            ps.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
-        }
-        if (p.peek().isNumber()) {
+        static TypeDeclaration parse(Parser p) {
+            Freshener.reset();
+            var modifiers = parseModifiers(p);
+            var name = ParsedType.parseTypeName(p);
+            var src = p.last.getLine();
+            var ps = new ArrayList<ParsedType>();
+            var q = p.sliceMatchedDelims("{", "}");
+            while (!q.isEmpty()) {
+                ps.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
+            }
+            if (p.peek().isNumber()) {
+                p.drop();
+                if (!modifiers.contains("primitive")) {
+                    p.failAt("Expected 'primitive'", p.peek());
+                }
+            }
+            ParsedType parent = null;
+            if (p.has("<:")) {
+                p.drop();
+                parent = UnionAllInst.parse(p);
+            }
             p.drop();
-            if (!modifiers.contains("primitive")) {
-                p.failAt("Expected 'primitive'", p.peek());
+            p.sliceMatchedDelims("(", ")");
+            return new TypeDeclaration(modifiers, name, ps, parent, src);
+        }
+
+        GenDB.TyDecl toTy() {
+            var parentTy = (parent == null || parent.toString().equals("Any")) ? GenDB.Ty.any() : parent.toTy();
+            var args = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
+            var ty = new GenDB.TyInst(nm, args);
+            return new GenDB.TyDecl(modifiers, nm, ty, parentTy, src);
+        }
+
+        @Override
+        public String toString() {
+            return modifiers + nm
+                    + (ps.isEmpty() ? "" : ("{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}"))
+                    + (parent == null ? "" : (" <: " + parent));
+        }
+    }
+
+    record Param(String nm, ParsedType ty, boolean varargs) {
+
+        // can be:  x   |  x :: T   |  :: T   |   x...  |   :: T...
+        static Param parse(Parser p) {
+            var tok = p.take();
+            var name = tok.is("::") ? "?NA" : tok.toString();
+            var type = tok.is("::") ? UnionAllInst.parse(p) : null;
+            var varargs = p.has("...") ? p.take().is("...") : false;
+            if (type == null && p.has("::")) {
+                type = UnionAllInst.parse(p.drop());
+                varargs = p.has("...") ? p.take().is("...") : false;
             }
+            return new Param(name, type, varargs);
         }
-        Type parent = null;
-        if (p.has("<:")) {
+
+        GenDB.Ty toTy() {
+            return ty == null ? GenDB.Ty.any() : ty.toTy();
+        }
+
+        @Override
+        public String toString() {
+            return nm + (ty != null ? " :: " + ty.toString() : "") + (varargs ? "..." : "");
+        }
+    }
+
+    record Function(String nm, List<Param> ps, List<ParsedType> wheres, String src) {
+
+        static List<ParsedType> parseWhere(Parser p) {
+            var wheres = new ArrayList<ParsedType>();
+            if (!p.has("where")) {
+                return wheres;
+            }
             p.drop();
-            parent = UnionAllInst.parse(p);
-        }
-        p.drop();
-        p.sliceMatchedDelims("(", ")");
-        return new TypeDeclaration(modifiers, name, ps, parent, src);
-    }
-
-    GenDB.TyDecl toTy() {
-        var parentTy = (parent == null || parent.toString().equals("Any")) ? GenDB.Ty.any() : parent.toTy();
-        var args = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
-        var ty = new GenDB.TyInst(nm, args);
-        return new GenDB.TyDecl(modifiers, nm, ty, parentTy, src);
-    }
-
-    @Override
-    public String toString() {
-        return modifiers + nm
-                + (ps.isEmpty() ? "" : ("{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}"))
-                + (parent == null ? "" : (" <: " + parent));
-    }
-}
-
-record Param(String nm, Type ty, boolean varargs) {
-
-    // can be:  x   |  x :: T   |  :: T   |   x...  |   :: T...
-    static Param parse(Parser p) {
-        var tok = p.take();
-        var name = tok.is("::") ? "?NA" : tok.toString();
-        var type = tok.is("::") ? UnionAllInst.parse(p) : null;
-        var varargs = p.has("...") ? p.take().is("...") : false;
-        if (type == null && p.has("::")) {
-            type = UnionAllInst.parse(p.drop());
-            varargs = p.has("...") ? p.take().is("...") : false;
-        }
-        return new Param(name, type, varargs);
-    }
-
-    GenDB.Ty toTy() {
-        return ty == null ? GenDB.Ty.any() : ty.toTy();
-    }
-
-    @Override
-    public String toString() {
-        return nm + (ty != null ? " :: " + ty.toString() : "") + (varargs ? "..." : "");
-    }
-}
-
-record Function(String nm, List<Param> ps, List<Type> wheres, String src) {
-
-    static List<Type> parseWhere(Parser p) {
-        var wheres = new ArrayList<Type>();
-        if (!p.has("where")) {
+            if (p.has("{")) {
+                p = p.sliceMatchedDelims("{", "}");  // we only need to read the where clause
+            }
+            while (!p.isEmpty()) {
+                wheres.add(BoundVar.parse(p));
+                if (p.has(",")) {
+                    p.drop().failIfEmpty("Missing type parameter", p.peek());
+                } else if (p.has("[")) { // comment with line/file info
+                    break;
+                }
+            }
             return wheres;
         }
-        p.drop();
-        if (p.has("{")) {
-            p = p.sliceMatchedDelims("{", "}");  // we only need to read the where clause
-        }
-        while (!p.isEmpty()) {
-            wheres.add(BoundVar.parse(p));
-            if (p.has(",")) {
-                p.drop().failIfEmpty("Missing type parameter", p.peek());
-            } else if (p.has("[")) { // comment with line/file info
-                break;
+
+        static Function parse(Parser p) {
+            Freshener.reset();
+            if (p.has("function")) {  // keyword is optional
+                p.drop();
             }
-        }
-        return wheres;
-    }
-
-    static Function parse(Parser p) {
-        if (p.has("function")) {  // keyword is optional
-            p.drop();
-        }
-        var name = Type.parseFunctionName(p);
-        var source = p.last.getLine();
-        var q = p.sliceMatchedDelims("(", ")");
-        var params = new ArrayList<Param>();
-        while (!q.isEmpty()) {
-            var r = q.sliceNextCommaOrSemi();
-            if (r.isEmpty()) {
-                break;
+            var name = ParsedType.parseFunctionName(p);
+            var source = p.last.getLine();
+            var q = p.sliceMatchedDelims("(", ")");
+            var params = new ArrayList<Param>();
+            while (!q.isEmpty()) {
+                var r = q.sliceNextCommaOrSemi();
+                if (r.isEmpty()) {
+                    break;
+                }
+                params.add(Param.parse(r));
             }
-            params.add(Param.parse(r));
+            var wheres = parseWhere(p);
+            if (p.has("[")) {
+                p.sliceMatchedDelims("[", "]"); // drops it
+            }
+            return new Function(name, params, wheres, source);
         }
-        var wheres = parseWhere(p);
-        if (p.has("[")) {
-            p.sliceMatchedDelims("[", "]"); // drops it
+
+        GenDB.TySig toTy() {
+            List<GenDB.Ty> tys = ps.stream().map(Param::toTy).collect(Collectors.toList());
+            var reverse = wheres.reversed();
+            GenDB.Ty nty = new GenDB.TyTuple(tys);
+            for (var where : reverse) {
+                nty = new GenDB.TyExist(where.toTy(), nty);
+            }
+            return new GenDB.TySig(nm, nty, src);
         }
-        return new Function(name, params, wheres, source);
-    }
 
-    GenDB.TySig toTy() {
-        List<GenDB.Ty> tys = ps.stream().map(Param::toTy).collect(Collectors.toList());
-        var reverse = wheres.reversed();
-        GenDB.Ty nty = new GenDB.TyTuple(tys);
-        for (var where : reverse) {
-            nty = new GenDB.TyExist(where.toTy(), nty);
+        @Override
+        public String toString() {
+            return nm + "(" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + ")"
+                    + (wheres.isEmpty() ? ""
+                    : (" where " + wheres.stream().map(Object::toString).collect(Collectors.joining(", "))));
         }
-        return new GenDB.TySig(nm, nty, src);
     }
-
-    @Override
-    public String toString() {
-        return nm + "(" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + ")"
-                + (wheres.isEmpty() ? ""
-                : (" where " + wheres.stream().map(Object::toString).collect(Collectors.joining(", "))));
-    }
-}
-
-class Parser {
 
     private List<Lex.Tok> toks = new ArrayList<>();
     Lex.Tok last;
@@ -381,11 +382,16 @@ class Parser {
         return this;
     }
 
-    @Override
-    public Parser clone() {
-        var p = new Parser();
-        p.toks = new ArrayList<>(toks);
-        return p;
+    void parseSigs() {
+        while (!isEmpty()) {
+            GenDB.addSig(Function.parse(sliceLine()).toTy());
+        }
+    }
+
+    void parseTypes() {
+        while (!isEmpty()) {
+            GenDB.types.addParsed(TypeDeclaration.parse(sliceLine()));
+        }
     }
 
     enum Kind {

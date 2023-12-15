@@ -16,16 +16,13 @@ import prlprg.Generator.Tuple;
 import prlprg.Generator.Type;
 import prlprg.Generator.Union;
 import prlprg.Generator.Var;
+import prlprg.Parser.Function;
+import prlprg.Parser.TypeDeclaration;
 
 // Generate subtypes of any given type, one a time, with a given fuel.
 class Subtyper {
 
-    Generator gen;
     final TypeGen nullGen = new TypeGen(null, new Fuel(0));
-
-    Subtyper(Generator gen) {
-        this.gen = gen;
-    }
 
     TypeGen make(Type t, Fuel f) {
         failIf(!freeVars(t).isEmpty());
@@ -227,7 +224,7 @@ class Subtyper {
         InstGen(Inst inst, Fuel f) {
             super(null, f);
             this.inst_arg_tys = inst.tys();
-            this.kids = new ArrayList<>(gen.directInheritance.getOrDefault(inst.nm(), new ArrayList<>()));
+            this.kids = new ArrayList<>(GenDB.types.getSubtypes(inst.nm()));
             this.next = Generator.isAny(inst) ? nextKid() : inst;
         }
 
@@ -236,7 +233,7 @@ class Subtyper {
                 return null;
             }
             var nm = kids.removeFirst();
-            var res = unifyDeclToInstance(gen.decls.get(nm), new Tuple(inst_arg_tys));
+            var res = unifyDeclToInstance(GenDB.types.getDecl(nm), new Tuple(inst_arg_tys));
             // Unify fails with a null return when we try to instantiate a subclass
             // with generic parameters which do not fit its definition.
             // For example, if we have a query for subtypes of A{Int} and
@@ -555,20 +552,19 @@ class Subtyper {
         App.debug = true;
         var p = new Parser().withString(tstr);
         while (!p.isEmpty()) {
-            Freshener.reset();
-            App.db.addTyDecl(TypeDeclaration.parse(p.sliceLine()).toTy());
+            GenDB.types.addParsed(TypeDeclaration.parse(p.sliceLine()));
         }
         p = new Parser().withString(str);
         while (!p.isEmpty()) {
-            Freshener.reset();
-            App.db.addSig(Function.parse(p.sliceLine()).toTy());
+            GenDB.addSig(Function.parse(p.sliceLine()).toTy());
         }
-        App.db.cleanUp();
-        var g = new Generator(App.db);
+        GenDB.cleanUp();
+        var g = new Generator();
         g.gen();
-        var sub = new Subtyper(g);
-        var functions = g.sigs.get("a");
-        for (var m : functions) {
+        var sub = new Subtyper();
+        var functions = GenDB.sigs.get("a");
+        for (var me : functions) {
+            var m = me.sig;
             System.err.println("Generating subtypes of " + m);
             var tup = m.ty();
             var tg = sub.make(tup, new Fuel(FUEL));

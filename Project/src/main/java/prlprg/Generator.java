@@ -318,58 +318,41 @@ public class Generator {
 
     }
 
-    GenDB db; // our database of types and signatures -- these are still not complete
-    HashMap<String, InhNode> index = new HashMap<>(); // Map from type names to corresponding node in the inheritance tree
-
-    HashMap<String, Decl> decls = new HashMap<>(); // Map from type names to corresponding Decl. Final.
-    HashMap<String, List<Sig>> sigs = new HashMap<>(); // Map from function names to corresponding Sig. Final.
-    HashMap<String, List<String>> directInheritance = new HashMap<>();
-
-    static Generator self; // hack to let static methods to access the instance, we have a single generator
-
-    Generator(GenDB db) {
-        this.db = db;
-        self = this;
-    }
-
     public void gen() {
-        for (var decl : db.tydb.values()) {
-            index.put(decl.nm(), new InhNode(decl));
+        for (var nm : GenDB.types.allTypes()) {
+            var decl = GenDB.types.getPatched(nm);
+            GenDB.types.addInhNode(new InhNode(decl));
         }
-        for (var n : index.values()) {
-            n.fixUp();
+        for (var nm : GenDB.types.allTypes()) {
+            GenDB.types.getInhNode(nm).fixUp();
         }
-        var d = index.get("Any");
+        var d = GenDB.types.getInhNode("Any");
         build(d);
         if (App.PRINT_HIERARCHY) {
-            System.out.println("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
+            App.output("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
             printHierarchy(d, 0);
         }
-        for (var signodes : db.sigdb.values()) {
-            for (var n : signodes) {
+        for (var nm : GenDB.sigs.allNames()) {
+            for (var sig : GenDB.sigs.get(nm)) {
+                var n = sig.patched;
                 try {
-                    var s = new Sig(n.nm(), n.ty().toType(new ArrayList<>()), n.src());
-                    var bundle = sigs.getOrDefault(n.nm(), new ArrayList<>());
-                    bundle.add(s);
-                    sigs.put(n.nm(), bundle);
-                    if (App.verbose) {
-                        System.out.println(s);
-                    }
+                    sig.sig = new Sig(nm, n.ty().toType(new ArrayList<>()), n.src());
+                    App.info(sig.sig.toString());
                 } catch (Exception e) {
-                    System.err.println("Error: " + n.nm() + " " + e.getMessage());
-                    System.err.println(CodeColors.comment("Failed at " + n.src()));
+                    App.warn("Error: " + n.nm() + " " + e.getMessage());
+                    App.warn(CodeColors.comment("Failed at " + n.src()));
                 }
             }
         }
 
         try {
             var w = new BufferedWriter(new FileWriter("test.jl"));
-            for (var b : sigs.values()) {
-                for (var s : b) {
+            for (var nm : GenDB.sigs.allNames()) {
+                var b = GenDB.sigs.get(nm);
+                for (var si : b) {
+                    var s = si.sig;
                     if (s.isGround()) {
-                        if (App.verbose) {
-                            System.err.println("Ground: " + s);
-                        }
+                        App.info("Ground: " + s);
                         var str = ((Tuple) s.ty).tys.stream().map(Type::toJulia).collect(Collectors.joining(","));
                         var content = "code_warntype(" + s.nm + ",[" + str + "])\n";
                         w.write(content);
@@ -383,7 +366,8 @@ public class Generator {
 
     // Is this a concrete type ? This can only be used once decls is populated in build().
     static boolean isConcrete(String nm) {
-        return self.decls.containsKey(nm) && !self.decls.get(nm).isAbstract();
+        var d = GenDB.types.getDecl(nm);
+        return d != null && !d.isAbstract();
     }
 
     static class NameOrder implements Comparator<InhNode> {
@@ -397,9 +381,9 @@ public class Generator {
     void printHierarchy(InhNode n, int pos) {
         var str = n.d == null || n.d.isAbstract() ? CodeColors.abstractType(n.name) : n.name;
         str = n.d.mod().contains("missing") ? ("? " + CodeColors.abstractType(str)) : str;
-        System.out.println(CodeColors.comment(".").repeat(pos) + str);
+        App.output(CodeColors.comment(".").repeat(pos) + str);
         n.children.sort(new NameOrder());
-        directInheritance.put(n.name, n.children.stream().map(c -> c.name).collect(Collectors.toList()));
+        GenDB.types.addSubtypes(n.name, n.children.stream().map(c -> c.name).collect(Collectors.toList()));
         for (var c : n.children) {
             printHierarchy(c, pos + 1);
         }
@@ -408,21 +392,16 @@ public class Generator {
     void build(InhNode n) {
         Decl d;
         try {
-            d = n.toDecl();
-            decls.put(n.name, d);
-            if (App.verbose) {
-                System.out.println(d);
-            }
+            GenDB.types.addDecl(n.toDecl());
         } catch (Exception e) {
-            System.err.println("Error: " + n.name + " " + e.getMessage());
-            System.err.println("Failed at " + n.decl);
+            App.warn("Error: " + n.name + " " + e.getMessage() + "\n" + "Failed at " + n.decl);
         }
         for (var c : n.children) {
             build(c);
         }
     }
 
-    private final class InhNode {
+    final class InhNode {
 
         String name;
         GenDB.TyDecl decl;
@@ -443,7 +422,7 @@ public class Generator {
                 this.parent = this;
                 return;
             }
-            var pNode = index.get(parentName);
+            var pNode = GenDB.types.getInhNode(parentName);
             assert pNode != null;
             this.parent = pNode;
             pNode.children.add(this);

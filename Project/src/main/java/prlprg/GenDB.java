@@ -5,68 +5,189 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
+import prlprg.Parser.TypeDeclaration;
+import prlprg.Generator.InhNode;
+import prlprg.Generator.Decl;
 
 class GenDB {
 
-    final private static HashMap<String, TyDecl> pre_tydb = new HashMap<>(); // staging area for types and functions
-    final private static HashMap<String, List<TySig>> pre_sigdb = new HashMap<>(); // they are not fully formed yet
+    static class Types {
 
-    HashMap<String, TyDecl> tydb; // types and functions, fully formed
-    HashMap<String, List<TySig>> sigdb;
-    HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused
+        private HashMap<String, Info> db = new HashMap<>();
+        HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused
+        List<String> allTypes;
 
-    final void addTyDecl(TyDecl ty) {
-        if (App.NO_CLOSURES && ty.mod.contains("closure")) {
-            return;
+        class Info {
+
+            String nm;
+            TypeDeclaration parsed;
+            TyDecl pre_patched;
+            TyDecl patched;
+            Generator.Decl decl;
+            InhNode inhNode;
+            List<String> subtypes = List.of();
+
+            Info(String nm) {
+                this.nm = nm;
+            }
+
+            @Override
+            public String toString() {
+                return nm + "\n" + parsed + "\n" + pre_patched + "\n" + patched + "\n" + decl;
+            }
         }
-        if (pre_tydb.containsKey(ty.nm())) {
-            reusedNames.add(ty.nm()); // remember we have seen this type before and overwrite it
+
+        List<String> allTypes() {
+            if (allTypes == null) {
+                allTypes = new ArrayList<>(db.keySet());
+                allTypes.sort(String::compareTo);
+            }
+            return allTypes;
         }
-        pre_tydb.put(ty.nm(), ty);
+
+        private Info getOrMake(String nm) {
+            var info = db.get(nm);
+            if (info == null) {
+                db.put(nm, info = new Info(nm));
+            }
+            return info;
+        }
+
+        List<String> getSubtypes(String nm) {
+            var info = db.get(nm);
+            return info == null ? null : info.subtypes;
+        }
+
+        void addSubtypes(String nm, List<String> subtypes) {
+            getOrMake(nm).subtypes = subtypes;
+        }
+
+        TyDecl getPrePatched(String nm) {
+            var info = db.get(nm);
+            return info == null ? null : info.pre_patched;
+        }
+
+        TyDecl getPatched(String nm) {
+            var info = db.get(nm);
+            return info == null ? null : info.patched;
+        }
+
+        void addPrePatched(TyDecl ty) {
+            getOrMake(ty.nm()).pre_patched = ty;
+        }
+
+        void addPatched(TyDecl ty) {
+            getOrMake(ty.nm()).patched = ty;
+        }
+
+        void addInhNode(InhNode inhNode) {
+            getOrMake(inhNode.name).inhNode = inhNode;
+        }
+
+        void addDecl(Decl decl) {
+            getOrMake(decl.nm()).decl = decl;
+        }
+
+        Decl getDecl(String nm) {
+            var info = db.get(nm);
+            return info == null ? null : info.decl;
+        }
+
+        InhNode getInhNode(String nm) {
+            var info = db.get(nm);
+            return info == null ? null : info.inhNode;
+        }
+
+        TypeDeclaration getParsed(String nm) {
+            var info = db.get(nm);
+            return info == null ? null : info.parsed;
+        }
+
+        void addParsed(TypeDeclaration ty) {
+            var tyd = ty.toTy();
+            if (App.NO_CLOSURES && tyd.mod.contains("closure")) {
+                return;
+            }
+            var nm = ty.nm();
+            var info = getOrMake(nm);
+            info.parsed = ty;
+            if (getPrePatched(nm) != null) {
+                reusedNames.add(nm); // remember we have seen this type before and overwrite it
+            }
+            addPrePatched(tyd);
+        }
     }
 
-    final void addSig(TySig sig) {
+    static class Signatures {
+
+        class Info {
+
+            String nm;
+            TySig pre_patched;
+            TySig patched;
+            Parser.Function parsed;
+            Generator.Sig sig;
+        }
+
+        private HashMap<String, List<Info>> db = new HashMap<>();
+
+        List<Info> get(String nm) {
+            var res = db.get(nm);
+            if (res == null) {
+                db.put(nm, res = new ArrayList<>());
+            }
+            return res;
+        }
+
+        Info make(String nm) {
+            var info = new Info();
+            info.nm = nm;
+            var res = get(nm);
+            res.add(info);
+            return info;
+        }
+
+        List<String> allNames() {
+            return new ArrayList<>(db.keySet());
+        }
+
+    }
+
+    static Types types = new Types();
+    static Signatures sigs = new Signatures();
+
+    static final void addSig(TySig sig) {
         if (App.NO_CLOSURES && sig.nm.startsWith("var#")) {
             return;
         }
-        var e = pre_sigdb.get(sig.nm());
-        if (e == null) {
-            pre_sigdb.put(sig.nm(), e = new ArrayList<>());
-        }
-        e.add(sig);
+        sigs.make(sig.nm()).pre_patched = sig;
     }
 
-    public void cleanUp() {
-        tydb = new HashMap<>();
-        sigdb = new HashMap<>();
+    static public void cleanUp() {
         // Definitions in the pre DB are ill-formed, as we don't know what identifiers refer to types or
         // variables. We asume all types declarations have been processed, so anything not in tydb is
         // is either a variable or a missing type.
-        for (var name : new ArrayList<>(pre_tydb.keySet())) {
+        for (var name : types.allTypes()) {
             try {
-                tydb.put(name, pre_tydb.get(name).fixUp());
+                types.addPatched(types.getPrePatched(name).fixUp());
             } catch (Exception e) {
                 System.err.println("Error: " + name + " " + e.getMessage() + "\n"
-                        + CodeColors.comment("Failed at " + pre_tydb.get(name).src));
+                        + CodeColors.comment("Failed at " + types.getPrePatched(name).src));
             }
         }
-        if (!reusedNames.isEmpty()) {
-            System.out.println("Warning: types defined more than once:" + reusedNames.stream().collect(Collectors.joining(", ")));
-            reusedNames.clear();
+        if (!types.reusedNames.isEmpty()) {
+            System.out.println("Warning: types defined more than once:" + types.reusedNames.stream().collect(Collectors.joining(", ")));
+            types.reusedNames.clear();
         }
-        for (var name : pre_sigdb.keySet()) {
-            var entry = sigdb.get(name);
-            if (entry == null) {
-                sigdb.put(name, entry = new ArrayList<>());
-            }
-            for (var sig : pre_sigdb.get(name)) {
-                entry.add(sig.fixUp(new ArrayList<>()));
+        for (var name : sigs.allNames()) {
+            for (var sig : sigs.get(name)) {
+                sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
             }
         }
         // add patched types if any
-        for (var name : pre_tydb.keySet()) {
-            if (!tydb.containsKey(name)) {
-                tydb.put(name, pre_tydb.get(name)); // no need to fixVars because this is a patched type
+        for (var name : types.allTypes()) {
+            if (types.getPatched(name) == null) {
+                types.addPatched(types.getPrePatched(name)); // no need to fixVars because this is a patched type
             }
         }
     }
@@ -115,10 +236,10 @@ class GenDB {
                 case "Nothing":
                     return Ty.None;
                 default:
-                    if (!pre_tydb.containsKey(nm)) {
+                    if (types.getPrePatched(nm) == null) {
                         System.err.println("Warning: " + nm + " not found in type database, patching");
                         var miss = new TyInst(nm, List.of());
-                        pre_tydb.put(nm, new TyDecl("missing", nm, miss, Ty.any(), "(missing)"));
+                        types.addPrePatched(new TyDecl("missing", nm, miss, Ty.any(), "(missing)"));
                     }
                     var args = new ArrayList<Ty>();
                     var vars = new ArrayList<TyVar>();
