@@ -5,7 +5,7 @@ import prlprg.Subtyper.Fuel;
 
 public class App {
 
-    public static boolean debug, PRINT_HIERARCHY = true, NO_CLOSURES, SHORTEN;
+    public static boolean debug, PRINT_HIERARCHY = true, NO_CLOSURES, SHORTEN, verbose;
     static GenDB db = new GenDB();
     static String dir, types, functions;
     static String[] defaultArgs = {
@@ -14,13 +14,13 @@ public class App {
         "-r=../Inputs/", // root directory with input files
         "-f=func.jlg", // file with function signatures
         "-t=type.jlg", // file with type declarations
-        "-h=TRUE", // print hierarchy
+        "-h=FALSE", // print hierarchy
         "-i=TRUE", // ignore closures
-        "-s=TRUE", // print shorter type names
+        "-s=FALSE", // print shorter type names
+        "-v=FALSE", // verbose
     };
 
-    static int FUEL = 4;
-    static int MAX_PRINT = 100;
+    static int FUEL = 1;
 
     public static void main(String[] args) {
         parseArgs(defaultArgs); // set default values
@@ -42,7 +42,13 @@ public class App {
         g.gen();
         var sub = new Subtyper(g);
         var tg0 = sub.make(Generator.any, new Fuel(FUEL));
-
+        while (tg0.hasNext()) {
+            var t0 = tg0.next();
+            System.err.println(t0.toJulia());
+        }
+        if (true) {
+            return;
+        }
         for (var funs : g.sigs.values()) {
             for (var m : funs) {
                 if (m.isGround()) {
@@ -51,25 +57,19 @@ public class App {
                 System.err.println("Generating subtypes of " + m);
                 var tup = m.ty();
                 var tg = sub.make(tup, new Fuel(FUEL));
-                var i = 0;
                 while (tg.hasNext()) {
                     var t = tg.next();
                     var newm = new Sig(m.nm(), t, m.src());
-                    System.out.println(newm.toJulia());
-                    if (i++ > MAX_PRINT) {
-                        System.out.println("...");
-                        break;
-                    }
                 }
             }
         }
     }
 
     static String tstr = """
+      struct A{T<:B{<:B}} <: B{T} end
       abstract type Tuple end
       abstract type B{X} end
       struct C{T<:Tuple{}, A<:B{Tuple{} } } <: B{T} end
-      struct A{T<:B{<:B}} <: B{T} end
       abstract type Val{X} end
       abstract type R <: B{Val{:el}} end
       struct D{T, S, E} <: B{E} end
@@ -139,6 +139,8 @@ public class App {
                 NO_CLOSURES = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-d")) { // debug
                 debug = arg.substring(3).strip().equals("TRUE");
+            } else if (arg.startsWith("-v")) {
+                verbose = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-r")) {  // root directory
                 dir = arg.substring(3).strip();
             } else if (arg.startsWith("-t")) {

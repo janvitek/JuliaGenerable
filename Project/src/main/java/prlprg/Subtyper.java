@@ -186,12 +186,12 @@ class Subtyper {
                     new Tuple(p.tys().stream().map(ty -> subst(ty, b, repl)).collect(Collectors.toCollection(ArrayList::new)));
                 case Union u ->
                     new Union(u.tys().stream().map(ty -> subst(ty, b, repl)).collect(Collectors.toCollection(ArrayList::new)));
-                case Exist e -> {
-                    var up = subst(e.b().up(), b, repl);
-                    var low = subst(e.b().low(), b, repl);
-                    var ty = subst(e.ty(), b, repl);
-                    var newbound = new Bound(e.b().nm(), low, up);
-                    ty = subst(ty, e.b(), new Var(newbound));
+                case Exist ex -> {
+                    var up = subst(ex.b().up(), b, repl);
+                    var low = subst(ex.b().low(), b, repl);
+                    var ty = subst(ex.ty(), b, repl);
+                    var newbound = new Bound(ex.b().nm(), low, up);
+                    ty = subst(ty, ex.b(), new Var(newbound));
                     yield new Exist(newbound, ty);
                 }
                 default ->
@@ -232,6 +232,9 @@ class Subtyper {
         }
 
         private Type nextKid() {
+            if (kids.isEmpty()) {
+                return null;
+            }
             var nm = kids.removeFirst();
             var res = unifyDeclToInstance(gen.decls.get(nm), new Tuple(inst_arg_tys));
             // Unify fails with a null return when we try to instantiate a subclass

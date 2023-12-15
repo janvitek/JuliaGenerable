@@ -352,7 +352,9 @@ public class Generator {
                     var bundle = sigs.getOrDefault(n.nm(), new ArrayList<>());
                     bundle.add(s);
                     sigs.put(n.nm(), bundle);
-                    System.out.println(s);
+                    if (App.verbose) {
+                        System.out.println(s);
+                    }
                 } catch (Exception e) {
                     System.err.println("Error: " + n.nm() + " " + e.getMessage());
                     System.err.println(CodeColors.comment("Failed at " + n.src()));
@@ -365,8 +367,10 @@ public class Generator {
             for (var b : sigs.values()) {
                 for (var s : b) {
                     if (s.isGround()) {
-                        System.err.println("Ground: " + s);
-                        var str = ((Tuple) s.ty).tys.stream().map(Type::toString).collect(Collectors.joining(","));
+                        if (App.verbose) {
+                            System.err.println("Ground: " + s);
+                        }
+                        var str = ((Tuple) s.ty).tys.stream().map(Type::toJulia).collect(Collectors.joining(","));
                         var content = "code_warntype(" + s.nm + ",[" + str + "])\n";
                         w.write(content);
                     }
@@ -406,7 +410,9 @@ public class Generator {
         try {
             d = n.toDecl();
             decls.put(n.name, d);
-            System.out.println(d);
+            if (App.verbose) {
+                System.out.println(d);
+            }
         } catch (Exception e) {
             System.err.println("Error: " + n.name + " " + e.getMessage());
             System.err.println("Failed at " + n.decl);

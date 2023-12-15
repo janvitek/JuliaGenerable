@@ -8,8 +8,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
-import com.sun.source.tree.IfTree;
-
 interface Type {
 
     // Creates the simpler format
@@ -73,7 +71,7 @@ record TypeInst(String nm, List<Type> ps) implements Type {
     // In the case the nm is Union or Tuple, create the specific types.
     @Override
     public GenDB.Ty toTy() {
-        if (ps.isEmpty() && (nm.equals("true") || nm.equals("false") || nm.startsWith(":") 
+        if (ps.isEmpty() && (nm.equals("true") || nm.equals("false") || nm.startsWith(":")
                 || nm.startsWith("\"") || nm.startsWith("\'")
                 || nm().startsWith("typeof(") || pattern.matcher(nm).matches())) {
             return new GenDB.TyCon(nm);
@@ -233,6 +231,7 @@ record TypeDeclaration(String modifiers, String nm, List<Type> ps, Type parent, 
         var name = Type.parseTypeName(p);
         var src = p.last.getLine();
         var ps = new ArrayList<Type>();
+        var copy = p.clone();
         var q = p.sliceMatchedDelims("{", "}");
         while (!q.isEmpty()) {
             ps.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
@@ -355,12 +354,12 @@ record Function(String nm, List<Param> ps, List<Type> wheres, String src) {
     }
 }
 
-public class Parser {
+class Parser {
 
     private List<Lex.Tok> toks = new ArrayList<>();
     Lex.Tok last;
 
-    public Parser withFile(String path) {
+    Parser withFile(String path) {
         try {
             List<String> ls = Files.readAllLines(Path.of(path));
             toks = new Lex(ls.toArray(new String[0])).tokenize();
@@ -370,9 +369,16 @@ public class Parser {
         }
     }
 
-    public Parser withString(String s) {
+    Parser withString(String s) {
         toks = new Lex(s.split("\n")).tokenize();
         return this;
+    }
+
+    @Override
+    public Parser clone() {
+        var p = new Parser();
+        p.toks = new ArrayList<>(toks);
+        return p;
     }
 
     enum Kind {
@@ -421,10 +427,19 @@ public class Parser {
             return ntoks;
         }
 
+        // Our parser is a bit dumb, we need to path the token stream, combining some adjacent
+        // tokens to form the right one. This is a bit of a hack, but it works.
         List<Tok> combineTokens(List<Tok> toks) {
+            var smashed = false;
             for (int i = 1; i < toks.size(); i++) {
                 var prv = toks.get(i - 1);
                 var cur = toks.get(i);
+                var dd = prv.isDelimiter() && cur.isDelimiter();
+                var is = prv.isIdentifier() && cur.isString();
+                var di = prv.isDelimiter() && cur.isIdentifier();
+                if (!dd && !is && !di) {
+                    continue;
+                }
                 if (matchSymbol(prv, cur, "::")
                         || matchSymbol(prv, cur, ">:")
                         || matchSymbol(prv, cur, "<<")
@@ -433,35 +448,47 @@ public class Parser {
                         || matchSymbol(prv, cur, "<:")) {
                     toks.set(i - 1, null);
                     toks.set(i, new Tok(this, Kind.DELIMITER, prv.ln, prv.start, cur.end));
+                    smashed = true;
                 } else if (smashIdentString(prv, cur)) {
                     toks.set(i - 1, null);
                     toks.set(i, new Tok(this, Kind.IDENTIFIER, prv.ln, prv.start, cur.end));
-                    // This combines an identifier and a string that must be adjenct
+                    // This combines an identifier and a string that must be adjacent
+                    smashed = true;
                 } else if (smashColumnIdent(prv, cur)) {
                     toks.set(i - 1, null);
                     toks.set(i, new Tok(this, Kind.IDENTIFIER, prv.ln, prv.start, cur.end));
                     // This combines an identifier and a string that must be adjenct
+                    smashed = true;
                 }
             }
-            return toks.stream().filter(t -> t != null).collect(Collectors.toList());
+            return smashed ? toks.stream().filter(t -> t != null).collect(Collectors.toList()) : toks;
         }
 
         boolean smashIdentString(Tok prv, Tok cur) {
             var adjacent = prv.end == cur.start;
-            var combination = prv.k == Kind.IDENTIFIER && cur.k == Kind.STRING;
+            var combination = prv.isIdentifier() && cur.isString();
             return adjacent && combination;
         }
 
         boolean smashColumnIdent(Tok prv, Tok cur) {
             var adjacent = prv.end == cur.start;
-            var combination = prv.k == Kind.DELIMITER && cur.k == Kind.IDENTIFIER && prv.toString().equals(":");
-            return adjacent && combination;
+            var prvIsCol = prv.length() == 1 && prv.charAt(prv.start) == ':';
+            return adjacent && prvIsCol && prv.isDelimiter() && cur.isIdentifier();
         }
 
         boolean matchSymbol(Tok prv, Tok cur, String sym) {
-            var adjacent = prv.end == cur.start;
-            var same = (prv.toString() + cur.toString()).equals(sym);
-            return adjacent && same;
+            if (prv.end != cur.start) { // not adjacent, can't match is space separated
+                return false;
+            }
+            if (cur.end - prv.start != sym.length()) { // not the right length
+                return false;
+            }
+            for (int i = 0; i < sym.length(); i++) {
+                if (sym.charAt(i) != prv.charAt(i + prv.start)) { // can read past of token,
+                    return false; // as long as both are on the same line, which they are
+                }
+            }
+            return true;
         }
 
         // We should probably cache the string value, but ... meh
@@ -469,11 +496,11 @@ public class Parser {
 
             @Override
             public String toString() {
-                return isEOF() ? "EOF" : l.lns[ln].substring(start, end);
+                return isEOF() ? "EOF" : getLine().substring(start, end);
             }
 
             String errorAt(String msg) {
-                return "\n> " + l.lns[ln] + "\n> " + " ".repeat(start)
+                return "\n> " + getLine() + "\n> " + " ".repeat(start)
                         + CodeColors.color("^----" + msg + " at line " + ln, "Red");
             }
 
@@ -481,20 +508,59 @@ public class Parser {
                 return l.lns[ln];
             }
 
-            boolean is(String s) {
-                return toString().equals(s);
+            // can read past the end of the token, but not past the end of the line.
+            char charAt(int i) {
+                return getLine().charAt(i);
             }
 
-            static Pattern pattern = Pattern.compile("[-+]?\\d*\\.?\\d+([eE][-+]?\\d+)?");
+            // Check that this token is the given string.
+            boolean is(final String s) {
+                if (length() != s.length()) { // have to be of the same length
+                    return false;
+                }
+                for (int i = 0; i < s.length(); i++) {
+                    if (charAt(i + start) != s.charAt(i)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
 
+            int length() {
+                return end - start;
+            }
+
+            // Check that this token is plausibly a number. It can have a single dot, and no sign/or E.
             boolean isNumber() {
-                return pattern.matcher(toString()).matches();
+                var dots = 0;
+                for (int i = start; i < end; i++) {
+                    var c = charAt(i);
+                    var digit = Character.isDigit(c);
+                    if (!digit || c != '.') {
+                        return false;
+                    }
+                    if (!digit) {
+                        dots++;
+                    }
+                }
+                return dots == 0 || (dots == 1 && length() > 1);
             }
 
             boolean isEOF() {
                 return k == Kind.EOF;
             }
 
+            boolean isDelimiter() {
+                return k == Kind.DELIMITER;
+            }
+
+            boolean isIdentifier() {
+                return k == Kind.IDENTIFIER;
+            }
+
+            boolean isString() {
+                return k == Kind.STRING;
+            }
         }
 
         boolean isDelimiter(int c) {
