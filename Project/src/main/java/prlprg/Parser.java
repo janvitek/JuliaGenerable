@@ -168,6 +168,13 @@ record UnionAllInst(Type body, List<Type> bounds) implements Type {
         //  U<:(AbstractVector)   the input appears occasionally to have extraneous parens.
         if (p.has("(")) { // this should get rid of them.
             p = p.sliceMatchedDelims("(", ")");
+            if (p.isEmpty()) {
+                // This is a special case the whole type was '()' which apparently is an empty Tuple.
+                // But it is not a type... In our examples it ocrurs in the following context:
+                //    NamedTuple{()}
+                // not sure what to do. So return nothing.
+                return new TypeInst("Nothing", new ArrayList<>());
+            }
         }
         var type = TypeInst.parse(p);
         if (!p.has("where")) {
