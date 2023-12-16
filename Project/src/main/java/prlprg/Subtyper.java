@@ -7,15 +7,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import prlprg.Generator.Bound;
-import prlprg.Generator.Con;
-import prlprg.Generator.Decl;
-import prlprg.Generator.Exist;
-import prlprg.Generator.Inst;
-import prlprg.Generator.Tuple;
-import prlprg.Generator.Type;
-import prlprg.Generator.Union;
-import prlprg.Generator.Var;
 import prlprg.Parser.Function;
 import prlprg.Parser.TypeDeclaration;
 
@@ -46,13 +37,7 @@ class Subtyper {
         return tg.hasNext() ? tg : nullGen;
     }
 
-    static class Fuel {
-
-        int n;
-
-        Fuel(int n) {
-            this.n = n;
-        }
+    record Fuel(int n) {
 
         boolean isZero() {
             return n == 0;
@@ -225,7 +210,7 @@ class Subtyper {
             super(null, f);
             this.inst_arg_tys = inst.tys();
             this.kids = new ArrayList<>(GenDB.types.getSubtypes(inst.nm()));
-            this.next = Generator.isAny(inst) ? nextKid() : inst;
+            this.next = inst.isAny() ? nextKid() : inst;
         }
 
         private Type nextKid() {
@@ -559,8 +544,6 @@ class Subtyper {
             GenDB.addSig(Function.parse(p.sliceLine()).toTy());
         }
         GenDB.cleanUp();
-        var g = new Generator();
-        g.gen();
         var sub = new Subtyper();
         var functions = GenDB.sigs.get("a");
         for (var me : functions) {

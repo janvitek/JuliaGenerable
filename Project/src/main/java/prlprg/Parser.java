@@ -8,12 +8,14 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
+import static prlprg.CodeColors.color;
+
 class Parser {
 
     interface ParsedType {
 
         // Creates the simpler format
-        GenDB.Ty toTy();
+        Ty toTy();
 
         // ParsedType names can include string and numbers and concatenated vars
         static String parseTypeName(Parser p) {
@@ -72,19 +74,19 @@ class Parser {
         // An instance of a datatype with zero or more type parameters.
         // In the case the nm is Union or Tuple, create the specific types.
         @Override
-        public GenDB.Ty toTy() {
+        public Ty toTy() {
             if (ps.isEmpty() && (nm.equals("true") || nm.equals("false") || nm.startsWith(":")
                     || nm.startsWith("\"") || nm.startsWith("\'")
                     || nm().startsWith("typeof(") || pattern.matcher(nm).matches())) {
-                return new GenDB.TyCon(nm);
+                return new TyCon(nm);
             }
             if (nm.equals("nothing")) {
-                return GenDB.Ty.none();
+                return Ty.none();
             }
             var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
-            return nm.equals("Tuple") ? new GenDB.TyTuple(tys)
-                    : nm.equals("Union") ? new GenDB.TyUnion(tys)
-                    : new GenDB.TyInst(nm, tys);
+            return nm.equals("Tuple") ? new TyTuple(tys)
+                    : nm.equals("Union") ? new TyUnion(tys)
+                    : new TyInst(nm, tys);
         }
 
         @Override
@@ -94,38 +96,13 @@ class Parser {
         }
     }
 
-    // The goal is to generate name for type variables that are distinct from user generated
-    // names, right now we are not doing that -- a typename could be a greek letter. If
-    // this causes trouble, revisit and prefix with an invalid character. (I am trying to
-    // keep names short, so I'll try to avoid doing that if possible.)
-    class Freshener {
-
-        static int gen = 0;
-
-        static void reset() {
-            gen = 0;
-        }
-        static char[] varNames = {'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ',
-            'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ',
-            'χ', 'ψ', 'ω'};
-
-        static String fresh() {
-            var mult = gen / varNames.length;
-            var off = gen % varNames.length;
-            var ap = "\'";
-            var nm = varNames[off] + (mult == 0 ? "" : ap.repeat(mult));
-            gen++;
-            return nm;
-        }
-    }
-
 // A variable with optional upper and lower bounds. At this point we are still a little shaky
 // on which is which, so we parse all of them to ParsedType. Also, if we get an implicit variable
 // name, we create a fesh name for it. thwse names start with a question mark.
     record BoundVar(ParsedType name, ParsedType lower, ParsedType upper) implements ParsedType {
 
         static TypeInst fresh() {
-            var nm = Freshener.fresh();
+            var nm = NameUtils.fresh();
             return new TypeInst(nm, new ArrayList<>());
         }
 
@@ -152,9 +129,9 @@ class Parser {
 
         // Create a bound variable, the default for lower and upper bouds are none (Union{}) and Any.
         @Override
-        public GenDB.Ty toTy() {
-            return new GenDB.TyVar(name.toString(), lower == null ? GenDB.Ty.none() : lower.toTy(),
-                    (upper == null || upper.toString().equals("Any")) ? GenDB.Ty.any() : upper.toTy());
+        public Ty toTy() {
+            return new TyVar(name.toString(), lower == null ? Ty.none() : lower.toTy(),
+                    (upper == null || upper.toString().equals("Any")) ? Ty.any() : upper.toTy());
         }
 
         @Override
@@ -199,11 +176,11 @@ class Parser {
         }
 
         @Override
-        public GenDB.Ty toTy() {
+        public Ty toTy() {
             var ty = body.toTy();
             var it = bounds.listIterator(bounds.size());
             while (it.hasPrevious()) { // Going backwards, building Exists inside out
-                ty = new GenDB.TyExist(it.previous().toTy(), ty);
+                ty = new TyExist(it.previous().toTy(), ty);
             }
             return ty;
         }
@@ -236,7 +213,7 @@ class Parser {
         }
 
         static TypeDeclaration parse(Parser p) {
-            Freshener.reset();
+            NameUtils.reset();
             var modifiers = parseModifiers(p);
             var name = ParsedType.parseTypeName(p);
             var src = p.last.getLine();
@@ -261,11 +238,11 @@ class Parser {
             return new TypeDeclaration(modifiers, name, ps, parent, src);
         }
 
-        GenDB.TyDecl toTy() {
-            var parentTy = (parent == null || parent.toString().equals("Any")) ? GenDB.Ty.any() : parent.toTy();
+        TyDecl toTy() {
+            var parentTy = (parent == null || parent.toString().equals("Any")) ? Ty.any() : parent.toTy();
             var args = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
-            var ty = new GenDB.TyInst(nm, args);
-            return new GenDB.TyDecl(modifiers, nm, ty, parentTy, src);
+            var ty = new TyInst(nm, args);
+            return new TyDecl(modifiers, nm, ty, parentTy, src);
         }
 
         @Override
@@ -291,8 +268,8 @@ class Parser {
             return new Param(name, type, varargs);
         }
 
-        GenDB.Ty toTy() {
-            return ty == null ? GenDB.Ty.any() : ty.toTy();
+        Ty toTy() {
+            return ty == null ? Ty.any() : ty.toTy();
         }
 
         @Override
@@ -324,7 +301,7 @@ class Parser {
         }
 
         static Function parse(Parser p) {
-            Freshener.reset();
+            NameUtils.reset();
             if (p.has("function")) {  // keyword is optional
                 p.drop();
             }
@@ -346,14 +323,14 @@ class Parser {
             return new Function(name, params, wheres, source);
         }
 
-        GenDB.TySig toTy() {
-            List<GenDB.Ty> tys = ps.stream().map(Param::toTy).collect(Collectors.toList());
+        TySig toTy() {
+            List<Ty> tys = ps.stream().map(Param::toTy).collect(Collectors.toList());
             var reverse = wheres.reversed();
-            GenDB.Ty nty = new GenDB.TyTuple(tys);
+            Ty nty = new TyTuple(tys);
             for (var where : reverse) {
-                nty = new GenDB.TyExist(where.toTy(), nty);
+                nty = new TyExist(where.toTy(), nty);
             }
-            return new GenDB.TySig(nm, nty, src);
+            return new TySig(nm, nty, src);
         }
 
         @Override
@@ -513,8 +490,7 @@ class Parser {
             }
 
             String errorAt(String msg) {
-                return "\n> " + getLine() + "\n> " + " ".repeat(start)
-                        + CodeColors.color("^----" + msg + " at line " + ln, "Red");
+                return "\n> " + getLine() + "\n> " + " ".repeat(start) + color("^----" + msg + " at line " + ln, "Red");
             }
 
             String getLine() {
@@ -736,4 +712,273 @@ class Parser {
             failAt(msg, last);
         }
     }
+}
+
+// The following types are used in the generator as an intermediate step towards the
+// final result in the Generator.
+interface Ty {
+
+    final static Ty Any = new TyInst("Any", List.of());
+    final static Ty None = new TyUnion(List.of());
+
+    static Ty any() {
+        return Any;
+    }
+
+    static Ty none() {
+        return None;
+    }
+
+    Type toType(List<Bound> env);
+
+    Ty fixUp(List<TyVar> bounds);
+
+}
+
+record TyInst(String nm, List<Ty> tys) implements Ty {
+
+    @Override
+    public String toString() {
+        var args = tys.stream().map(Ty::toString).collect(Collectors.joining(","));
+        return nm + (tys.isEmpty() ? "" : "{" + args + "}");
+    }
+
+    @Override
+    public Ty fixUp(List<TyVar> bounds) {
+        var varOrNull = bounds.stream().filter(v -> v.nm().equals(nm())).findFirst();
+        if (varOrNull.isPresent()) {
+            if (tys.isEmpty()) {
+                return varOrNull.get();
+            }
+            throw new RuntimeException("Type " + nm() + " is a variable, but is used as a type");
+        }
+        switch (nm()) {
+            case "typeof": // typeof is a special case
+                return new TyCon(toString());
+            case "Nothing":
+                return Ty.None;
+            default:
+                if (GenDB.types.getPrePatched(nm) == null) {
+                    System.err.println("Warning: " + nm + " not found in type database, patching");
+                    var miss = new TyInst(nm, List.of());
+                    GenDB.types.addPrePatched(new TyDecl("missing", nm, miss, Ty.any(), "(missing)"));
+                }
+                var args = new ArrayList<Ty>();
+                var vars = new ArrayList<TyVar>();
+                var newBounds = new ArrayList<TyVar>(bounds);
+                for (var a : tys) {
+                    if (a instanceof TyVar tv && !inList(tv, bounds)) {
+                        tv = (TyVar) tv.fixUp(bounds);
+                        newBounds.add(tv);
+                        vars.add(tv);
+                        args.add(tv);
+                    } else {
+                        args.add(a.fixUp(newBounds));
+                    }
+                }
+                Ty t = new TyInst(nm, args);
+                for (var v : vars) {
+                    t = new TyExist(v, t);
+                }
+                return t;
+        }
+    }
+
+    private boolean inList(TyVar tv, List<TyVar> bounds) {
+        return bounds.stream().anyMatch(b -> b.nm().equals(tv.nm()));
+    }
+
+    @Override
+    public Type toType(List<Bound> env) {
+        return new Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
+    }
+
+}
+
+record TyVar(String nm, Ty low, Ty up) implements Ty {
+
+    @Override
+    public String toString() {
+        return (!low.equals(Ty.none()) ? low + "<:" : "") + CodeColors.variable(nm) + (!up.equals(Ty.any()) ? "<:" + up : "");
+    }
+
+    @Override
+    public Type toType(List<Bound> env) {
+        var vne_stream = env.reversed().stream();
+        var maybe = vne_stream.filter(b -> b.nm().equals(nm)).findFirst();
+        if (maybe.isPresent()) {
+            return new Var(maybe.get());
+        }
+        throw new RuntimeException("Variable " + nm + " not found in environment");
+    }
+
+    @Override
+    public Ty fixUp(List<TyVar> bounds) {
+        return new TyVar(nm, low.fixUp(bounds), up.fixUp(bounds));
+    }
+
+}
+
+record TyCon(String nm) implements Ty {
+
+    @Override
+    public String toString() {
+        return nm;
+    }
+
+    @Override
+
+    public Type toType(List<Bound> env) {
+        return new Con(nm);
+    }
+
+    @Override
+    public Ty fixUp(List<TyVar> bounds) {
+        return this;
+    }
+}
+
+record TyTuple(List<Ty> tys) implements Ty {
+
+    @Override
+    public String toString() {
+        return "(" + tys.stream().map(Ty::toString).collect(Collectors.joining(",")) + ")";
+    }
+
+    @Override
+    public Type toType(List<Bound> env) {
+        return new Tuple(tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
+    }
+
+    @Override
+    public Ty fixUp(List<TyVar> bounds) {
+        return new TyTuple(tys.stream().map(t -> t.fixUp(bounds)).collect(Collectors.toList()));
+    }
+
+}
+
+record TyUnion(List<Ty> tys) implements Ty {
+
+    @Override
+    public String toString() {
+        return "[" + tys.stream().map(Ty::toString).collect(Collectors.joining("|")) + "]";
+    }
+
+    @Override
+    public Type toType(List<Bound> env) {
+        return new Union(tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
+    }
+
+    @Override
+    public Ty fixUp(List<TyVar> bounds) {
+        return new TyUnion(tys.stream().map(t -> t.fixUp(bounds)).collect(Collectors.toList()));
+    }
+
+}
+
+record TyExist(Ty v, Ty ty) implements Ty {
+
+    @Override
+    public String toString() {
+        return CodeColors.exists("∃") + v + CodeColors.exists(".") + ty;
+    }
+
+    @Override
+    public Ty fixUp(List<TyVar> bound) {
+        var maybeVar = v();
+        var body = ty();
+        if (maybeVar instanceof TyVar defVar) {
+            var tv = new TyVar(defVar.nm(), defVar.low().fixUp(bound), defVar.up().fixUp(bound));
+            var newBound = new ArrayList<>(bound);
+            newBound.add(tv);
+            return new TyExist(tv, body.fixUp(newBound));
+        } else if (maybeVar instanceof TyInst inst) {
+            assert inst.tys().isEmpty();
+            var tv = new TyVar(inst.nm(), Ty.none(), Ty.any());
+            var newBound = new ArrayList<>(bound);
+            newBound.add(tv);
+            return new TyExist(tv, body.fixUp(newBound));
+        } else if (maybeVar instanceof TyTuple) {
+            // struct RAICode.QueryEvaluator.Vectorized.Operators.var\"#21#22\"{var\"#10063#T\", var\"#10064#vars\", var_types, *, var\"#10065#target\", Tuple} <: Function end (from module RAICode.QueryEvaluator.Vectorized.Operators)
+            throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: got tuple ");
+        } else {
+            throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: " + maybeVar);
+        }
+    }
+
+    @Override
+    public Type toType(List<Bound> env) {
+        String name;
+        Type low;
+        Type up;
+        if (v() instanceof TyVar tvar) {
+            name = tvar.nm();
+            low = tvar.low().toType(env);
+            up = tvar.up().toType(env);
+        } else {
+            var inst = (TyInst) v();
+            if (!inst.tys().isEmpty()) {
+                throw new RuntimeException("Should be a TyVar but is a type: " + ty);
+            }
+            name = inst.nm();
+            low = GenDB.none;
+            up = GenDB.any;
+        }
+        var b = new Bound(name, low, up);
+        var newenv = new ArrayList<>(env);
+        newenv.add(b);
+        return new Exist(b, ty().toType(newenv));
+    }
+
+}
+
+record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
+
+    @Override
+    public String toString() {
+        return nm + " = " + mod + " " + ty + " <: " + parent + CodeColors.comment("\n# " + src);
+    }
+
+    TyDecl fixUp() {
+        var lhs = (TyInst) ty;
+        var rhs = (TyInst) parent;
+        var fixedArgs = new ArrayList<TyVar>();
+        for (var targ : lhs.tys()) {
+            switch (targ) {
+                case TyVar tv ->
+                    fixedArgs.add((TyVar) tv.fixUp(fixedArgs));
+                case TyInst ti -> {
+                    if (!ti.tys().isEmpty()) {
+                        throw new RuntimeException("Should be a TyVar but is a type: " + targ);
+                    }
+                    fixedArgs.add(new TyVar(ti.nm(), Ty.none(), Ty.any()));
+                }
+                default ->
+                    throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: " + targ);
+            }
+        }
+        var fixedRHS = (TyInst) rhs.fixUp(fixedArgs);
+        var args = new ArrayList<Ty>();
+        args.addAll(fixedArgs);
+        Ty t = new TyInst(lhs.nm(), args);
+        for (var arg : fixedArgs.reversed()) {
+            t = new TyExist(arg, t);
+        }
+        return new TyDecl(mod, nm, t, fixedRHS, src);
+    }
+
+}
+
+record TySig(String nm, Ty ty, String src) {
+
+    @Override
+    public String toString() {
+        return "function " + nm + " " + ty + CodeColors.comment("\n# " + src);
+
+    }
+
+    TySig fixUp(List<TyVar> bounds) {
+        return new TySig(nm, ty.fixUp(bounds), src);
+    }
+
 }

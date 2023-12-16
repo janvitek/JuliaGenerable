@@ -1,20 +1,22 @@
 package prlprg;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 import prlprg.Parser.TypeDeclaration;
-import prlprg.Generator.InhNode;
-import prlprg.Generator.Decl;
 
 class GenDB {
 
     static class Types {
 
-        private HashMap<String, Info> db = new HashMap<>();
-        HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused
+        final private HashMap<String, Info> db = new HashMap<>();
+        final HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused
         List<String> allTypes;
 
         class Info {
@@ -23,7 +25,7 @@ class GenDB {
             TypeDeclaration parsed;
             TyDecl pre_patched;
             TyDecl patched;
-            Generator.Decl decl;
+            Decl decl;
             InhNode inhNode;
             List<String> subtypes = List.of();
 
@@ -84,8 +86,13 @@ class GenDB {
             getOrMake(inhNode.name).inhNode = inhNode;
         }
 
+        // When we add a declaration, we already have the inhNode, so we can add the children
         void addDecl(Decl decl) {
-            getOrMake(decl.nm()).decl = decl;
+            var i = getOrMake(decl.nm());
+            i.decl = decl;
+            var kids = i.inhNode.children;
+            var strs = kids.stream().map(c -> c.name).collect(Collectors.toList());
+            types.addSubtypes(decl.nm(), strs);
         }
 
         Decl getDecl(String nm) {
@@ -105,7 +112,7 @@ class GenDB {
 
         void addParsed(TypeDeclaration ty) {
             var tyd = ty.toTy();
-            if (App.NO_CLOSURES && tyd.mod.contains("closure")) {
+            if (App.NO_CLOSURES && tyd.mod().contains("closure")) {
                 return;
             }
             var nm = ty.nm();
@@ -116,6 +123,98 @@ class GenDB {
             }
             addPrePatched(tyd);
         }
+
+        // Is this a concrete type ? This can only be used once decls is populated in build().
+        boolean isConcrete(String nm) {
+            var d = getDecl(nm);
+            return d != null && !d.isAbstract();
+        }
+
+        static class NameOrder implements Comparator<Types.InhNode> {
+
+            @Override
+            public int compare(InhNode n1, InhNode n2) {
+                return n1.name.compareTo(n2.name);
+            }
+        }
+
+        void printHierarchy(InhNode n, int pos) {
+            var str = n.d == null || n.d.isAbstract() ? CodeColors.abstractType(n.name) : n.name;
+            str = n.d.mod().contains("missing") ? ("? " + CodeColors.abstractType(str)) : str;
+            App.output(CodeColors.comment(".").repeat(pos) + str);
+            n.children.sort(new NameOrder());
+            for (var c : n.children) {
+                printHierarchy(c, pos + 1);
+            }
+        }
+
+        void build(InhNode n) {
+            try {
+                GenDB.types.addDecl(n.toDecl());
+            } catch (Exception e) {
+                App.warn("Error: " + n.name + " " + e.getMessage() + "\n" + "Failed at " + n.decl);
+            }
+            for (var c : n.children) {
+                build(c);
+            }
+        }
+
+        InhNode make(TyDecl d) {
+            return new InhNode(d);
+        }
+
+        final class InhNode {
+
+            String name;
+            TyDecl decl;
+            Decl d = null;
+            InhNode parent = null;
+            String parentName;
+            List< InhNode> children = new ArrayList<>();
+
+            InhNode(TyDecl d) {
+                this.decl = d;
+                this.name = d.nm();
+                this.parentName = ((TyInst) d.parent()).nm();
+                NameUtils.registerName(name);
+            }
+
+            void fixUp() {
+                if (name.equals("Any")) {
+                    this.parent = this;
+                    return;
+                }
+                var pNode = GenDB.types.getInhNode(parentName);
+                assert pNode != null;
+                this.parent = pNode;
+                pNode.children.add(this);
+            }
+
+            Decl toDecl() {
+                if (name.equals("Any")) {
+                    d = new Decl("abstract type", "Any", any, any, null, "");
+                } else {
+                    var env = new ArrayList<Bound>();
+                    var t = decl.ty().toType(env);
+                    var inst = decl.parent().toType(getBounds(t, env));
+                    d = new Decl(decl.mod(), name, t, (Inst) inst, parent.d, decl.src());
+                }
+                return d;
+            }
+
+            // Unwrap the existentials in the type, and return the bounds in the order they appear.
+            // Called with a type declaration, so there should only be instances and existentials.
+            private List<Bound> getBounds(Type t, List<Bound> env) {
+                if (t instanceof Inst) {
+                    return env;
+                } else if (t instanceof Exist ty) {
+                    env.addLast(ty.b());
+                    return getBounds(ty.ty(), env);
+                }
+                throw new RuntimeException("Unknown type: " + t);
+            }
+        }
+
     }
 
     static class Signatures {
@@ -126,10 +225,10 @@ class GenDB {
             TySig pre_patched;
             TySig patched;
             Parser.Function parsed;
-            Generator.Sig sig;
+            Sig sig;
         }
 
-        private HashMap<String, List<Info>> db = new HashMap<>();
+        final private HashMap<String, List<Info>> db = new HashMap<>();
 
         List<Info> get(String nm) {
             var res = db.get(nm);
@@ -153,11 +252,13 @@ class GenDB {
 
     }
 
-    static Types types = new Types();
-    static Signatures sigs = new Signatures();
+    static final Types types = new Types();
+    static final Signatures sigs = new Signatures();
+    static Inst any = new Inst("Any", List.of());
+    static Union none = new Union(List.of());
 
     static final void addSig(TySig sig) {
-        if (App.NO_CLOSURES && sig.nm.startsWith("var#")) {
+        if (App.NO_CLOSURES && sig.nm().startsWith("var#")) {
             return;
         }
         sigs.make(sig.nm()).pre_patched = sig;
@@ -172,7 +273,7 @@ class GenDB {
                 types.addPatched(types.getPrePatched(name).fixUp());
             } catch (Exception e) {
                 System.err.println("Error: " + name + " " + e.getMessage() + "\n"
-                        + CodeColors.comment("Failed at " + types.getPrePatched(name).src));
+                        + CodeColors.comment("Failed at " + types.getPrePatched(name).src()));
             }
         }
         if (!types.reusedNames.isEmpty()) {
@@ -190,378 +291,409 @@ class GenDB {
                 types.addPatched(types.getPrePatched(name)); // no need to fixVars because this is a patched type
             }
         }
-    }
 
-    // The following types are used in the generator as an intermediate step towards the
-    // final result in the Generator.
-    interface Ty {
-
-        final static Ty Any = new TyInst("Any", List.of());
-        final static Ty None = new TyUnion(List.of());
-
-        static Ty any() {
-            return Any;
+        var tdb = GenDB.types;
+        for (var nm : tdb.allTypes()) {
+            tdb.addInhNode(tdb.make(tdb.getPatched(nm)));
         }
-
-        static Ty none() {
-            return None;
+        for (var nm : tdb.allTypes()) {
+            tdb.getInhNode(nm).fixUp();
         }
-
-        Generator.Type toType(List<Generator.Bound> env);
-
-        Ty fixUp(List<TyVar> bounds);
-
-    }
-
-    record TyInst(String nm, List<Ty> tys) implements Ty {
-
-        @Override
-        public String toString() {
-            var args = tys.stream().map(Ty::toString).collect(Collectors.joining(","));
-            return nm + (tys.isEmpty() ? "" : "{" + args + "}");
+        var d = tdb.getInhNode("Any");
+        tdb.build(d);
+        if (App.PRINT_HIERARCHY) {
+            App.output("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
+            tdb.printHierarchy(d, 0);
         }
-
-        @Override
-        public Ty fixUp(List<TyVar> bounds) {
-            var varOrNull = bounds.stream().filter(v -> v.nm().equals(nm())).findFirst();
-            if (varOrNull.isPresent()) {
-                if (tys.isEmpty()) {
-                    return varOrNull.get();
-                }
-                throw new RuntimeException("Type " + nm() + " is a variable, but is used as a type");
-            }
-            switch (nm()) {
-                case "typeof": // typeof is a special case
-                    return new TyCon(toString());
-                case "Nothing":
-                    return Ty.None;
-                default:
-                    if (types.getPrePatched(nm) == null) {
-                        System.err.println("Warning: " + nm + " not found in type database, patching");
-                        var miss = new TyInst(nm, List.of());
-                        types.addPrePatched(new TyDecl("missing", nm, miss, Ty.any(), "(missing)"));
-                    }
-                    var args = new ArrayList<Ty>();
-                    var vars = new ArrayList<TyVar>();
-                    var newBounds = new ArrayList<TyVar>(bounds);
-                    for (var a : tys) {
-                        if (a instanceof TyVar tv && !inList(tv, bounds)) {
-                            tv = (TyVar) tv.fixUp(bounds);
-                            newBounds.add(tv);
-                            vars.add(tv);
-                            args.add(tv);
-                        } else {
-                            args.add(a.fixUp(newBounds));
-                        }
-                    }
-                    Ty t = new TyInst(nm, args);
-                    for (var v : vars) {
-                        t = new TyExist(v, t);
-                    }
-                    return t;
-            }
-        }
-
-        private boolean inList(TyVar tv, List<TyVar> bounds) {
-            return bounds.stream().anyMatch(b -> b.nm().equals(tv.nm()));
-        }
-
-        @Override
-        public Generator.Type toType(List<Generator.Bound> env) {
-            return new Generator.Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
-        }
-
-    }
-
-    record TyVar(String nm, Ty low, Ty up) implements Ty {
-
-        @Override
-        public String toString() {
-            return (!low.equals(Ty.none()) ? low + "<:" : "") + CodeColors.variable(nm) + (!up.equals(Ty.any()) ? "<:" + up : "");
-        }
-
-        @Override
-        public Generator.Type toType(List<Generator.Bound> env) {
-            var vne_stream = env.reversed().stream();
-            var maybe = vne_stream.filter(b -> b.nm().equals(nm)).findFirst();
-            if (maybe.isPresent()) {
-                return new Generator.Var(maybe.get());
-            }
-            throw new RuntimeException("Variable " + nm + " not found in environment");
-        }
-
-        @Override
-        public Ty fixUp(List<TyVar> bounds) {
-            return new TyVar(nm, low.fixUp(bounds), up.fixUp(bounds));
-        }
-
-    }
-
-    record TyCon(String nm) implements Ty {
-
-        @Override
-        public String toString() {
-            return nm;
-        }
-
-        @Override
-
-        public Generator.Type toType(List<Generator.Bound> env) {
-            return new Generator.Con(nm);
-        }
-
-        @Override
-        public Ty fixUp(List<TyVar> bounds) {
-            return this;
-        }
-    }
-
-    record TyTuple(List<Ty> tys) implements Ty {
-
-        @Override
-        public String toString() {
-            return "(" + tys.stream().map(Ty::toString).collect(Collectors.joining(",")) + ")";
-        }
-
-        @Override
-        public Generator.Type toType(List<Generator.Bound> env) {
-            return new Generator.Tuple(tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
-        }
-
-        @Override
-        public Ty fixUp(List<TyVar> bounds) {
-            return new TyTuple(tys.stream().map(t -> t.fixUp(bounds)).collect(Collectors.toList()));
-        }
-
-    }
-
-    record TyUnion(List<Ty> tys) implements Ty {
-
-        @Override
-        public String toString() {
-            return "[" + tys.stream().map(Ty::toString).collect(Collectors.joining("|")) + "]";
-        }
-
-        @Override
-        public Generator.Type toType(List<Generator.Bound> env) {
-            return new Generator.Union(tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
-        }
-
-        @Override
-        public Ty fixUp(List<TyVar> bounds) {
-            return new TyUnion(tys.stream().map(t -> t.fixUp(bounds)).collect(Collectors.toList()));
-        }
-
-    }
-
-    record TyExist(Ty v, Ty ty) implements Ty {
-
-        @Override
-        public String toString() {
-            return CodeColors.exists("∃") + v + CodeColors.exists(".") + ty;
-        }
-
-        @Override
-        public Ty fixUp(List<TyVar> bound) {
-            var maybeVar = v();
-            var body = ty();
-            if (maybeVar instanceof TyVar defVar) {
-                var tv = new TyVar(defVar.nm(), defVar.low().fixUp(bound), defVar.up().fixUp(bound));
-                var newBound = new ArrayList<>(bound);
-                newBound.add(tv);
-                return new TyExist(tv, body.fixUp(newBound));
-            } else if (maybeVar instanceof TyInst inst) {
-                assert inst.tys().isEmpty();
-                var tv = new TyVar(inst.nm(), Ty.none(), Ty.any());
-                var newBound = new ArrayList<>(bound);
-                newBound.add(tv);
-                return new TyExist(tv, body.fixUp(newBound));
-            } else if (maybeVar instanceof TyTuple) {
-                // struct RAICode.QueryEvaluator.Vectorized.Operators.var\"#21#22\"{var\"#10063#T\", var\"#10064#vars\", var_types, *, var\"#10065#target\", Tuple} <: Function end (from module RAICode.QueryEvaluator.Vectorized.Operators)
-                throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: got tuple ");
-            } else {
-                throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: " + maybeVar);
-            }
-        }
-
-        @Override
-        public Generator.Type toType(List<Generator.Bound> env) {
-            String name;
-            Generator.Type low;
-            Generator.Type up;
-            if (v() instanceof TyVar tvar) {
-                name = tvar.nm();
-                low = tvar.low().toType(env);
-                up = tvar.up().toType(env);
-            } else {
-                var inst = (TyInst) v();
-                if (!inst.tys().isEmpty()) {
-                    throw new RuntimeException("Should be a TyVar but is a type: " + ty);
-                }
-                name = inst.nm();
-                low = Generator.none;
-                up = Generator.any;
-            }
-            var b = new Generator.Bound(name, low, up);
-            var newenv = new ArrayList<>(env);
-            newenv.add(b);
-            return new Generator.Exist(b, ty().toType(newenv));
-        }
-
-    }
-
-    record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
-
-        @Override
-        public String toString() {
-            return nm + " = " + mod + " " + ty + " <: " + parent + CodeColors.comment("\n# " + src);
-        }
-
-        TyDecl fixUp() {
-            var lhs = (TyInst) ty;
-            var rhs = (TyInst) parent;
-            var fixedArgs = new ArrayList<TyVar>();
-            for (var targ : lhs.tys) {
-                switch (targ) {
-                    case TyVar tv ->
-                        fixedArgs.add((TyVar) tv.fixUp(fixedArgs));
-                    case TyInst ti -> {
-                        if (!ti.tys.isEmpty()) {
-                            throw new RuntimeException("Should be a TyVar but is a type: " + targ);
-                        }
-                        fixedArgs.add(new TyVar(ti.nm(), Ty.none(), Ty.any()));
-                    }
-                    default ->
-                        throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: " + targ);
+        for (var nm : GenDB.sigs.allNames()) {
+            for (var sig : GenDB.sigs.get(nm)) {
+                var n = sig.patched;
+                try {
+                    sig.sig = new Sig(nm, n.ty().toType(new ArrayList<>()), n.src());
+                    App.info(sig.sig.toString());
+                } catch (Exception e) {
+                    App.warn("Error: " + n.nm() + " " + e.getMessage());
+                    App.warn(CodeColors.comment("Failed at " + n.src()));
                 }
             }
-            var fixedRHS = (TyInst) rhs.fixUp(fixedArgs);
-            var args = new ArrayList<Ty>();
-            args.addAll(fixedArgs);
-            Ty t = new TyInst(lhs.nm(), args);
-            for (var arg : fixedArgs.reversed()) {
-                t = new TyExist(arg, t);
+        }
+
+        try {
+            var w = new BufferedWriter(new FileWriter("test.jl"));
+            for (var nm : GenDB.sigs.allNames()) {
+                var b = GenDB.sigs.get(nm);
+                for (var si : b) {
+                    var s = si.sig;
+                    if (s.isGround()) {
+                        App.info("Ground: " + s);
+                        var str = ((Tuple) s.ty()).tys().stream().map(Type::toJulia).collect(Collectors.joining(","));
+                        var content = "code_warntype(" + s.nm() + ",[" + str + "])\n";
+                        w.write(content);
+                    }
+                }
             }
-            return new TyDecl(mod, nm, t, fixedRHS, src);
+        } catch (IOException e) {
+            throw new Error(e);
         }
-
-    }
-
-    record TySig(String nm, Ty ty, String src) {
-
-        @Override
-        public String toString() {
-            return "function " + nm + " " + ty + CodeColors.comment("\n# " + src);
-
-        }
-
-        TySig fixUp(List<TyVar> bounds) {
-            return new TySig(nm, ty.fixUp(bounds), src);
-        }
-
     }
 
 }
 
-class CodeColors {
-    // TODO: Change colors for the light mode (I, Jan, dont' use it)
+interface Type {
 
-    // ANSI escape codes for text colors in light mode
-    static String lightRed = "\u001B[31m";
-    static String lightGreen = "\u001B[32m";
-    static String lightYellow = "\u001B[33m";
-    // ANSI escape codes for text colors in dark mode
-    static String darkRed = "\u001B[91m";
-    static String ResetText = "\u001B[0m";
-    static String darkGreen = "\u001B[92m";
-    static String darkYellow = "\u001B[93m";
-    static String BLUE = "\u001B[34m";
-    static String MAGENTA = "\u001B[35m";
-    static String CYAN = "\u001B[36m";
-    static String LIGHT_WHITE = "\u001B[37m";
-    static String BRIGHT_YELLOW = "\u001B[93m";
-    static String BRIGHT_MAGENTA = "\u001B[95m";
-    static String BRIGHT_CYAN = "\u001B[96m";
+    @Override
+    public String toString();
 
-    // Default mode (light mode)
-    static enum Mode {
-        LIGHT, DARK, NONE
+    Type deepClone(HashMap<Bound, Bound> map);
+
+    boolean structuralEquals(Type t);
+
+    String toJulia();
+
+    boolean isAny();
+
+    boolean isNone();
+
+}
+
+// A construtor instance may have type parameters, examples are: Int32 and Vector{Int,N}. The LHS
+// of a type declaration can only have bound variables. The RHS of a type declaration can have a
+// mix of instance and variables (bound on LHS of <:). On its own, an instance should not have
+// free variables.
+record Inst(String nm, List<Type> tys) implements Type {
+
+    @Override
+    public String toString() {
+        var args = tys.stream().map(Type::toString).collect(Collectors.joining(","));
+        var snm = NameUtils.shorten(nm);
+        return snm + (tys.isEmpty() ? "" : "{" + args + "}");
     }
 
-    static Mode mode = Mode.LIGHT;
-
-    // Helper method to get the appropriate ANSI escape code based on the current mode
-    static String getTextColor(String color) {
-        return switch (mode) {
-            case LIGHT ->
-                ""; // not implemented
-            case DARK ->
-                switch (color) {
-                    case "LightRed" ->
-                        lightRed;
-                    case "LightGreen" ->
-                        lightGreen;
-                    case "LightYellow" ->
-                        lightYellow;
-                    case "Red" ->
-                        darkRed;
-                    case "Green" ->
-                        darkGreen;
-                    case "Yellow" ->
-                        darkYellow;
-                    case "reset" ->
-                        ResetText;
-                    case "Blue" ->
-                        BLUE;
-                    case "Magenta" ->
-                        MAGENTA;
-                    case "Cyan" ->
-                        CYAN;
-                    case "LightWhite" ->
-                        LIGHT_WHITE;
-                    case "BrightYellow" ->
-                        BRIGHT_YELLOW;
-                    case "BrightMagenta" ->
-                        BRIGHT_MAGENTA;
-                    case "BrightCyan" ->
-                        BRIGHT_CYAN;
-                    default ->
-                        "";
-                };
-            default ->
-                "";
-        };
+    @Override
+    public Type deepClone(HashMap<Bound, Bound> map) {
+        return new Inst(nm, tys.stream().map(t -> t.deepClone(map)).collect(Collectors.toList()));
     }
 
-    static String comment(String s) {
-        return color(s, "LightWhite");
+    @Override
+    public boolean structuralEquals(Type t) {
+        if (t instanceof Inst i) {
+            if (!nm.equals(i.nm) || tys.size() != i.tys.size()) {
+                return false;
+            }
+            for (int j = 0; j < tys.size(); j++) {
+                if (!tys.get(j).structuralEquals(i.tys.get(j))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
-    static String variable(String s) {
-        return color(s, "Cyan");
+    @Override
+    public String toJulia() {
+        var args = tys.stream().map(Type::toJulia).collect(Collectors.joining(","));
+        return nm + (tys.isEmpty() ? "" : "{" + args + "}");
     }
 
-    static String abstractType(String s) {
-        return color(s, "Green");
+    @Override
+    public boolean isAny() {
+        return nm.equals("Any");
     }
 
-    static String concreteType(String s) {
-        return color(s, "reset");
+    @Override
+    public boolean isNone() {
+        return false;
     }
 
-    static String exists(String s) {
-        return color(s, "Red");
+}
+
+// A variable refers to a Bound in an enclosing Exist. Free variables are not expected.
+record Var(Bound b) implements Type {
+
+    @Override
+    public String toString() {
+        return CodeColors.variable(b.nm());
     }
 
-    static String tuple(String s) {
-        return color(s, "Yellow");
+    @Override
+    public Type deepClone(HashMap<Bound, Bound> map) {
+        return new Var(map.get(b));
     }
 
-    static String union(String s) {
-        return color(s, "Cyan");
+    @Override
+    public boolean structuralEquals(Type t) {
+        return t instanceof Var v && b.nm().equals(v.b.nm());
     }
 
-    static String color(String s, String color) {
-        return getTextColor(color) + s + getTextColor("reset");
+    @Override
+    public String toJulia() {
+        return b.nm();
     }
+
+    @Override
+    public boolean isAny() {
+        return false;
+    }
+
+    @Override
+    public boolean isNone() {
+        return false;
+    }
+
+}
+
+// A Bound introduces a variable, with an upper and a lower bound. Julia allows writing inconsistent
+// bounds, i.e. !(low <: up). These are meaningless types which cannot be used. We do not check this.
+// We check that types are well-formed (no undefined constructor and no free variables)
+record Bound(String nm, Type low, Type up) {
+
+    @Override
+    public String toString() {
+        return (!low.isNone() ? low + "<:" : "") + CodeColors.variable(nm) + (!up.isAny() ? "<:" + up : "");
+    }
+
+    public Bound deepClone(HashMap<Bound, Bound> map) {
+        var me = new Bound(nm, low, up); // fix up and low
+        map.put(this, me);
+        return me;
+    }
+
+    public boolean structuralEquals(Bound b) {
+        return nm.equals(b.nm) && low.structuralEquals(b.low) && up.structuralEquals(b.up);
+    }
+
+    public String toJulia() {
+        return (!low.isNone() ? low.toJulia() + "<:" : "") + nm + (!up.isAny() ? "<:" + up.toJulia() : "");
+    }
+
+}
+
+// A constant, such as a number, character or string. The implementation of the parser does not attempt
+// do much we constant, they are treated as uninterpreted strings.
+record Con(String nm) implements Type {
+
+    @Override
+    public String toString() {
+        return CodeColors.comment(nm);
+    }
+
+    @Override
+    public Type deepClone(HashMap<Bound, Bound> map) {
+        return this;
+    }
+
+    @Override
+    public boolean structuralEquals(Type t) {
+        return t instanceof Con c && nm.equals(c.nm);
+    }
+
+    @Override
+    public String toJulia() {
+        return nm;
+    }
+
+    @Override
+    public boolean isAny() {
+        return false;
+    }
+
+    @Override
+    public boolean isNone() {
+        return false;
+    }
+}
+
+record Exist(Bound b, Type ty) implements Type {
+
+    @Override
+    public String toString() {
+        return CodeColors.exists("∃") + b + CodeColors.exists(".") + ty;
+    }
+
+    @Override
+    public Type deepClone(HashMap<Bound, Bound> map) {
+        var newmap = new HashMap<Bound, Bound>(map);
+        return new Exist(b.deepClone(newmap), ty.deepClone(newmap));
+    }
+
+    @Override
+    public boolean structuralEquals(Type t) {
+        return t instanceof Exist e && b.structuralEquals(e.b) && ty.structuralEquals(e.ty);
+    }
+
+    @Override
+    public String toJulia() {
+        return ty.toJulia() + " where " + b.toJulia();
+    }
+
+    @Override
+    public boolean isAny() {
+        return false;
+    }
+
+    @Override
+    public boolean isNone() {
+        return false;
+    }
+}
+
+record Union(List<Type> tys) implements Type {
+
+    @Override
+    public String toString() {
+        var str = tys.stream().map(Type::toString).collect(Collectors.joining(CodeColors.union("|")));
+        return CodeColors.union("[") + str + CodeColors.union("]");
+    }
+
+    @Override
+    public Type deepClone(HashMap<Bound, Bound> map) {
+        return new Union(tys.stream().map(t -> t.deepClone(map)).collect(Collectors.toList()));
+    }
+
+    @Override
+    public boolean structuralEquals(Type t) {
+        if (t instanceof Union u) {
+            if (tys.size() != u.tys.size()) {
+                return false;
+            }
+            for (int i = 0; i < tys.size(); i++) {
+                if (!tys.get(i).structuralEquals(u.tys.get(i))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public String toJulia() {
+        var str = tys.stream().map(Type::toJulia).collect(Collectors.joining(","));
+        return "Union{" + str + "}";
+    }
+
+    @Override
+    public boolean isAny() {
+        return false;
+    }
+
+    @Override
+    public boolean isNone() {
+        return tys.isEmpty();
+    }
+}
+
+record Tuple(List<Type> tys) implements Type {
+
+    @Override
+    public String toString() {
+        var str = tys.stream().map(t -> t == null ? "NULL" : t.toString()).collect(Collectors.joining(CodeColors.tuple(",")));
+        return CodeColors.tuple("(") + str + CodeColors.tuple(")");
+    }
+
+    @Override
+    public Type deepClone(HashMap<Bound, Bound> map) {
+        return new Tuple(tys.stream().map(t -> t.deepClone(map)).collect(Collectors.toList()));
+    }
+
+    @Override
+    public boolean structuralEquals(Type t) {
+        if (t instanceof Tuple tu) {
+            if (tys.size() != tu.tys.size()) {
+                return false;
+            }
+            for (int i = 0; i < tys.size(); i++) {
+                if (!tys.get(i).structuralEquals(tu.tys.get(i))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public String toJulia() {
+        var str = tys.stream().map(Type::toJulia).collect(Collectors.joining(","));
+        return "Tuple{" + str + "}";
+    }
+
+    @Override
+    public boolean isAny() {
+        return false;
+    }
+
+    @Override
+    public boolean isNone() {
+        return false;
+    }
+
+}
+
+// A type declaration introduces a new type name, with a type instance and a parent.
+// The type Any has no parent, and is the root of the type hierarchy.
+// We do not print the case where the parent is Any, since it is the default.
+record Decl(String mod, String nm, Type ty, Inst inst, Decl parent, String src) {
+
+    @Override
+    public String toString() {
+        var ignore = nm.equals("Any") || this.parent.nm.equals("Any"); // parent is null for Any
+        var snm = NameUtils.shorten(nm);
+        return CodeColors.comment(snm + " ≡ ") + mod + " " + ty + (ignore ? "" : CodeColors.comment(" <: ") + inst);
+    }
+
+    public boolean isAbstract() {
+        return mod.contains("abstract") || mod.contains("missing");
+    }
+}
+
+record Sig(String nm, Type ty, String src) {
+
+    boolean isGround() {
+        if (ty instanceof Tuple t) {
+            for (var typ : t.tys()) {
+                if (typ instanceof Inst inst) {
+                    if (!GenDB.types.isConcrete(inst.nm())) {
+                        return false;
+                    }
+                } else if (typ instanceof Exist) {
+                    return false; // not ground
+                } else if (typ instanceof Union) {
+                    return false; // not ground either
+                } else if (typ instanceof Var) {
+                    return false; // we should have rejected this earlier (at the exists)
+                } else if (typ instanceof Con) {
+                    // ok
+                } else if (typ instanceof Tuple) {
+                    return false; // not ground??
+                } else {
+                    throw new RuntimeException("Unknown type: " + ty);
+                }
+            }
+            return true;
+        } else {
+            return false; // i.e. the method has an existential type, definitely not ground
+        }
+    }
+
+    @Override
+    public String toString() {
+        return "function " + nm + " " + ty;
+    }
+
+    String toJulia() {
+        var t = ty;
+        var bounds = new ArrayList<Bound>();
+        while (t instanceof Exist e) {
+            bounds.add(e.b());
+            t = e.ty();
+        }
+        Tuple args = (Tuple) t;
+        var str = args.tys().stream().map(Type::toJulia).collect(Collectors.joining(","));
+        return "function " + nm + "(" + str + ")"
+                + (bounds.isEmpty() ? ""
+                : (" where {" + bounds.stream().map(Bound::toJulia).collect(Collectors.joining(",")) + "}"));
+    }
+
 }
