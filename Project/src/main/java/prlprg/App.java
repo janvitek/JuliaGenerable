@@ -1,16 +1,14 @@
 package prlprg;
 
-import prlprg.Generator.Sig;
 import prlprg.Subtyper.Fuel;
 
 public class App {
 
     public static boolean debug, PRINT_HIERARCHY = true, NO_CLOSURES, SHORTEN, verbose;
-    static GenDB db = new GenDB();
     static String dir, types, functions;
     static String[] defaultArgs = {
-        "-d=FALSE", // run micro tests
-        "-c=NONE", // color the output : DARK, LIGHT, NONE
+        "-d=TRUE", // run micro tests
+        "-c=DARK", // color the output : DARK, LIGHT, NONE
         "-r=../Inputs/", // root directory with input files
         "-f=func.jlg", // file with function signatures
         "-t=type.jlg", // file with type declarations
@@ -20,28 +18,20 @@ public class App {
         "-v=FALSE", // verbose
     };
 
-    static int FUEL = 1;
+    static int FUEL = 3;
 
     public static void main(String[] args) {
         parseArgs(defaultArgs); // set default values
         parseArgs(args); // override them with command line arguments
-        var p = new Parser();
-        p = debug ? p.withString(tstr) : p.withFile(dir + types);
-        while (!p.isEmpty()) {
-            Freshener.reset();
-            db.addTyDecl(TypeDeclaration.parse(p.sliceLine()).toTy());
-        }
-        p = new Parser();
-        p = debug ? p.withString(str) : p.withFile(dir + functions);
-        while (!p.isEmpty()) {
-            Freshener.reset();
-            db.addSig(Function.parse(p.sliceLine()).toTy());
-        }
-        db.cleanUp();
-        var g = new Generator(db);
-        g.gen();
-        var sub = new Subtyper(g);
-        var tg0 = sub.make(Generator.any, new Fuel(FUEL));
+        warn("Parsing...");
+        var p = debug ? new Parser().withString(tstr) : new Parser().withFile(dir + types);
+        p.parseTypes();
+        p = debug ? new Parser().withString(str) : new Parser().withFile(dir + functions);
+        p.parseSigs();
+        warn("Preparing database...");
+        GenDB.cleanUp();
+        var sub = new Subtyper();
+        var tg0 = sub.make(GenDB.any, new Fuel(FUEL));
         while (tg0.hasNext()) {
             var t0 = tg0.next();
             System.err.println(t0.toJulia());
@@ -49,12 +39,13 @@ public class App {
         if (true) {
             return;
         }
-        for (var funs : g.sigs.values()) {
-            for (var m : funs) {
+        for (var nm : GenDB.sigs.allNames()) {
+            for (var me : GenDB.sigs.get(nm)) {
+                var m = me.sig;
                 if (m.isGround()) {
                     continue; // Skip trivial cases
                 }
-                System.err.println("Generating subtypes of " + m);
+                warn("Generating subtypes of " + m);
                 var tup = m.ty();
                 var tg = sub.make(tup, new Fuel(FUEL));
                 while (tg.hasNext()) {
@@ -157,9 +148,23 @@ public class App {
                         CodeColors.Mode.NONE;
                 };
             } else {
-                System.err.println("Unknown argument: " + arg);
+                warn("Unknown argument: " + arg);
                 System.exit(1);
             }
         }
+    }
+
+    static void info(String s) {
+        if (verbose) {
+            System.err.println(s);
+        }
+    }
+
+    static void warn(String s) {
+        System.err.println(s);
+    }
+
+    static void output(String s) {
+        System.out.println(s);
     }
 }
