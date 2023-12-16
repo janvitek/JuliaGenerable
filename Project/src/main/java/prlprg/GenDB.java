@@ -6,9 +6,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
-import java.io.BufferedWriter;
-import java.io.FileWriter;
-import java.io.IOException;
+
 import prlprg.Parser.TypeDeclaration;
 
 class GenDB {
@@ -17,189 +15,67 @@ class GenDB {
 
         final private HashMap<String, Info> db = new HashMap<>();
         final HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused
-        List<String> allTypes;
 
         class Info {
 
             String nm;
+            boolean defMissing;
             TypeDeclaration parsed;
             TyDecl pre_patched;
             TyDecl patched;
             Decl decl;
-            InhNode inhNode;
             List<String> subtypes = List.of();
-
-            Info(String nm) {
-                this.nm = nm;
-            }
-
-            @Override
-            public String toString() {
-                return nm + "\n" + parsed + "\n" + pre_patched + "\n" + patched + "\n" + decl;
-            }
-        }
-
-        List<String> allTypes() {
-            if (allTypes == null) {
-                allTypes = new ArrayList<>(db.keySet());
-                allTypes.sort(String::compareTo);
-            }
-            return allTypes;
-        }
-
-        private Info getOrMake(String nm) {
-            var info = db.get(nm);
-            if (info == null) {
-                db.put(nm, info = new Info(nm));
-            }
-            return info;
-        }
-
-        List<String> getSubtypes(String nm) {
-            var info = db.get(nm);
-            return info == null ? null : info.subtypes;
-        }
-
-        void addSubtypes(String nm, List<String> subtypes) {
-            getOrMake(nm).subtypes = subtypes;
-        }
-
-        TyDecl getPrePatched(String nm) {
-            var info = db.get(nm);
-            return info == null ? null : info.pre_patched;
-        }
-
-        TyDecl getPatched(String nm) {
-            var info = db.get(nm);
-            return info == null ? null : info.patched;
-        }
-
-        void addPrePatched(TyDecl ty) {
-            getOrMake(ty.nm()).pre_patched = ty;
-        }
-
-        void addPatched(TyDecl ty) {
-            getOrMake(ty.nm()).patched = ty;
-        }
-
-        void addInhNode(InhNode inhNode) {
-            getOrMake(inhNode.name).inhNode = inhNode;
-        }
-
-        // When we add a declaration, we already have the inhNode, so we can add the children
-        void addDecl(Decl decl) {
-            var i = getOrMake(decl.nm());
-            i.decl = decl;
-            var kids = i.inhNode.children;
-            var strs = kids.stream().map(c -> c.name).collect(Collectors.toList());
-            types.addSubtypes(decl.nm(), strs);
-        }
-
-        Decl getDecl(String nm) {
-            var info = db.get(nm);
-            return info == null ? null : info.decl;
-        }
-
-        InhNode getInhNode(String nm) {
-            var info = db.get(nm);
-            return info == null ? null : info.inhNode;
-        }
-
-        TypeDeclaration getParsed(String nm) {
-            var info = db.get(nm);
-            return info == null ? null : info.parsed;
-        }
-
-        void addParsed(TypeDeclaration ty) {
-            var tyd = ty.toTy();
-            if (App.NO_CLOSURES && tyd.mod().contains("closure")) {
-                return;
-            }
-            var nm = ty.nm();
-            var info = getOrMake(nm);
-            info.parsed = ty;
-            if (getPrePatched(nm) != null) {
-                reusedNames.add(nm); // remember we have seen this type before and overwrite it
-            }
-            addPrePatched(tyd);
-        }
-
-        // Is this a concrete type ? This can only be used once decls is populated in build().
-        boolean isConcrete(String nm) {
-            var d = getDecl(nm);
-            return d != null && !d.isAbstract();
-        }
-
-        static class NameOrder implements Comparator<Types.InhNode> {
-
-            @Override
-            public int compare(InhNode n1, InhNode n2) {
-                return n1.name.compareTo(n2.name);
-            }
-        }
-
-        void printHierarchy(InhNode n, int pos) {
-            var str = n.d == null || n.d.isAbstract() ? CodeColors.abstractType(n.name) : n.name;
-            str = n.d.mod().contains("missing") ? ("? " + CodeColors.abstractType(str)) : str;
-            App.output(CodeColors.comment(".").repeat(pos) + str);
-            n.children.sort(new NameOrder());
-            for (var c : n.children) {
-                printHierarchy(c, pos + 1);
-            }
-        }
-
-        void build(InhNode n) {
-            try {
-                GenDB.types.addDecl(n.toDecl());
-            } catch (Exception e) {
-                App.warn("Error: " + n.name + " " + e.getMessage() + "\n" + "Failed at " + n.decl);
-            }
-            for (var c : n.children) {
-                build(c);
-            }
-        }
-
-        InhNode make(TyDecl d) {
-            return new InhNode(d);
-        }
-
-        final class InhNode {
-
-            String name;
-            TyDecl decl;
-            Decl d = null;
-            InhNode parent = null;
+            Info parent = null;
             String parentName;
-            List< InhNode> children = new ArrayList<>();
+            List< Info> children = new ArrayList<>();
 
-            InhNode(TyDecl d) {
-                this.decl = d;
-                this.name = d.nm();
-                this.parentName = ((TyInst) d.parent()).nm();
-                NameUtils.registerName(name);
+            Info(TypeDeclaration ty) {
+                NameUtils.registerName(ty.nm());
+                this.nm = ty.nm();
+                this.parsed = ty;
+                this.pre_patched = ty.toTy();
+                this.patched = pre_patched; // default, good for simple types
+                this.defMissing = false;
             }
 
-            void fixUp() {
-                if (name.equals("Any")) {
-                    this.parent = this;
+            Info(String missingType) {
+                this.nm = missingType;
+                this.decl = isAny() ? new Decl("abstract type", "Any", any, any, null, "")
+                        : new Decl("missing type", nm, new Inst(nm, new ArrayList<>()), any, null, "NA");
+                this.defMissing = true;
+            }
+
+            final boolean isAny() {
+                return nm.equals("Any");
+            }
+
+            void fixUpParent() {
+                if (!defMissing) {
+                    try {
+                        patched = pre_patched.fixUp();
+                    } catch (Exception e) {
+                        App.warn("Error: " + nm + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + pre_patched.src()));
+                    }
+                }
+                if (isAny()) {
+                    parentName = nm;
+                    parent = this;
                     return;
                 }
-                var pNode = GenDB.types.getInhNode(parentName);
-                assert pNode != null;
-                this.parent = pNode;
-                pNode.children.add(this);
+                parentName = defMissing ? "Any" : ((TyInst) patched.parent()).nm();
+                parent = get(parentName);
+                parent.children.add(this);
             }
 
-            Decl toDecl() {
-                if (name.equals("Any")) {
-                    d = new Decl("abstract type", "Any", any, any, null, "");
-                } else {
+            void toDecl() {
+                if (!defMissing) {
                     var env = new ArrayList<Bound>();
-                    var t = decl.ty().toType(env);
-                    var inst = decl.parent().toType(getBounds(t, env));
-                    d = new Decl(decl.mod(), name, t, (Inst) inst, parent.d, decl.src());
+                    var t = patched.ty().toType(env);
+                    var inst = patched.parent().toType(getBounds(t, env));
+                    decl = new Decl(patched.mod(), nm, t, (Inst) inst, parent.decl, patched.src());
                 }
-                return d;
+                subtypes = children.stream().map(c -> c.nm).collect(Collectors.toList());
+                children.forEach(c -> c.toDecl());
             }
 
             // Unwrap the existentials in the type, and return the bounds in the order they appear.
@@ -215,16 +91,83 @@ class GenDB {
             }
         }
 
+        void patchIfNeeeded(String nm) {
+            if (get(nm) == null) {
+                App.warn("Type " + nm + " not found, patching");
+                db.put(nm, new Info(nm));
+            }
+        }
+
+        void toDeclAll() {
+            types.get("Any").toDecl();
+        }
+
+        void patchAll() {
+            if (!types.reusedNames.isEmpty()) {
+                App.warn("Multiple type definitions for: " + types.reusedNames.stream().collect(Collectors.joining(", ")));
+            }
+            all().forEach(i -> i.fixUpParent());
+        }
+
+        List<Info> all() {
+            return new ArrayList<>(db.values());
+        }
+
+        Info get(String nm) {
+            return db.get(nm);
+        }
+
+        List<String> getSubtypes(String nm) {
+            var info = get(nm);
+            return info == null ? null : info.subtypes;
+        }
+
+        void addParsed(TypeDeclaration ty) {
+            if (get(ty.nm()) != null) {
+                reusedNames.add(ty.nm()); // remember we have seen this type before and overwrite it
+            }
+            var nm = ty.nm();
+            var info = new Info(ty);
+            db.put(nm, info);
+        }
+
+        // Is this a concrete type ? This can only be used once decls is populated in build().
+        boolean isConcrete(String nm) {
+            var i = get(nm);
+            return i.decl != null && !i.decl.isAbstract();
+        }
+
+        static class NameOrder implements Comparator<Types.Info> {
+
+            @Override
+            public int compare(Info n1, Info n2) {
+                return n1.nm.compareTo(n2.nm);
+            }
+        }
+
+        void printHierarchy() {
+            if (App.PRINT_HIERARCHY) {
+                App.output("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
+                printHierarchy(get("Any"), 0);
+            }
+        }
+
+        private void printHierarchy(Info n, int pos) {
+            var str = n.decl == null || n.decl.isAbstract() ? CodeColors.abstractType(n.nm) : n.nm;
+            str = n.decl.mod().contains("missing") ? ("? " + CodeColors.abstractType(str)) : str;
+            App.output(CodeColors.comment(".").repeat(pos) + str);
+            n.children.sort(new NameOrder());
+            n.children.forEach(c -> printHierarchy(c, pos + 1));
+        }
+
     }
 
     static class Signatures {
 
         class Info {
 
-            String nm;
             TySig pre_patched;
             TySig patched;
-            Parser.Function parsed;
             Sig sig;
         }
 
@@ -240,7 +183,6 @@ class GenDB {
 
         Info make(String nm) {
             var info = new Info();
-            info.nm = nm;
             var res = get(nm);
             res.add(info);
             return info;
@@ -250,6 +192,37 @@ class GenDB {
             return new ArrayList<>(db.keySet());
         }
 
+        List<Sig> allSigs() {
+            var res = new ArrayList<Sig>();
+            for (var nm : allNames()) {
+                for (var info : get(nm)) {
+                    res.add(info.sig);
+                }
+            }
+            return res;
+        }
+
+        void fixUpAll() {
+            for (var name : allNames()) {
+                for (var sig : get(name)) {
+                    sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
+                }
+            }
+        }
+
+        void toDeclAll() {
+            for (var nm : allNames()) {
+                for (var s : get(nm)) {
+                    var n = s.patched;
+                    try {
+                        s.sig = new Sig(nm, n.ty().toType(new ArrayList<>()), n.src());
+                        App.info(s.sig.toString());
+                    } catch (Exception e) {
+                        App.warn("Error: " + n.nm() + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + n.src()));
+                    }
+                }
+            }
+        }
     }
 
     static final Types types = new Types();
@@ -258,83 +231,18 @@ class GenDB {
     static Union none = new Union(List.of());
 
     static final void addSig(TySig sig) {
-        if (App.NO_CLOSURES && sig.nm().startsWith("var#")) {
-            return;
-        }
         sigs.make(sig.nm()).pre_patched = sig;
     }
 
+    // Definitions in the pre DB are ill-formed, as we don't know what identifiers refer to types or
+    // variables. We asume all types declarations have been processed, so anything not in tydb is
+    // is either a variable or a missing type.
     static public void cleanUp() {
-        // Definitions in the pre DB are ill-formed, as we don't know what identifiers refer to types or
-        // variables. We asume all types declarations have been processed, so anything not in tydb is
-        // is either a variable or a missing type.
-        for (var name : types.allTypes()) {
-            try {
-                types.addPatched(types.getPrePatched(name).fixUp());
-            } catch (Exception e) {
-                System.err.println("Error: " + name + " " + e.getMessage() + "\n"
-                        + CodeColors.comment("Failed at " + types.getPrePatched(name).src()));
-            }
-        }
-        if (!types.reusedNames.isEmpty()) {
-            System.out.println("Warning: types defined more than once:" + types.reusedNames.stream().collect(Collectors.joining(", ")));
-            types.reusedNames.clear();
-        }
-        for (var name : sigs.allNames()) {
-            for (var sig : sigs.get(name)) {
-                sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
-            }
-        }
-        // add patched types if any
-        for (var name : types.allTypes()) {
-            if (types.getPatched(name) == null) {
-                types.addPatched(types.getPrePatched(name)); // no need to fixVars because this is a patched type
-            }
-        }
-
-        var tdb = GenDB.types;
-        for (var nm : tdb.allTypes()) {
-            tdb.addInhNode(tdb.make(tdb.getPatched(nm)));
-        }
-        for (var nm : tdb.allTypes()) {
-            tdb.getInhNode(nm).fixUp();
-        }
-        var d = tdb.getInhNode("Any");
-        tdb.build(d);
-        if (App.PRINT_HIERARCHY) {
-            App.output("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
-            tdb.printHierarchy(d, 0);
-        }
-        for (var nm : GenDB.sigs.allNames()) {
-            for (var sig : GenDB.sigs.get(nm)) {
-                var n = sig.patched;
-                try {
-                    sig.sig = new Sig(nm, n.ty().toType(new ArrayList<>()), n.src());
-                    App.info(sig.sig.toString());
-                } catch (Exception e) {
-                    App.warn("Error: " + n.nm() + " " + e.getMessage());
-                    App.warn(CodeColors.comment("Failed at " + n.src()));
-                }
-            }
-        }
-
-        try {
-            var w = new BufferedWriter(new FileWriter("test.jl"));
-            for (var nm : GenDB.sigs.allNames()) {
-                var b = GenDB.sigs.get(nm);
-                for (var si : b) {
-                    var s = si.sig;
-                    if (s.isGround()) {
-                        App.info("Ground: " + s);
-                        var str = ((Tuple) s.ty()).tys().stream().map(Type::toJulia).collect(Collectors.joining(","));
-                        var content = "code_warntype(" + s.nm() + ",[" + str + "])\n";
-                        w.write(content);
-                    }
-                }
-            }
-        } catch (IOException e) {
-            throw new Error(e);
-        }
+        sigs.fixUpAll();
+        types.patchAll();
+        types.toDeclAll();
+        types.printHierarchy();
+        sigs.toDeclAll();
     }
 
 }
@@ -344,15 +252,27 @@ interface Type {
     @Override
     public String toString();
 
+    // Return a clone of the type with new Bounds. When called exterrnally, the map should be empty.
     Type deepClone(HashMap<Bound, Bound> map);
 
+    // Two term that have exactly the same syntactic structure, does not try for semantic equality.
     boolean structuralEquals(Type t);
 
+    // Return a Julia string representation of the type
     String toJulia();
 
+    // The top type "Any"
     boolean isAny();
 
+    // The empty union
     boolean isNone();
+
+    // Inst, Tuples, amd Cons are concrete
+    boolean isConcrete();
+
+    // return true if the type definitely has a countable number of subtypes. this is a conservative
+    // approximation, since we don't deal with subtypes accurately.
+    boolean isFinite();
 
 }
 
@@ -406,6 +326,28 @@ record Inst(String nm, List<Type> tys) implements Type {
         return false;
     }
 
+    @Override
+    public boolean isConcrete() {
+        return GenDB.types.isConcrete(nm);
+    }
+
+    @Override
+    public boolean isFinite() {
+        return isConcrete() ? true : subtypeDecls().stream().allMatch(Decl::isFinite);
+    }
+
+    List<Decl> subtypeDecls() {
+        var res = new ArrayList<Decl>();
+        var wl = new ArrayList<String>();
+        wl.add(nm);
+        while (wl.isEmpty()) {
+            for (var subnm : GenDB.types.getSubtypes(wl.removeFirst())) {
+                res.add(GenDB.types.get(nm).decl);
+                wl.add(subnm);
+            }
+        }
+        return res;
+    }
 }
 
 // A variable refers to a Bound in an enclosing Exist. Free variables are not expected.
@@ -441,6 +383,16 @@ record Var(Bound b) implements Type {
         return false;
     }
 
+    @Override
+    public boolean isConcrete() {
+        return false;
+    }
+
+    @Override
+    public boolean isFinite() {
+        return true; // we ignore variables, the check happens on bounds
+    }
+
 }
 
 // A Bound introduces a variable, with an upper and a lower bound. Julia allows writing inconsistent
@@ -465,6 +417,10 @@ record Bound(String nm, Type low, Type up) {
 
     public String toJulia() {
         return (!low.isNone() ? low.toJulia() + "<:" : "") + nm + (!up.isAny() ? "<:" + up.toJulia() : "");
+    }
+
+    public boolean isFinite() {
+        return up.isFinite(); // ignoring low
     }
 
 }
@@ -502,6 +458,16 @@ record Con(String nm) implements Type {
     public boolean isNone() {
         return false;
     }
+
+    @Override
+    public boolean isConcrete() {
+        return true;
+    }
+
+    @Override
+    public boolean isFinite() {
+        return true;
+    }
 }
 
 record Exist(Bound b, Type ty) implements Type {
@@ -535,6 +501,16 @@ record Exist(Bound b, Type ty) implements Type {
     @Override
     public boolean isNone() {
         return false;
+    }
+
+    @Override
+    public boolean isConcrete() {
+        return false;
+    }
+
+    @Override
+    public boolean isFinite() {
+        return b.isFinite() && ty.isFinite();
     }
 }
 
@@ -581,6 +557,16 @@ record Union(List<Type> tys) implements Type {
     @Override
     public boolean isNone() {
         return tys.isEmpty();
+    }
+
+    @Override
+    public boolean isConcrete() {
+        return false; // technically a union with one elment that is concrete is concrete
+    }
+
+    @Override
+    public boolean isFinite() {
+        return tys.stream().allMatch(Type::isFinite);
     }
 }
 
@@ -629,6 +615,20 @@ record Tuple(List<Type> tys) implements Type {
         return false;
     }
 
+    @Override
+    public boolean isConcrete() {
+        return true;
+    }
+
+    boolean elementsConcrete() {
+        return tys.stream().allMatch(Type::isConcrete);
+    }
+
+    @Override
+    public boolean isFinite() {
+        return tys.stream().allMatch(Type::isFinite);
+    }
+
 }
 
 // A type declaration introduces a new type name, with a type instance and a parent.
@@ -646,40 +646,26 @@ record Decl(String mod, String nm, Type ty, Inst inst, Decl parent, String src) 
     public boolean isAbstract() {
         return mod.contains("abstract") || mod.contains("missing");
     }
+
+    public boolean isFinite() {
+        return ty.isFinite();
+    }
 }
 
 record Sig(String nm, Type ty, String src) {
 
+    // we say a method signature is "ground" if all of its arguments are concrete
     boolean isGround() {
-        if (ty instanceof Tuple t) {
-            for (var typ : t.tys()) {
-                if (typ instanceof Inst inst) {
-                    if (!GenDB.types.isConcrete(inst.nm())) {
-                        return false;
-                    }
-                } else if (typ instanceof Exist) {
-                    return false; // not ground
-                } else if (typ instanceof Union) {
-                    return false; // not ground either
-                } else if (typ instanceof Var) {
-                    return false; // we should have rejected this earlier (at the exists)
-                } else if (typ instanceof Con) {
-                    // ok
-                } else if (typ instanceof Tuple) {
-                    return false; // not ground??
-                } else {
-                    throw new RuntimeException("Unknown type: " + ty);
-                }
-            }
-            return true;
-        } else {
-            return false; // i.e. the method has an existential type, definitely not ground
-        }
+        return ty instanceof Tuple tup ? tup.elementsConcrete() : false;
     }
 
     @Override
     public String toString() {
         return "function " + nm + " " + ty;
+    }
+
+    boolean isFinite() {
+        return ty.isFinite();
     }
 
     String toJulia() {

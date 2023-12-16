@@ -82,10 +82,6 @@ class CodeColors {
         return color(s, "Green");
     }
 
-    static String concreteType(String s) {
-        return color(s, "reset");
-    }
-
     static String exists(String s) {
         return color(s, "Red");
     }

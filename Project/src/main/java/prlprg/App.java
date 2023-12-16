@@ -14,7 +14,7 @@ public class App {
         "-t=type.jlg", // file with type declarations
         "-h=FALSE", // print hierarchy
         "-i=TRUE", // ignore closures
-        "-s=FALSE", // print shorter type names
+        "-s=TRUE", // print shorter type names
         "-v=FALSE", // verbose
     };
 
@@ -30,6 +30,18 @@ public class App {
         p.parseSigs();
         warn("Preparing database...");
         GenDB.cleanUp();
+        var sigs = GenDB.sigs.allSigs();
+        int sigsC = 0, groundC = 0, finiteC = 0;
+        for (var sig : sigs) {
+            sigsC++;
+            if (sig.isGround()) {
+                groundC++;
+            }
+            if (sig.isFinite()) {
+                finiteC++;
+            }
+        }
+        warn("Sigs: " + sigsC + ", ground: " + groundC + ", finite: " + finiteC);
         var sub = new Subtyper();
         var tg0 = sub.make(GenDB.any, new Fuel(FUEL));
         while (tg0.hasNext()) {
@@ -57,6 +69,7 @@ public class App {
     }
 
     static String tstr = """
+    abstract type Any end
       struct A{T<:B{<:B}} <: B{T} end
       abstract type Tuple end
       abstract type B{X} end

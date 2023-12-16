@@ -344,9 +344,14 @@ class Parser {
     private List<Lex.Tok> toks = new ArrayList<>();
     Lex.Tok last;
 
+    // When reading data from file, there may be closures, we usually don't want to look at those types/signatures
     Parser withFile(String path) {
         try {
             List<String> ls = Files.readAllLines(Path.of(path));
+            if (App.NO_CLOSURES) {
+                ls = ls.stream().filter(s -> !s.contains("(closure)")).collect(Collectors.toList());
+                ls = ls.stream().filter(s -> !s.contains("var#")).collect(Collectors.toList());
+            }
             toks = new Lex(ls.toArray(new String[0])).tokenize();
             return this;
         } catch (IOException e) {
@@ -750,7 +755,7 @@ record TyInst(String nm, List<Ty> tys) implements Ty {
             if (tys.isEmpty()) {
                 return varOrNull.get();
             }
-            throw new RuntimeException("Type " + nm() + " is a variable, but is used as a type");
+            throw new RuntimeException("Type " + nm() + " is a variable used as a type.");
         }
         switch (nm()) {
             case "typeof": // typeof is a special case
@@ -758,11 +763,7 @@ record TyInst(String nm, List<Ty> tys) implements Ty {
             case "Nothing":
                 return Ty.None;
             default:
-                if (GenDB.types.getPrePatched(nm) == null) {
-                    System.err.println("Warning: " + nm + " not found in type database, patching");
-                    var miss = new TyInst(nm, List.of());
-                    GenDB.types.addPrePatched(new TyDecl("missing", nm, miss, Ty.any(), "(missing)"));
-                }
+                GenDB.types.patchIfNeeeded(nm);
                 var args = new ArrayList<Ty>();
                 var vars = new ArrayList<TyVar>();
                 var newBounds = new ArrayList<TyVar>(bounds);
