@@ -218,7 +218,7 @@ class Subtyper {
                 return null;
             }
             var nm = kids.removeFirst();
-            var res = unifyDeclToInstance(GenDB.types.getDecl(nm), new Tuple(inst_arg_tys));
+            var res = unifyDeclToInstance(GenDB.types.get(nm).decl, new Tuple(inst_arg_tys));
             // Unify fails with a null return when we try to instantiate a subclass
             // with generic parameters which do not fit its definition.
             // For example, if we have a query for subtypes of A{Int} and

@@ -894,7 +894,6 @@ record TyExist(Ty v, Ty ty) implements Ty {
             newBound.add(tv);
             return new TyExist(tv, body.fixUp(newBound));
         } else if (maybeVar instanceof TyInst inst) {
-            assert inst.tys().isEmpty();
             var tv = new TyVar(inst.nm(), Ty.none(), Ty.any());
             var newBound = new ArrayList<>(bound);
             newBound.add(tv);

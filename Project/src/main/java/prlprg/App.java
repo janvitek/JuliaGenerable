@@ -7,7 +7,7 @@ public class App {
     public static boolean debug, PRINT_HIERARCHY = true, NO_CLOSURES, SHORTEN, verbose;
     static String dir, types, functions;
     static String[] defaultArgs = {
-        "-d=TRUE", // run micro tests
+        "-d=FALSE", // run micro tests
         "-c=DARK", // color the output : DARK, LIGHT, NONE
         "-r=../Inputs/", // root directory with input files
         "-f=func.jlg", // file with function signatures
@@ -69,7 +69,6 @@ public class App {
     }
 
     static String tstr = """
-    abstract type Any end
       struct A{T<:B{<:B}} <: B{T} end
       abstract type Tuple end
       abstract type B{X} end

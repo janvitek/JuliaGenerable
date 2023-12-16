@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.jar.Attributes;
 import java.util.stream.Collectors;
 
 import prlprg.Parser.TypeDeclaration;
@@ -18,17 +19,18 @@ class GenDB {
 
         class Info {
 
-            String nm;
-            boolean defMissing;
-            TypeDeclaration parsed;
-            TyDecl pre_patched;
-            TyDecl patched;
-            Decl decl;
-            List<String> subtypes = List.of();
-            Info parent = null;
-            String parentName;
-            List< Info> children = new ArrayList<>();
+            String nm; //name of the type
+            boolean defMissing; // was this patched because it was missing ?
+            TypeDeclaration parsed; // the parsed type declaration
+            TyDecl pre_patched;  // the type declaration before patching
+            TyDecl patched; // the type declaration after patching
+            Decl decl;  // the final form of the type declaration, this is used for subtype generation
+            List<String> subtypes = List.of(); // names of direct subtypes
+            Info parent = null; // the parent of this type
+            String parentName; // the name of the parent
+            List< Info> children = new ArrayList<>();  // nodes of direct children in the type hierarchy
 
+            // Create a type info from a parsed type declaration
             Info(TypeDeclaration ty) {
                 NameUtils.registerName(ty.nm());
                 this.nm = ty.nm();
@@ -38,8 +40,10 @@ class GenDB {
                 this.defMissing = false;
             }
 
+            // Create a type info for a missing type
             Info(String missingType) {
                 this.nm = missingType;
+                NameUtils.registerName(nm);
                 this.decl = isAny() ? new Decl("abstract type", "Any", any, any, null, "")
                         : new Decl("missing type", nm, new Inst(nm, new ArrayList<>()), any, null, "NA");
                 this.defMissing = true;
@@ -49,6 +53,10 @@ class GenDB {
                 return nm.equals("Any");
             }
 
+            // For types that are not missing we run fixUp to deal with variables and type names. FixUp will
+            // add types to the DB (i.e. patching). Types without a definition are not patched, i.e. the
+            // patched and pre_patched are identical. We also set the parent of this info node. If this is Any,
+            // then the parent is itself. We add children to the parent node.
             void fixUpParent() {
                 if (!defMissing) {
                     try {
@@ -67,6 +75,8 @@ class GenDB {
                 parent.children.add(this);
             }
 
+            // Final transformatoin to a Decl by a top down traversal of the hierarchy.
+            // Info nodes that are missing are provided with a default Decl on creation.
             void toDecl() {
                 if (!defMissing) {
                     var env = new ArrayList<Bound>();
@@ -91,6 +101,7 @@ class GenDB {
             }
         }
 
+        // Check if there is a node for this type name, if not then create one and mark it as missing.
         void patchIfNeeeded(String nm) {
             if (get(nm) == null) {
                 App.warn("Type " + nm + " not found, patching");
@@ -98,11 +109,13 @@ class GenDB {
             }
         }
 
+        // Transform all types to Decls, this is done after all types have been patched.
         void toDeclAll() {
             types.get("Any").toDecl();
         }
 
-        void patchAll() {
+        // Fix up all types, this is done before any type is transformed to a Decl.
+        void fixUpAll() {
             if (!types.reusedNames.isEmpty()) {
                 App.warn("Multiple type definitions for: " + types.reusedNames.stream().collect(Collectors.joining(", ")));
             }
@@ -239,7 +252,7 @@ class GenDB {
     // is either a variable or a missing type.
     static public void cleanUp() {
         sigs.fixUpAll();
-        types.patchAll();
+        types.fixUpAll();
         types.toDeclAll();
         types.printHierarchy();
         sigs.toDeclAll();
@@ -333,7 +346,7 @@ record Inst(String nm, List<Type> tys) implements Type {
 
     @Override
     public boolean isFinite() {
-        return isConcrete() ? true : subtypeDecls().stream().allMatch(Decl::isFinite);
+        return isAny() ? false : (isConcrete() ? true : subtypeDecls().stream().allMatch(Decl::isFinite));
     }
 
     List<Decl> subtypeDecls() {
