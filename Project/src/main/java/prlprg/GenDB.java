@@ -14,9 +14,17 @@ class GenDB {
 
     static class Types {
 
-        final private HashMap<String, Info> db = new HashMap<>();
-        final HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused
+        final private HashMap<String, Info> db = new HashMap<>(); // all types
+        final HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused (i.e. types with multiple declarations)
 
+        // The Info class holds all the information we have on types including various stages of preparation.
+        // TypeDeclaration -> TyDecl -> TyDecl -> Decl
+        // The TypeDeclaration we get from the parser is still ill-formed, it confuses some constants and type names and
+        // variables. The first TyDecl is in better shape but still refers to some things as types or variables in
+        // a confused way. The second TyDecl adds any unbound names to the DB. The last Decl is fully typed and
+        // are ready to be used for generation.
+        //
+        // The class keeps all these stages for debugging purposes.
         class Info {
 
             String nm; //name of the type

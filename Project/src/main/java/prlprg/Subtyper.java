@@ -194,7 +194,7 @@ class Subtyper {
         @Override
         Type next() {
             var prev = next;
-            next = currTypeGen == null ? null : (currTypeGen.hasNext() ? currTypeGen.next() : makeNext());
+            next = currTypeGen != null && currTypeGen.hasNext() ? currTypeGen.next() : makeNext();
             return prev;
         }
     }
@@ -210,7 +210,7 @@ class Subtyper {
             super(null, f);
             this.inst_arg_tys = inst.tys();
             this.kids = new ArrayList<>(GenDB.types.getSubtypes(inst.nm()));
-            this.next = inst.isAny() ? nextKid() : inst;
+            this.next = inst;
         }
 
         private Type nextKid() {
@@ -466,8 +466,8 @@ class Subtyper {
         return bounds;
     }
 
-    static int run = 4;
-    static int FUEL = 4;
+    static int run = 5;
+    static int FUEL = 5;
 
     public static void main(String[] args) {
         switch (run) {
@@ -481,17 +481,19 @@ class Subtyper {
                 test3();
             case 4 ->
                 test4();
+            case 5 ->
+                test5();
         }
     }
 
     static void test1() {
         var tys = """
-    abstract type A end
+    abstrac  type A end
     abstract type B end
     abstract type AA <: A end
     """;
         var funs = """
-    function a(::T) where T<:A
+    functio  a(::T) where T<:A
     """;
         test(tys, funs);
     }
@@ -499,36 +501,46 @@ class Subtyper {
     // This generates repeated entries because when we get A, we generate AA as a kid, and then we itterate and get AA again.
     static void test2() {
         var tys = """
-    abstract type A end
+    abstract  type A end
     abstract type B end
     abstract type AA <: A end
     """;
         var funs = """
-    function a(::T)  where T<:Any
+    function  a(::T)  where T<:Any
     """;
         test(tys, funs);
     }
 
     static void test3() {
         var tys = """
-    abstract type A end
+    abstract  type A end
     abstract type B{T<:A} end
     abstract type AA <: A end
     """;
         var funs = """
-    function a(::Any)
+    function  a(::Any)
     """;
         test(tys, funs);
     }
 
     static void test4() {
         var tys = """
-    abstract type A end
+    abstract  type A end
     abstract type B{T} end
     abstract type AA <: A end
     """;
         var funs = """
-    function a(::Any, ::Any)
+    function  a(::Any, ::Any)
+    """;
+        test(tys, funs);
+    }
+
+    static void test5() {
+        var tys = """
+    abstract  type B{T} <: Any end
+    """;
+        var funs = """
+    function  a(::Any)
     """;
         test(tys, funs);
     }
