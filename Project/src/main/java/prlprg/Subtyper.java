@@ -66,6 +66,10 @@ class Subtyper {
             return null;
         }
 
+        @Override
+        public String toString() {
+            return "Gen for " + next == null ? "null" : next.toString();
+        }
     }
 
     // Generates subtypes of a union by generating subtypes of each of its members,
@@ -94,6 +98,11 @@ class Subtyper {
             }
             next = null;
             return prev;
+        }
+
+        @Override
+        public String toString() {
+            return "UnionGen for " + next == null ? "null" : next.toString();
         }
     }
 
@@ -138,6 +147,11 @@ class Subtyper {
             }
             next = null;
             return prev;
+        }
+
+        @Override
+        public String toString() {
+            return "TupleGen for " + next == null ? "null" : next.toString();
         }
     }
 
@@ -197,6 +211,11 @@ class Subtyper {
             next = currTypeGen != null && currTypeGen.hasNext() ? currTypeGen.next() : makeNext();
             return prev;
         }
+
+        @Override
+        public String toString() {
+            return "ExistGen for " + next == null ? "null" : next.toString();
+        }
     }
 
     // Generates subtypes of an instance of a possibly parametric type. The arguments must be ground types.
@@ -238,6 +257,11 @@ class Subtyper {
             var prev = next;
             next = (tg != null && tg.hasNext()) ? tg.next() : (kids.isEmpty() ? null : nextKid());
             return prev;
+        }
+
+        @Override
+        public String toString() {
+            return "InstGen for " + next == null ? "null" : next.toString();
         }
     }
 

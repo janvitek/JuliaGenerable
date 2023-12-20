@@ -1,5 +1,7 @@
 package prlprg;
 
+import java.util.ArrayList;
+
 import prlprg.Subtyper.Fuel;
 
 public class App {
@@ -8,7 +10,7 @@ public class App {
     static String dir, types, functions;
     static String[] defaultArgs = {
         "-d=FALSE", // run micro tests
-        "-c=DARK", // color the output : DARK, LIGHT, NONE
+        "-c=NONE", // color the output : DARK, LIGHT, NONE
         "-r=../Inputs/", // root directory with input files
         "-f=func.jlg", // file with function signatures
         "-t=type.jlg", // file with type declarations
@@ -18,7 +20,7 @@ public class App {
         "-v=FALSE", // verbose
     };
 
-    static int FUEL = 3;
+    static int FUEL = 2;
 
     public static void main(String[] args) {
         parseArgs(defaultArgs); // set default values
@@ -31,26 +33,26 @@ public class App {
         warn("Preparing database...");
         GenDB.cleanUp();
         var sigs = GenDB.sigs.allSigs();
-        int sigsC = 0, groundC = 0, finiteC = 0;
+        int sigsC = 0, groundC = 0;
         for (var sig : sigs) {
             sigsC++;
             if (sig.isGround()) {
                 groundC++;
             }
-            if (sig.isFinite()) {
-                finiteC++;
-            }
         }
-        warn("Sigs: " + sigsC + ", ground: " + groundC + ", finite: " + finiteC);
+        warn("Sigs: " + sigsC + ", ground: " + groundC);
         var sub = new Subtyper();
-        var tg0 = sub.make(GenDB.any, new Fuel(FUEL));
-        while (tg0.hasNext()) {
-            var t0 = tg0.next();
-            System.err.println(t0.toJulia());
+        var cnt = 0;
+        for (var i : GenDB.types.all()) {
+            var tg1 = sub.make(i.decl.ty(), new Fuel(1));
+            var childs = new ArrayList<Type>();
+            while (tg1.hasNext()) {
+                childs.add(tg1.next());
+                cnt++;
+            }
+            i.level_1_kids = childs;
         }
-        if (true) {
-            return;
-        }
+        warn("Generated " + cnt + " types");
         for (var nm : GenDB.sigs.allNames()) {
             for (var me : GenDB.sigs.get(nm)) {
                 var m = me.sig;
@@ -63,6 +65,7 @@ public class App {
                 while (tg.hasNext()) {
                     var t = tg.next();
                     var newm = new Sig(m.nm(), t, m.src());
+                    App.output(newm.toString());
                 }
             }
         }

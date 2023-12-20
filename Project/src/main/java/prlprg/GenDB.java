@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
-import java.util.jar.Attributes;
 import java.util.stream.Collectors;
 
 import prlprg.Parser.TypeDeclaration;
@@ -37,6 +36,7 @@ class GenDB {
             Info parent = null; // the parent of this type
             String parentName; // the name of the parent
             List< Info> children = new ArrayList<>();  // nodes of direct children in the type hierarchy
+            List<Type> level_1_kids = new ArrayList<>(); // the Fuel==1 children of this type
 
             // Create a type info from a parsed type declaration
             Info(TypeDeclaration ty) {
@@ -106,6 +106,11 @@ class GenDB {
                     return getBounds(ty.ty(), env);
                 }
                 throw new RuntimeException("Unknown type: " + t);
+            }
+
+            @Override
+            public String toString() {
+                return nm + " " + (defMissing ? "missing" : "defined") + " " + parentName;
             }
         }
 
@@ -179,6 +184,11 @@ class GenDB {
             App.output(CodeColors.comment(".").repeat(pos) + str);
             n.children.sort(new NameOrder());
             n.children.forEach(c -> printHierarchy(c, pos + 1));
+        }
+
+        @Override
+        public String toString() {
+            return "Type db with " + db.size() + " entries";
         }
 
     }
@@ -291,10 +301,6 @@ interface Type {
     // Inst, Tuples, amd Cons are concrete
     boolean isConcrete();
 
-    // return true if the type definitely has a countable number of subtypes. this is a conservative
-    // approximation, since we don't deal with subtypes accurately.
-    boolean isFinite();
-
 }
 
 // A construtor instance may have type parameters, examples are: Int32 and Vector{Int,N}. The LHS
@@ -352,16 +358,11 @@ record Inst(String nm, List<Type> tys) implements Type {
         return GenDB.types.isConcrete(nm);
     }
 
-    @Override
-    public boolean isFinite() {
-        return isAny() ? false : (isConcrete() ? true : subtypeDecls().stream().allMatch(Decl::isFinite));
-    }
-
     List<Decl> subtypeDecls() {
         var res = new ArrayList<Decl>();
         var wl = new ArrayList<String>();
         wl.add(nm);
-        while (wl.isEmpty()) {
+        while (!wl.isEmpty()) {
             for (var subnm : GenDB.types.getSubtypes(wl.removeFirst())) {
                 res.add(GenDB.types.get(nm).decl);
                 wl.add(subnm);
@@ -409,11 +410,6 @@ record Var(Bound b) implements Type {
         return false;
     }
 
-    @Override
-    public boolean isFinite() {
-        return true; // we ignore variables, the check happens on bounds
-    }
-
 }
 
 // A Bound introduces a variable, with an upper and a lower bound. Julia allows writing inconsistent
@@ -438,10 +434,6 @@ record Bound(String nm, Type low, Type up) {
 
     public String toJulia() {
         return (!low.isNone() ? low.toJulia() + "<:" : "") + nm + (!up.isAny() ? "<:" + up.toJulia() : "");
-    }
-
-    public boolean isFinite() {
-        return up.isFinite(); // ignoring low
     }
 
 }
@@ -485,10 +477,6 @@ record Con(String nm) implements Type {
         return true;
     }
 
-    @Override
-    public boolean isFinite() {
-        return true;
-    }
 }
 
 record Exist(Bound b, Type ty) implements Type {
@@ -529,10 +517,6 @@ record Exist(Bound b, Type ty) implements Type {
         return false;
     }
 
-    @Override
-    public boolean isFinite() {
-        return b.isFinite() && ty.isFinite();
-    }
 }
 
 record Union(List<Type> tys) implements Type {
@@ -585,10 +569,6 @@ record Union(List<Type> tys) implements Type {
         return false; // technically a union with one elment that is concrete is concrete
     }
 
-    @Override
-    public boolean isFinite() {
-        return tys.stream().allMatch(Type::isFinite);
-    }
 }
 
 record Tuple(List<Type> tys) implements Type {
@@ -645,11 +625,6 @@ record Tuple(List<Type> tys) implements Type {
         return tys.stream().allMatch(Type::isConcrete);
     }
 
-    @Override
-    public boolean isFinite() {
-        return tys.stream().allMatch(Type::isFinite);
-    }
-
 }
 
 // A type declaration introduces a new type name, with a type instance and a parent.
@@ -667,10 +642,6 @@ record Decl(String mod, String nm, Type ty, Inst inst, Decl parent, String src) 
     public boolean isAbstract() {
         return mod.contains("abstract") || mod.contains("missing");
     }
-
-    public boolean isFinite() {
-        return ty.isFinite();
-    }
 }
 
 record Sig(String nm, Type ty, String src) {
@@ -683,10 +654,6 @@ record Sig(String nm, Type ty, String src) {
     @Override
     public String toString() {
         return "function " + nm + " " + ty;
-    }
-
-    boolean isFinite() {
-        return ty.isFinite();
     }
 
     String toJulia() {
