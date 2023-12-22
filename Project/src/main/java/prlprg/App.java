@@ -20,7 +20,7 @@ public class App {
         "-v=FALSE", // verbose
     };
 
-    static int FUEL = 2;
+    static int FUEL = 1;
 
     public static void main(String[] args) {
         parseArgs(defaultArgs); // set default values
@@ -41,6 +41,10 @@ public class App {
             }
         }
         warn("Sigs: " + sigsC + ", ground: " + groundC);
+
+        Generator gen = new Generator(GenDB.types, GenDB.sigs);
+        gen.gen();
+        
         var sub = new Subtyper();
         var cnt = 0;
         for (var i : GenDB.types.all()) {
