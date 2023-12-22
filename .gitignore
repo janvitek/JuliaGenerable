@@ -19,3 +19,6 @@
 Project/target
 *.lst
 Project/test.jl
+Project/imports.jl
+Project/pkgs.txt
+Project/tests.jl
