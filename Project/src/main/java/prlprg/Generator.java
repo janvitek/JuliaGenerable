@@ -22,9 +22,8 @@ class Generator {
             var w = new BufferedWriter(new FileWriter("tests.jl"));
             for (var s : sigs.allSigs()) {
                     if (s.isGround()) {
-                        System.err.println("Ground: " + s);
                         add_pkgs(s, pkgs);
-                        w.write("isstablecall(");
+                        w.write("code_warntype(");
                         w.write(juliaName(s));
                         w.write(", [");
                         w.write(((Tuple) s.ty()).tys().stream().map(Type::toString).collect(Collectors.joining(", ")));
@@ -36,10 +35,12 @@ class Generator {
 
             pkgs.remove("Base");
             pkgs.remove("Core");
+            pkgs.remove("f::Base"); // ????
             var pkgsf = new BufferedWriter(new FileWriter("pkgs.txt"));
             var importsf = new BufferedWriter(new FileWriter("imports.jl"));
             for (var p : pkgs) {
                 pkgsf.write(p + "\n");
+                importsf.write("using Pkg\n Pkg.add(\"" + p + "\")\n");
                 importsf.write("import " + p + "\n");
             }
             pkgsf.close();
@@ -47,6 +48,7 @@ class Generator {
         } catch (IOException e) {
             throw new Error(e);
         }
+        System.exit(0);
     }
 
     public void add_pkgs(Sig s, HashSet<String> pkgs) {

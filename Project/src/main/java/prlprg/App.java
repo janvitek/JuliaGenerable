@@ -16,7 +16,7 @@ public class App {
         "-t=type.jlg", // file with type declarations
         "-h=FALSE", // print hierarchy
         "-i=TRUE", // ignore closures
-        "-s=TRUE", // print shorter type names
+        "-s=FALSE", // print shorter type names
         "-v=FALSE", // verbose
     };
 
