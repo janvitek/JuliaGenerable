@@ -348,10 +348,6 @@ class Parser {
     Parser withFile(String path) {
         try {
             List<String> ls = Files.readAllLines(Path.of(path));
-            if (App.NO_CLOSURES) {
-                ls = ls.stream().filter(s -> !s.contains("(closure)")).collect(Collectors.toList());
-                ls = ls.stream().filter(s -> !s.contains("var#")).collect(Collectors.toList());
-            }
             toks = new Lex(ls.toArray(new String[0])).tokenize();
             return this;
         } catch (IOException e) {

@@ -19,7 +19,6 @@ class Generator {
     public void gen() {
         try {
             HashSet<String> pkgs = new HashSet<>();
-
             try (var w = new BufferedWriter(new FileWriter("tests.jl"))) {
                 for (var s : sigs.allSigs()) {
                     if (s.isGround()) {
@@ -32,7 +31,6 @@ class Generator {
                     }
                 }
             }
-
             pkgs.remove("Base");
             pkgs.remove("Core");
             pkgs.remove("f::Base"); // ????

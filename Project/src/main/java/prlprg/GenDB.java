@@ -158,9 +158,9 @@ class GenDB {
         }
 
         // Is this a concrete type ? This can only be used once decls is populated in build().
-        boolean isConcrete(String nm) {
+        boolean isConcrete(String nm, int passedArgs) {
             var i = get(nm);
-            return i.decl != null && !i.decl.isAbstract();
+            return i.decl != null && !i.decl.isAbstract() && i.decl.argCount() == passedArgs;
         }
 
         static class NameOrder implements Comparator<Types.Info> {
@@ -355,7 +355,7 @@ record Inst(String nm, List<Type> tys) implements Type {
 
     @Override
     public boolean isConcrete() {
-        return GenDB.types.isConcrete(nm);
+        return GenDB.types.isConcrete(nm, tys.size());
     }
 
     List<Decl> subtypeDecls() {
@@ -641,6 +641,10 @@ record Decl(String mod, String nm, Type ty, Inst inst, Decl parent, String src) 
 
     public boolean isAbstract() {
         return mod.contains("abstract") || mod.contains("missing");
+    }
+
+    int argCount() {
+        return inst.tys().size();
     }
 }
 

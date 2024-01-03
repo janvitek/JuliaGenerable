@@ -6,16 +6,15 @@ import prlprg.Subtyper.Fuel;
 
 public class App {
 
-    public static boolean debug, PRINT_HIERARCHY = true, NO_CLOSURES, SHORTEN, verbose;
+    public static boolean debug, PRINT_HIERARCHY = true, SHORTEN, verbose;
     static String dir, types, functions;
     static String[] defaultArgs = {
         "-d=FALSE", // run micro tests
         "-c=NONE", // color the output : DARK, LIGHT, NONE
         "-r=../Inputs/", // root directory with input files
-        "-f=func.jlg", // file with function signatures
-        "-t=type.jlg", // file with type declarations
+        "-f=stdf2.jlg", // file with function signatures
+        "-t=stdt2.jlg", // file with type declarations
         "-h=FALSE", // print hierarchy
-        "-i=TRUE", // ignore closures
         "-s=FALSE", // print shorter type names
         "-v=FALSE", // verbose
     };
@@ -145,8 +144,6 @@ public class App {
                 PRINT_HIERARCHY = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-s")) { // debug
                 SHORTEN = arg.substring(3).strip().equals("TRUE");
-            } else if (arg.startsWith("-i")) { // debug
-                NO_CLOSURES = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-d")) { // debug
                 debug = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-v")) {
