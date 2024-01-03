@@ -30,7 +30,7 @@ public class App {
         p.parseTypes();
         p = debug ? new Parser().withString(str) : new Parser().withFile(dir + functions);
         p.parseSigs();
-        warn("Preparing database...");
+        warn("Preparing type and signature database...");
         GenDB.cleanUp();
         var sigs = GenDB.sigs.allSigs();
         int sigsC = 0, groundC = 0;
@@ -44,7 +44,7 @@ public class App {
 
         Generator gen = new Generator(GenDB.types, GenDB.sigs);
         gen.gen();
-        
+
         var sub = new Subtyper();
         var cnt = 0;
         for (var i : GenDB.types.all()) {
