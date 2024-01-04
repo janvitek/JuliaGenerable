@@ -41,17 +41,16 @@ class Parser {
             }
         }
 
-        // Functions can inlucde concatenated vars as well as parenthesized stuff.
+        // Function names are dotted identifiers and delims.
         static String parseFunctionName(Parser p) {
-            var q = p.sliceMatchedDelims("(", ")"); // for parenthesized funtion names
-            if (q.isEmpty()) {
-                return p.take().toString().replaceAll("\"", "");  // Get rid of quotes in case of "fun"
-            }
             var str = "";
-            while (!q.isEmpty()) {
-                str += q.take().toString();
+            while (!p.isEmpty() && !p.peek().is("(")) {
+                str += p.take().toString();
             }
-            return str;
+            if (str.isEmpty()) {
+                p.failAt("Missing function name", p.peek());
+            }
+            return str.replaceAll("\"", "");  // Get rid of quotes in case of "fun"
         }
 
     }
