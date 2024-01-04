@@ -31,6 +31,9 @@ class Generator {
                     }
                 }
             }
+            pkgs.remove("Base"); // can't add
+            pkgs.remove("Core"); // can't add
+            pkgs.remove("Pkg"); // should already be there
             try (var pkgsf = new BufferedWriter(new FileWriter("pkgs.txt"))) {
                 for (var p : pkgs) {
                     pkgsf.write(p + "\n");
