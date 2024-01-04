@@ -8,10 +8,10 @@ import java.nio.file.Paths;
 import java.io.IOException;
 import java.io.File;
 import java.io.FilenameFilter;
-import java.util.stream.Collectors;
 
 record MethodInstance(String nm, String src, List<MVar> args, List<MVar> locals, String retType, List<Operation> body) {
 
+    @Override
     public String toString() {
         return "MethodInstance for " + nm + "\n"
                 + src + "\n"
@@ -26,6 +26,7 @@ record MethodInstance(String nm, String src, List<MVar> args, List<MVar> locals,
 
 record MVar(String nm, String ty) {
 
+    @Override
     public String toString() {
         return nm + " :: " + ty;
     }
@@ -33,14 +34,15 @@ record MVar(String nm, String ty) {
 
 record Operation(String op) {
 
+    @Override
     public String toString() {
         return op;
     }
 }
 
-public class MethodParser {
+class MethodParser {
 
-    public MethodInstance parseMethod(String input) {
+    MethodInstance parseMethod(String input) {
         var lines = new ArrayList<String>(Arrays.asList(input.split("\n")));
         boolean parsingArguments = false;
         boolean parsingLocals = false;
@@ -79,7 +81,7 @@ public class MethodParser {
         return new MVar(parts[0].trim(), parts[1].trim());
     }
 
-    public List<Operation> parseBody(ArrayList<String> lines) {
+    List<Operation> parseBody(ArrayList<String> lines) {
         List<Operation> operations = new ArrayList<>();
         for (String line : lines) {
             var ps = line.split("\\s+");
@@ -136,11 +138,11 @@ public class MethodParser {
 
     static MethodInstance parseFile(String filename) {
         var p = new MethodParser();
-        var contents = "";
+        String contents;
         try {
             contents = Files.readString(Paths.get(filename));
         } catch (IOException e) {
-            e.printStackTrace();
+            return null;
         }
         return p.parseMethod(contents);
     }

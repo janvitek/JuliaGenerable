@@ -114,7 +114,9 @@ class GenDB {
             }
         }
 
-        // Check if there is a node for this type name, if not then create one and mark it as missing.
+        // Check if there is a node for this type name, if not then create one and mark it as missing, report
+        // a warning that the type had to be 'patched'. This can come about because of builtin types, any other
+        // reason is fishy.
         void patchIfNeeeded(String nm) {
             if (get(nm) == null) {
                 App.warn("Type " + nm + " not found, patching");
@@ -627,9 +629,13 @@ record Tuple(List<Type> tys) implements Type {
 
 }
 
-// A type declaration introduces a new type name, with a type instance and a parent.
-// The type Any has no parent, and is the root of the type hierarchy.
-// We do not print the case where the parent is Any, since it is the default.
+/**
+ * Represents a declaration of a type where `mod` is the type modifiers (e.g.
+ * "abstract type"), `nm` is the type's name, `ty` has the parameters (e.g. "E
+ * T. Vector{T}"), `inst` is the the parent's instance (e.g. "AbsV{Int}" in
+ * "V{Int} <: AbsV{Int}"), `parent` is the parent's declaration and `src` is the
+ * source code of the declaration.
+ */
 record Decl(String mod, String nm, Type ty, Inst inst, Decl parent, String src) {
 
     @Override
@@ -639,10 +645,16 @@ record Decl(String mod, String nm, Type ty, Inst inst, Decl parent, String src) 
         return CodeColors.comment(snm + " ≡ ") + mod + " " + ty + (ignore ? "" : CodeColors.comment(" <: ") + inst);
     }
 
+    /**
+     * @return true if the class is abstract or if its definition was missing.
+     */
     public boolean isAbstract() {
         return mod.contains("abstract") || mod.contains("missing");
     }
 
+    /**
+     * Returns the number of arguments for this type (e.g. 2 for `Vec{T, N}`).
+     */
     int argCount() {
         return inst.tys().size();
     }

@@ -26,27 +26,26 @@ class Generator {
                         w.write("code_warntype(");
                         w.write(juliaName(s));
                         w.write(", [");
-                        w.write(((Tuple) s.ty()).tys().stream().map(Type::toString).collect(Collectors.joining(", ")));
+                        w.write(((Tuple) s.ty()).tys().stream().map(Type::toJulia).collect(Collectors.joining(", ")));
                         w.write("])\n");
                     }
                 }
             }
-            pkgs.remove("Base");
-            pkgs.remove("Core");
-            pkgs.remove("f::Base"); // ????
-            var pkgsf = new BufferedWriter(new FileWriter("pkgs.txt"));
-            var importsf = new BufferedWriter(new FileWriter("imports.jl"));
-            for (var p : pkgs) {
-                pkgsf.write(p + "\n");
-                importsf.write("using Pkg\n Pkg.add(\"" + p + "\")\n");
-                importsf.write("import " + p + "\n");
+            try (var pkgsf = new BufferedWriter(new FileWriter("pkgs.txt"))) {
+                for (var p : pkgs) {
+                    pkgsf.write(p + "\n");
+                }
             }
-            pkgsf.close();
-            importsf.close();
+            try (var importsf = new BufferedWriter(new FileWriter("imports.jl"))) {
+                importsf.write("using Pkg\n");
+                for (var p : pkgs) {
+                    importsf.write("Pkg.add(\"" + p + "\")\nimport " + p + "\n");
+                }
+            }
         } catch (IOException e) {
             throw new Error(e);
         }
-        System.exit(0);
+        System.exit(0); // TODO: remove
     }
 
     public void add_pkgs(Sig s, HashSet<String> pkgs) {

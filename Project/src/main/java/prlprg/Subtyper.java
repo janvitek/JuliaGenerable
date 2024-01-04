@@ -23,8 +23,19 @@ class Subtyper {
         var tg = switch (t) {
             case Con con ->
                 new ConGen(con, f);
-            case Inst inst ->
-                new InstGen(inst, f);
+            case Inst inst -> {
+                // Takes care of the case `inst` does not have arguments, in which case
+                // it will be provided existentials taken from its decl.
+                var decl = GenDB.types.get(inst.nm()).decl;
+                var argCount = decl.argCount();
+                if (argCount == inst.tys().size()) {
+                    yield new InstGen(inst, f);
+                } else if (inst.tys().isEmpty()) {
+                    yield new ExistGen((Exist) decl.ty(), f);
+                } else {
+                    throw new RuntimeException("Wrong number of arguments for " + inst);
+                }
+            }
             case Tuple tup ->
                 new TupleGen(tup, f);
             case Union u ->
@@ -167,7 +178,7 @@ class Subtyper {
             super(null, f);
             this.e = e; // recall the orignal existential, this should not be modified
             this.boundGen = make(e.b().up(), f.dec()); // make the generator for the bound values, ignoring lower bounds
-            this.next = e; // the first value is the original existential
+            this.next = e; // the first value is the original existentials
         }
 
         private Type subst(Type t, Bound b, Type repl) {
