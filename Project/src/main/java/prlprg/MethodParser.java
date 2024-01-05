@@ -1,13 +1,13 @@
 package prlprg;
 
+import java.io.File;
+import java.io.FilenameFilter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.io.IOException;
-import java.io.File;
-import java.io.FilenameFilter;
 
 record MethodInstance(String nm, String src, List<MVar> args, List<MVar> locals, String retType, List<Operation> body) {
 
@@ -66,12 +66,23 @@ class MethodParser {
                 bodyType = line.substring(6).trim();
                 break;
             } else if (parsingArguments) {
+                try {
                 arguments.add(parseVar(line));
+                } catch (Throwable e) {
+                   // Failed to parse, ignore
+                }
             } else if (parsingLocals) {
+                try {
                 locals.add(parseVar(line));
+                } catch (Throwable e) {
+                   // Failed to parse, ignore
+                }
             } else {
-                throw new Error("Cannot parse line: " + line);
+                 // throw new Error("Cannot parse line: " + line);
             }
+        }
+        if (methodName == null) {
+            return new MethodInstance("unknown", "unknown", arguments, locals, "null", new ArrayList<Operation>());
         }
         return new MethodInstance(methodName, sourceInfo, arguments, locals, bodyType, parseBody(lines));
     }
@@ -86,10 +97,14 @@ class MethodParser {
         for (String line : lines) {
             var ps = line.split("\\s+");
             if (ps.length < 2) {
-                throw new Error("Cannot parse line: " + line);
+                //throw new Error("Cannot parse line: " + line);
+                continue; // Ignore weird stuff -- best effort parsing
             }
             var pos = 0;
             var start = ps[pos++].trim();
+            if (start.isEmpty()) {
+                continue;
+            }
             var c = start.charAt(0);
             if (c == '│') {
                 // ok
@@ -98,7 +113,8 @@ class MethodParser {
             } else if (c == '└') {
                 // ok
             } else {
-                throw new Error("Cannot parse line: " + line + " =" + start + "=" + c + "=");
+                continue;
+                //throw new Error("Cannot parse line: " + line + " =" + start + "=" + c + "=");
             }
             var str = "";
             for (int i = pos; i < ps.length; i++) {

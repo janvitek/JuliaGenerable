@@ -41,7 +41,7 @@ public class App {
         }
         warn("Sigs: " + sigsC + ", ground: " + groundC);
 
-        Generator gen = new Generator(GenDB.types, GenDB.sigs);
+        Orchestrator gen = new Orchestrator(GenDB.types, GenDB.sigs);
         gen.gen();
 
         var sub = new Subtyper();
