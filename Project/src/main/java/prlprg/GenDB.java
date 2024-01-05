@@ -15,6 +15,7 @@ class GenDB {
 
         final private HashMap<String, Info> db = new HashMap<>(); // all types
         final HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused (i.e. types with multiple declarations)
+        final HashMap<String, String> upperCaseNames = new HashMap<>(); // code_warntype returns upper case names
 
         // The Info class holds all the information we have on types including various stages of preparation.
         // TypeDeclaration -> TyDecl -> TyDecl -> Decl
@@ -150,13 +151,31 @@ class GenDB {
             return info == null ? null : info.subtypes;
         }
 
+        /**
+         * Add a parsed type declaration to the DB. This is called from the
+         * parser. This method also takes care of adding the name of the type in
+         * the upperCaseNames map and the reusedNames set.
+         *
+         * @param ty the type declaration
+         */
         void addParsed(TypeDeclaration ty) {
-            if (get(ty.nm()) != null) {
-                reusedNames.add(ty.nm()); // remember we have seen this type before and overwrite it
-            }
             var nm = ty.nm();
-            var info = new Info(ty);
-            db.put(nm, info);
+            // We expect each type to have a non ambiguous upper case name, if not the case,
+            // either accept inaccuracy or change the code that uses code_warntype.
+            var upper = nm.toUpperCase();
+            if (upperCaseNames.containsKey(upper)) {
+                var other = upperCaseNames.get(upper);
+                if (!other.equals(nm)) {
+                    App.warn("!!!Types " + other + " and " + nm + " have same capitalization!!!");
+                }
+            }
+            upperCaseNames.put(upper, nm);
+            // We expect a single definition per type. If there are multiple we have a
+            // a vague hope that they are the same. This is not checked!
+            if (get(nm) != null) {
+                reusedNames.add(nm); // remember we have seen this type before and overwrite it
+            }
+            db.put(nm, new Info(ty));
         }
 
         // Is this a concrete type ? This can only be used once decls is populated in build().
@@ -165,6 +184,9 @@ class GenDB {
             return i.decl != null && !i.decl.isAbstract() && i.decl.argCount() == passedArgs;
         }
 
+        /**
+         * A comparator for sorting types by name alphabetically.
+         */
         static class NameOrder implements Comparator<Types.Info> {
 
             @Override
@@ -236,6 +258,10 @@ class GenDB {
         }
 
         void fixUpAll() {
+            // make sure that upperNames have all types
+            types.upperCaseNames.put("ANY", "Any");
+            types.upperCaseNames.put("UNION", "Union");
+            types.upperCaseNames.put("TUPLE", "Tuple");
             for (var name : allNames()) {
                 for (var sig : get(name)) {
                     sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
