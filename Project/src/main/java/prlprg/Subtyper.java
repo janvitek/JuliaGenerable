@@ -24,7 +24,7 @@ class Subtyper {
             case Con con ->
                 new ConGen(con, f);
             case Inst inst -> {
-                // Takes care of the case `inst` does not have arguments, in which case
+                // Takes care of the case `inst` does not have arguments it expects, in which case
                 // it will be provided existentials taken from its decl.
                 var decl = GenDB.types.get(inst.nm()).decl;
                 var argCount = decl.argCount();
@@ -325,7 +325,7 @@ class Subtyper {
             return (Inst) d.ty(); // nothing to do, it is an instance, the cast is just sanity checking
         }
         var lhs = (Exist) d.ty();
-        var rhsargs = d.inst().tys();
+        var rhsargs = d.parInst().tys();
         var upargs = t.tys();
         if (upargs.isEmpty()) {
             return d.ty(); // nothing to do, we are called with no arguments

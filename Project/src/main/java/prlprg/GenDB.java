@@ -658,17 +658,17 @@ record Tuple(List<Type> tys) implements Type {
 /**
  * Represents a declaration of a type where `mod` is the type modifiers (e.g.
  * "abstract type"), `nm` is the type's name, `ty` has the parameters (e.g. "E
- * T. Vector{T}"), `inst` is the the parent's instance (e.g. "AbsV{Int}" in
+ * T. Vector{T}"), `parInst` is the the parent's instance (e.g. "AbsV{Int}" in
  * "V{Int} <: AbsV{Int}"), `parent` is the parent's declaration and `src` is the
  * source code of the declaration.
  */
-record Decl(String mod, String nm, Type ty, Inst inst, Decl parent, String src) {
+record Decl(String mod, String nm, Type ty, Inst parInst, Decl parent, String src) {
 
     @Override
     public String toString() {
         var ignore = nm.equals("Any") || this.parent.nm.equals("Any"); // parent is null for Any
         var snm = NameUtils.shorten(nm);
-        return CodeColors.comment(snm + " ≡ ") + mod + " " + ty + (ignore ? "" : CodeColors.comment(" <: ") + inst);
+        return CodeColors.comment(snm + " ≡ ") + mod + " " + ty + (ignore ? "" : CodeColors.comment(" <: ") + parInst);
     }
 
     /**
@@ -682,7 +682,13 @@ record Decl(String mod, String nm, Type ty, Inst inst, Decl parent, String src) 
      * Returns the number of arguments for this type (e.g. 2 for `Vec{T, N}`).
      */
     int argCount() {
-        return inst.tys().size();
+        var t = ty;
+        var cnt = 0;
+        while ( t instanceof Exist e) {
+            t = e.ty();
+            cnt++;
+        }
+        return cnt;
     }
 }
 
