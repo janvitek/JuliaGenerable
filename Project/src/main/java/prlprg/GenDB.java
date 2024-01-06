@@ -180,8 +180,9 @@ class GenDB {
 
         // Is this a concrete type ? This can only be used once decls is populated in build().
         boolean isConcrete(String nm, int passedArgs) {
-            var i = get(nm);
-            return i.decl != null && !i.decl.isAbstract() && i.decl.argCount() == passedArgs;
+            var i = get(nm);           
+            return i != null && // i is null if the type is not in the db
+                   i.decl != null && !i.decl.isAbstract() && i.decl.argCount() == passedArgs;
         }
 
         /**
@@ -220,7 +221,6 @@ class GenDB {
     static class Signatures {
 
         class Info {
-
             TySig pre_patched;
             TySig patched;
             Sig sig;
@@ -306,6 +306,10 @@ class GenDB {
 
 }
 
+/**
+ * A Type is the generic interface for objects representing Julia types. 
+ * @author jan
+ */
 interface Type {
 
     @Override
@@ -592,9 +596,12 @@ record Union(List<Type> tys) implements Type {
         return tys.isEmpty();
     }
 
+    /**
+     * A union is concrete if either it has no elements or if it has a single element that is concrete.
+     */
     @Override
     public boolean isConcrete() {
-        return false; // technically a union with one elment that is concrete is concrete
+        return tys.isEmpty() || (tys.size() == 1 && tys.get(0).isConcrete());
     }
 
 }

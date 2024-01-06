@@ -55,7 +55,7 @@ class MethodParser {
             var line = lines.removeFirst().trim();
             if (line.startsWith("MethodInstance for")) {
                 String[] parts = line.split(" ");
-                methodName = parts[2];
+                methodName = parts[2].substring(0, parts[2].indexOf('(')); // Trim method name after first ()                
                 sourceInfo = lines.removeFirst().trim();
             } else if (line.equals("Arguments")) {
                 parsingArguments = true;
@@ -67,18 +67,18 @@ class MethodParser {
                 break;
             } else if (parsingArguments) {
                 try {
-                arguments.add(parseVar(line));
+                    arguments.add(parseVar(line));
                 } catch (Throwable e) {
-                   // Failed to parse, ignore
+                    // Failed to parse, ignore
                 }
             } else if (parsingLocals) {
                 try {
-                locals.add(parseVar(line));
+                    locals.add(parseVar(line));
                 } catch (Throwable e) {
-                   // Failed to parse, ignore
+                    // Failed to parse, ignore
                 }
             } else {
-                 // throw new Error("Cannot parse line: " + line);
+                // throw new Error("Cannot parse line: " + line);
             }
         }
         if (methodName == null) {
@@ -89,6 +89,9 @@ class MethodParser {
 
     private MVar parseVar(String line) {
         String[] parts = line.split("::");
+        if (parts.length != 2) {
+            return new MVar("unknown", "unknown");
+        }
         return new MVar(parts[0].trim(), parts[1].trim());
     }
 

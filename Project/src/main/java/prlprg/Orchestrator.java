@@ -130,127 +130,14 @@ class Orchestrator {
             if (mi == null) {
                 App.output("Error parsing file " + nm);
             } else {
-                fromString(mi.retType());
-                App.output(mi.nm() + " " + mi.retType());
-            }
-        }
-    }
-
-    Type fromString(String s) {
-        var toks = new ArrayList<String>();
-        var cur = "";
-        for (var c : s.toCharArray()) {
-            if (c == ' ') {
-                if (!cur.isEmpty()) {
-                    toks.add(cur);
+                var rty = TypeParser.fromString(mi.retType(),types);
+                var s = mi.nm() + " " + rty.toJulia();
+                if (!rty.isConcrete()) {
+                    s+= " %% Abstract";
                 }
-                cur = "";
-            }  else if (c == '{' || c == '}' || c == ',') {
-                 if (!cur.isEmpty()) {
-                    toks.add(cur);
-                }
-                toks.add(c+"");
-                cur = "";
-            } else {
-                cur += c;
+                App.output(s);
             }
         }
-        var ntoks = new ArrayList<String>();
-        for (var t : toks) {
-           if (t.equals("{") || t.equals("}") || t.equals(",")) {
-               ntoks.add(t);
-           } else {
-               if (types.upperCaseNames.containsKey(t)) {
-                ntoks.add(types.upperCaseNames.get(t));
-               } else if (types.get(t) != null) {
-                  ntoks.add(t);
-               } else {
-                   System.err.println("Unknown type: " + t + " in " + s);
-               }
-           }
-        }
-        return parseType(toks);
-    }
-
-    Type parseType(List<String> toks) {
-        if (toks.isEmpty()) {
-            return null;
-        }
-        var t = toks.remove(0);
-        if (t.equals("Tuple")) {
-            var args = sliceCurly(toks);
-            if (args.isEmpty()) {
-                System.err.println("Empty tuple!!!!!!!!!");
-            }
-            var tys = new ArrayList<Type>();
-            while (!args.isEmpty()) {
-                var arg = sliceComma(args);
-                tys.add(parseType(arg));
-            }
-            return new Tuple(tys);
-        } else if (t.equals("Union")) {
-            var args = sliceCurly(toks);
-            if (args.isEmpty()) {
-                System.err.println("Empty union!!!!!!!!!");
-            }
-            var tys = new ArrayList<Type>();
-            while (!args.isEmpty()) {
-                var arg = sliceComma(args);
-                tys.add(parseType(arg));
-            }
-            return new Union(tys);       
-          } else {
-            var args = sliceCurly(toks);
-              var tys = new ArrayList<Type>();
-            while (!args.isEmpty()) {
-                var arg = sliceComma(args);
-                tys.add(parseType(arg));
-            }
-            return new Inst(t, tys);
-        }
-    }
-
-    List<String> sliceCurly(List<String> toks) {
-        var res = new ArrayList<String>();
-        if (!toks.get(0).equals("{")) {
-            return res;
-        } 
-        toks.remove(0);
-        int cnt = 1;
-        while(!toks.isEmpty()) {
-            var t = toks.remove(0);
-            if (t.equals("}") && cnt == 1) {
-                break;
-            }
-            res.add(t);
-            if (t.equals("{")) {
-                cnt++;
-            } else if (t.equals("}")) {
-                cnt--;
-            }
-        }
-        return res;
-    }
-
-    List<String> sliceComma(List<String> toks) {
-        var res = new ArrayList<String>();
-        if (toks.isEmpty()){
-            return res;
-        } 
-        int cnt = 0;
-        while(!toks.isEmpty()) {
-            var t = toks.remove(0);
-            if (t.equals(",") && cnt == 0) {
-                break;
-            }
-            res.add(t);
-            if (t.equals("{")) {
-                cnt++;
-            } else if (t.equals("}")) {
-                cnt--;
-            }
-        }
-        return res;
     }
 
     void createGroundTests(Context ctxt) {
@@ -351,15 +238,151 @@ class Orchestrator {
             processBuilder.directory(ctxt.tmp.toFile());
             Process process = processBuilder.start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                // System.out.println(line);
-            }
-            int exitCode = process.waitFor();
-            //  System.out.println("\nExited with error code : " + exitCode);
+            while (reader.readLine() != null) {}
+            process.waitFor();
         } catch (IOException | InterruptedException e) {
             throw new Error(e);
         }
+    }
+}
+
+
+/**
+ * Class for parsing types from strings returned by code_warntype which may have capitalized type names.x
+ */
+class TypeParser {
+
+    static Type fromString(String s, GenDB.Types types) {
+        var toks = new ArrayList<String>();
+        var cur = "";
+        for (var c : s.toCharArray()) {
+            switch (c) {
+                case ' ' -> {
+                    if (!cur.isEmpty()) {
+                        toks.add(cur);
+                    }
+                    cur = "";
+                }
+                case '{', '}', ',' -> {
+                    if (!cur.isEmpty()) {
+                        toks.add(cur);
+                    }
+                    toks.add(c + "");
+                    cur = "";
+                }
+                default -> {
+                    cur += c;
+                }
+            }
+        }
+        if (!cur.isEmpty()) {
+            toks.add(cur);
+        }
+        var ntoks = new ArrayList<String>();
+        for (var t : toks) {
+            if (t.equals("{") || t.equals("}") || t.equals(",")) {
+                ntoks.add(t);
+            } else {
+                if (types.upperCaseNames.containsKey(t)) {
+                    ntoks.add(types.upperCaseNames.get(t));
+                } else {
+                    ntoks.add(t);
+                }
+            }
+        }
+        return parseType(ntoks);
+    }
+
+    static Integer parseInt(String s) {
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    static Type parseType(List<String> toks) {
+        if (toks.isEmpty()) {
+            return null;
+        }
+        var t = toks.remove(0);
+        if (t.equals("Tuple")) {
+            var args = sliceCurly(toks);
+            if (args == null) { // Note that this is a Tuple type with no type arguments
+                return new Inst("Tuple", new ArrayList<>());
+            }
+            var tys = new ArrayList<Type>();
+            while (!args.isEmpty()) {
+                var arg = sliceComma(args);
+                tys.add(parseType(arg));
+            }
+            return new Tuple(tys);
+        } else if (t.equals("Union")) {
+            var args = sliceCurly(toks);
+            if (args == null) { // Again, this is a Union type with no type arguments
+                return new Inst("Union", new ArrayList<>());
+            }
+            var tys = new ArrayList<Type>();
+            while (!args.isEmpty()) {
+                var arg = sliceComma(args);
+                tys.add(parseType(arg));
+            }
+            return new Union(tys);
+        } else if (parseInt(t) != null) {
+            return new Con(t);
+        } else {
+            var args = sliceCurly(toks);
+            args = args == null ? new ArrayList<>() : args;
+            var tys = new ArrayList<Type>();
+            while (!args.isEmpty()) {
+                var arg = sliceComma(args);
+                tys.add(parseType(arg));
+            }
+            return new Inst(t, tys);
+        }
+    }
+
+    static List<String> sliceCurly(List<String> toks) {
+        var res = new ArrayList<String>();
+        if (toks.isEmpty() || !toks.get(0).equals("{")) {
+            return null;
+        }
+        toks.remove(0);
+        int cnt = 1;
+        while (!toks.isEmpty()) {
+            var t = toks.remove(0);
+            if (t.equals("}") && cnt == 1) {
+                break;
+            }
+            res.add(t);
+            if (t.equals("{")) {
+                cnt++;
+            } else if (t.equals("}")) {
+                cnt--;
+            }
+        }
+        return res;
+    }
+
+    static List<String> sliceComma(List<String> toks) {
+        var res = new ArrayList<String>();
+        if (toks.isEmpty()) {
+            return res;
+        }
+        int cnt = 0;
+        while (!toks.isEmpty()) {
+            var t = toks.remove(0);
+            if (t.equals(",") && cnt == 0) {
+                break;
+            }
+            res.add(t);
+            if (t.equals("{")) {
+                cnt++;
+            } else if (t.equals("}")) {
+                cnt--;
+            }
+        }
+        return res;
     }
 
 }
