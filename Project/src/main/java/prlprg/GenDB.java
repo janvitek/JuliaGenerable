@@ -62,10 +62,22 @@ class GenDB {
                 return nm.equals("Any");
             }
 
-            // For types that are not missing we run fixUp to deal with variables and type names. FixUp will
-            // add types to the DB (i.e. patching). Types without a definition are not patched, i.e. the
-            // patched and pre_patched are identical. We also set the parent of this info node. If this is Any,
-            // then the parent is itself. We add children to the parent node.
+            /**
+             * This method fixes up types coming from the parser. This results
+             * in populating the patched fields of Info objects. Some types that
+             * are referenced but for which we have no definition are added to
+             * the GenDB.
+             *
+             * The pre_patched field retains the type as it came from the
+             * parser, the patched field is the new one with variables corrected
+             * (see the Type.fixUp() documentation for details).
+             *
+             * The method also adds children to the parent in the children field
+             * of Info.
+             *
+             * This also sets the parentName and parent fields of Info. For
+             * 'Any' the parent is itself.
+             */
             void fixUpParent() {
                 if (!defMissing) {
                     try {
@@ -115,9 +127,12 @@ class GenDB {
             }
         }
 
-        // Check if there is a node for this type name, if not then create one and mark it as missing, report
-        // a warning that the type had to be 'patched'. This can come about because of builtin types, any other
-        // reason is fishy.
+        /**
+         * Check if this type name exists in the GenDB, if not then create one
+         * and mark it as missing, report a warning that the type had to be
+         * 'patched'. This can come about because of builtin types. Any other
+         * reason is fishy.
+         */
         void patchIfNeeeded(String nm) {
             if (get(nm) == null) {
                 App.warn("Type " + nm + " not found, patching");
@@ -131,6 +146,9 @@ class GenDB {
         }
 
         // Fix up all types, this is done before any type is transformed to a Decl.
+        /**
+         * Fix
+         */
         void fixUpAll() {
             if (!types.reusedNames.isEmpty()) {
                 App.warn("Multiple type definitions for: " + types.reusedNames.stream().collect(Collectors.joining(", ")));
@@ -138,25 +156,34 @@ class GenDB {
             all().forEach(i -> i.fixUpParent());
         }
 
+        /**
+         * Return all types in the DB.
+         */
         List<Info> all() {
             return new ArrayList<>(db.values());
         }
 
+        /**
+         * Return the type info for a type name. Null if not found.
+         */
         Info get(String nm) {
             return db.get(nm);
         }
 
+        /**
+         * Return the names of the subtypes of a type. One thing we may be
+         * missing is for Any: Tuple and Union. Generally, Tuple and Union are
+         * treated specially, and we do not generate them from scratch.
+         */
         List<String> getSubtypes(String nm) {
             var info = get(nm);
             return info == null ? null : info.subtypes;
         }
 
         /**
-         * Add a parsed type declaration to the DB. This is called from the
-         * parser. This method also takes care of adding the name of the type in
-         * the upperCaseNames map and the reusedNames set.
-         *
-         * @param ty the type declaration
+         * Add a freshly parsed type declaration to the DB. Called from the
+         * parser. This method takes care of adding the name of the type in the
+         * upperCaseNames map and the reusedNames set.
          */
         void addParsed(TypeDeclaration ty) {
             var nm = ty.nm();
@@ -178,11 +205,17 @@ class GenDB {
             db.put(nm, new Info(ty));
         }
 
-        // Is this a concrete type ? This can only be used once decls is populated in build().
+        /**
+         * Is this type instance concrete. Consider:
+         * <pre>
+         *   struct S{T} end</pre> Then <tt>S</tt> is not concrete, but
+         * <tt>S{Int}</tt> is.
+         */
         boolean isConcrete(String nm, int passedArgs) {
-            var i = get(nm);           
-            return i != null && // i is null if the type is not in the db
-                   i.decl != null && !i.decl.isAbstract() && i.decl.argCount() == passedArgs;
+            var i = get(nm);
+            return i != null
+                    && // i is null if the type is not in the db
+                    i.decl != null && !i.decl.isAbstract() && i.decl.argCount() == passedArgs;
         }
 
         /**
@@ -218,16 +251,34 @@ class GenDB {
 
     }
 
+    /**
+     * This class holds data for every Julia function. A function is implemented
+     * by a set of methods. The internal Info class represent a single method
+     * definition. The db can be queried by function name. s
+     */
     static class Signatures {
 
+        /**
+         * Represents a method.
+         */
         class Info {
+
             TySig pre_patched;
             TySig patched;
             Sig sig;
         }
 
+        /**
+         * The DB is a map from function names to a list of methods.
+         */
         final private HashMap<String, List<Info>> db = new HashMap<>();
 
+        /**
+         * Return the list of signatures for a name. If the name is not in the
+         * DB, create an empty list.
+         *
+         * @return a list (never null)
+         */
         List<Info> get(String nm) {
             var res = db.get(nm);
             if (res == null) {
@@ -236,6 +287,9 @@ class GenDB {
             return res;
         }
 
+        /**
+         * Create a new method for a function name.
+         */
         Info make(String nm) {
             var info = new Info();
             var res = get(nm);
@@ -243,10 +297,16 @@ class GenDB {
             return info;
         }
 
+        /**
+         * Return the names of all functions in the DB.
+         */
         List<String> allNames() {
             return new ArrayList<>(db.keySet());
         }
 
+        /**
+         * Return all signatures in the DB.
+         */
         List<Sig> allSigs() {
             var res = new ArrayList<Sig>();
             for (var nm : allNames()) {
@@ -257,6 +317,10 @@ class GenDB {
             return res;
         }
 
+        /**
+         * Fix up all signatures. Call this to patch the databases after the
+         * types have been patched.
+         */
         void fixUpAll() {
             // make sure that upperNames have all types
             types.upperCaseNames.put("ANY", "Any");
@@ -275,7 +339,6 @@ class GenDB {
                     var n = s.patched;
                     try {
                         s.sig = new Sig(nm, n.ty().toType(new ArrayList<>()), n.src());
-                        App.info(s.sig.toString());
                     } catch (Exception e) {
                         App.warn("Error: " + n.nm() + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + n.src()));
                     }
@@ -289,13 +352,17 @@ class GenDB {
     static Inst any = new Inst("Any", List.of());
     static Union none = new Union(List.of());
 
+    /**
+     * Add a mehotd declaration to the DB. Called from the parser.
+     */
     static final void addSig(TySig sig) {
         sigs.make(sig.nm()).pre_patched = sig;
     }
 
-    // Definitions in the pre DB are ill-formed, as we don't know what identifiers refer to types or
-    // variables. We asume all types declarations have been processed, so anything not in tydb is
-    // is either a variable or a missing type.
+    /**
+     * Performs all transformation needed for the types in the DB to be useable
+     * for genreation.
+     */
     static public void cleanUp() {
         sigs.fixUpAll();
         types.fixUpAll();
@@ -307,7 +374,8 @@ class GenDB {
 }
 
 /**
- * A Type is the generic interface for objects representing Julia types. 
+ * A Type is the generic interface for objects representing Julia types.
+ *
  * @author jan
  */
 interface Type {
@@ -315,11 +383,19 @@ interface Type {
     @Override
     public String toString();
 
-    // Return a clone of the type with new Bounds. When called exterrnally, the map should be empty.
+    /**
+     * Return a clone of this type. Since <tt>Var</tt> objects have a reference to their
+     * enclosing <tt>Bound</tt> object, we need to create a deep clone that properly rebinds
+     * all variables to their cloned bounds.
+     */
     Type deepClone(HashMap<Bound, Bound> map);
 
-    // Two term that have exactly the same syntactic structure, does not try for semantic equality.
-    boolean structuralEquals(Type t);
+    /**
+     * Structural equality means two types have the same syntactic representation. This is a weak form
+     * of equallity as it does not account for equivalences such as reording the elements of a union.
+     * Semantic equality is tricky due to distributivity of unions over tuples and existentials.
+     */
+     boolean structuralEquals(Type t);
 
     // Return a Julia string representation of the type
     String toJulia();
@@ -330,7 +406,11 @@ interface Type {
     // The empty union
     boolean isNone();
 
-    // Inst, Tuples, amd Cons are concrete
+    /** @return true if this type is a struct with all parameters bound or if it is a union with a single 
+     * concrete element. Missing types are not considered concrete. Currently does not deal correctly with
+     * aliases. The type Vector{Int} is is an alias for Array{Int,1} and is not considered concrete but  
+     * should be. TODO revisit treatemnt of aliases.
+     */
     boolean isConcrete();
 
 }
@@ -597,11 +677,16 @@ record Union(List<Type> tys) implements Type {
     }
 
     /**
-     * A union is concrete if either it has no elements or if it has a single element that is concrete.
+     * A union is concrete if it has a single element that is concrete.
+     *
+     * Julia does not consider a type Union{} to be concrete, yet for our
+     * purposes perhaps it should be treated as such. The type does not
+     * represent any value, so would it not be "stable"?
      */
     @Override
     public boolean isConcrete() {
-        return tys.isEmpty() || (tys.size() == 1 && tys.get(0).isConcrete());
+        return //tys.isEmpty() || 
+                (tys.size() == 1 && tys.get(0).isConcrete());
     }
 
 }
@@ -691,7 +776,7 @@ record Decl(String mod, String nm, Type ty, Inst parInst, Decl parent, String sr
     int argCount() {
         var t = ty;
         var cnt = 0;
-        while ( t instanceof Exist e) {
+        while (t instanceof Exist e) {
             t = e.ty();
             cnt++;
         }

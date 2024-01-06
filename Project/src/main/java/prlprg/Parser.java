@@ -714,23 +714,50 @@ class Parser {
     }
 }
 
-// The following types are used in the generator as an intermediate step towards the
-// final result in the Generator.
+/**
+ * An early form of Julia Type coming from the Parser.
+ *
+ * @author jan
+ */
 interface Ty {
 
     final static Ty Any = new TyInst("Any", List.of());
     final static Ty None = new TyUnion(List.of());
 
+    /**
+     * @return the Any Ty
+     */
     static Ty any() {
         return Any;
     }
 
+    /**
+     * @return the None Ty, ie. Union{}
+     */
     static Ty none() {
         return None;
     }
 
+    /**
+     * Transforms a Ty to a Type object, bounds are resolved from their
+     * enclosing environment.
+     *
+     * @param env bounds in scope
+     */
     Type toType(List<Bound> env);
 
+    /**
+     * The parser does not know what identifiers represent variables and what
+     * represent types. The fix up method constructs a list of variables in
+     * scope and replaces TyInst by TyVar when appropriate. Fixup also takes
+     * care of `typedf` which is turned into a constant (TyCon). `Nothing` is an
+     * alias that is replaced by Union{}. If fixup encounters an identifier that
+     * is not a varaiable and that does not occur in the GendDB, it will assume
+     * that this is a missing type and add it.
+     *
+     * @param bounds bounds in scope
+     * @return a fixed up Ty
+     */
     Ty fixUp(List<TyVar> bounds);
 
 }
@@ -743,6 +770,10 @@ record TyInst(String nm, List<Ty> tys) implements Ty {
         return nm + (tys.isEmpty() ? "" : "{" + args + "}");
     }
 
+    /**
+     * After this call we have a valide TyInst or TyVar, or a TyCon or a
+     * Ty.None.
+     */
     @Override
     public Ty fixUp(List<TyVar> bounds) {
         var varOrNull = bounds.stream().filter(v -> v.nm().equals(nm())).findFirst();
@@ -780,10 +811,16 @@ record TyInst(String nm, List<Ty> tys) implements Ty {
         }
     }
 
-    private boolean inList(TyVar tv, List<TyVar> bounds) {
+    /**
+     * @return true if the given var is in the list of bounds.
+     */
+    private static boolean inList(TyVar tv, List<TyVar> bounds) {
         return bounds.stream().anyMatch(b -> b.nm().equals(tv.nm()));
     }
 
+    /**
+     * The TyInst becomes an Inst with all parameters recurisvely converted.
+     */
     @Override
     public Type toType(List<Bound> env) {
         return new Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
@@ -798,6 +835,11 @@ record TyVar(String nm, Ty low, Ty up) implements Ty {
         return (!low.equals(Ty.none()) ? low + "<:" : "") + CodeColors.variable(nm) + (!up.equals(Ty.any()) ? "<:" + up : "");
     }
 
+    /**
+     * A Var has a reference to its defining Bound, in the process of converting
+     * a Ty to a Type we need to have the bounds in scope so we can initialize
+     * the Var with the correct bounds.
+     */
     @Override
     public Type toType(List<Bound> env) {
         var vne_stream = env.reversed().stream();
@@ -808,6 +850,9 @@ record TyVar(String nm, Ty low, Ty up) implements Ty {
         throw new RuntimeException("Variable " + nm + " not found in environment");
     }
 
+    /**
+     * Recursively fix up the bounds.
+     */
     @Override
     public Ty fixUp(List<TyVar> bounds) {
         return new TyVar(nm, low.fixUp(bounds), up.fixUp(bounds));
@@ -815,6 +860,10 @@ record TyVar(String nm, Ty low, Ty up) implements Ty {
 
 }
 
+/**
+ * A constant such as 5 or a symbol or a typeof. The value of the constant is
+ * kept as its original string representation.
+ */
 record TyCon(String nm) implements Ty {
 
     @Override
@@ -823,7 +872,6 @@ record TyCon(String nm) implements Ty {
     }
 
     @Override
-
     public Type toType(List<Bound> env) {
         return new Con(nm);
     }
@@ -879,6 +927,10 @@ record TyExist(Ty v, Ty ty) implements Ty {
         return CodeColors.exists("∃") + v + CodeColors.exists(".") + ty;
     }
 
+    /**
+     * The TyExist becomes an Exist with all parameters recurisvely converted. Fix up needs to patch the 
+     * parser's work which may have created a TyInst for the bound variable.
+     */
     @Override
     public Ty fixUp(List<TyVar> bound) {
         var maybeVar = v();
@@ -910,7 +962,7 @@ record TyExist(Ty v, Ty ty) implements Ty {
             name = tvar.nm();
             low = tvar.low().toType(env);
             up = tvar.up().toType(env);
-        } else {
+        } else { // Given that we have alreadty performed fixup, this should not occur. Or? 
             var inst = (TyInst) v();
             if (!inst.tys().isEmpty()) {
                 throw new RuntimeException("Should be a TyVar but is a type: " + ty);
@@ -927,6 +979,10 @@ record TyExist(Ty v, Ty ty) implements Ty {
 
 }
 
+/**
+ * A type declaration has modifiers, a name, type expression and a parent type. We also keep the source text
+ * for debugging purposes.
+ */
 record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
 
     @Override
@@ -934,6 +990,16 @@ record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
         return nm + " = " + mod + " " + ty + " <: " + parent + CodeColors.comment("\n# " + src);
     }
 
+    /**
+     * Given a type declaration,
+     * <pre>
+     *   mod lhs <: rhs end </pre>
+     * where lhs has the form T{X} and T is a type name, X is a variable, 
+     * and rhs has the form S{Ty} where S is a type name and Ty is a Ty expression.
+     * This method fixes up X and rhs. It also wraps LHS into TyExists.
+     * 
+     * @return a new TyDecl with all elements recurisvely fixed up
+     */
     TyDecl fixUp() {
         var lhs = (TyInst) ty;
         var rhs = (TyInst) parent;
@@ -964,6 +1030,10 @@ record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
 
 }
 
+/**
+ * The representation of a method with a name and type signature (a tuple possibly wrapped in existentials).
+ * The source information is retained for debugging purposes.
+ */
 record TySig(String nm, Ty ty, String src) {
 
     @Override
@@ -972,6 +1042,9 @@ record TySig(String nm, Ty ty, String src) {
 
     }
 
+    /**
+     * Fixes up the signatures of the method.
+     */
     TySig fixUp(List<TyVar> bounds) {
         return new TySig(nm, ty.fixUp(bounds), src);
     }
