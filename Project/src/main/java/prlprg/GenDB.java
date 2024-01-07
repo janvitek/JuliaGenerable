@@ -1,5 +1,6 @@
 package prlprg;
 
+import prlprg.Parser.MethodInformation;
 import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -17,26 +18,33 @@ class GenDB {
         final HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused (i.e. types with multiple declarations)
         final HashMap<String, String> upperCaseNames = new HashMap<>(); // code_warntype returns upper case names
 
-        // The Info class holds all the information we have on types including various stages of preparation.
-        // TypeDeclaration -> TyDecl -> TyDecl -> Decl
-        // The TypeDeclaration we get from the parser is still ill-formed, it confuses some constants and type names and
-        // variables. The first TyDecl is in better shape but still refers to some things as types or variables in
-        // a confused way. The second TyDecl adds any unbound names to the DB. The last Decl is fully typed and
-        // are ready to be used for generation.
-        //
-        // The class keeps all these stages for debugging purposes.
+        /**
+         * This class holds all information on a type including various stages of
+         * preparation.
+         * 
+         * <pre>
+         * TypeDeclaration -> TyDecl -> TyDecl -> Decl
+         * </pre>
+         * 
+         * The <tt>TypeDeclaration</tt> we get from the parser is ill-formed, it
+         * confuses constants, variables and types. The pre_patched TyDecl is in better
+         * shape but still refers to some things as types or variables. The patched
+         * TyDecl adds nbound names to the DB. The final Decl is fully typed and are
+         * ready to be used for generation. The class keeps all these stages for
+         * debugging purposes.
+         */
         class Info {
 
             String nm; //name of the type
             boolean defMissing; // was this patched because it was missing ?
             TypeDeclaration parsed; // the parsed type declaration
-            TyDecl pre_patched;  // the type declaration before patching
+            TyDecl pre_patched; // the type declaration before patching
             TyDecl patched; // the type declaration after patching
-            Decl decl;  // the final form of the type declaration, this is used for subtype generation
+            Decl decl; // the final form of the type declaration, this is used for subtype generation
             List<String> subtypes = List.of(); // names of direct subtypes
             Info parent = null; // the parent of this type
             String parentName; // the name of the parent
-            List< Info> children = new ArrayList<>();  // nodes of direct children in the type hierarchy
+            List<Info> children = new ArrayList<>(); // nodes of direct children in the type hierarchy
             List<Type> level_1_kids = new ArrayList<>(); // the Fuel==1 children of this type
 
             // Create a type info from a parsed type declaration
@@ -53,8 +61,7 @@ class GenDB {
             Info(String missingType) {
                 this.nm = missingType;
                 NameUtils.registerName(nm);
-                this.decl = isAny() ? new Decl("abstract type", "Any", any, any, null, "")
-                        : new Decl("missing type", nm, new Inst(nm, new ArrayList<>()), any, null, "NA");
+                this.decl = isAny() ? new Decl("abstract type", "Any", any, any, null, "") : new Decl("missing type", nm, new Inst(nm, new ArrayList<>()), any, null, "NA");
                 this.defMissing = true;
             }
 
@@ -63,20 +70,18 @@ class GenDB {
             }
 
             /**
-             * This method fixes up types coming from the parser. This results
-             * in populating the patched fields of Info objects. Some types that
-             * are referenced but for which we have no definition are added to
-             * the GenDB.
+             * This method fixes up types coming from the parser. This results in populating
+             * the patched fields of Info objects. Some types that are referenced but for
+             * which we have no definition are added to the GenDB.
              *
-             * The pre_patched field retains the type as it came from the
-             * parser, the patched field is the new one with variables corrected
-             * (see the Type.fixUp() documentation for details).
+             * The pre_patched field retains the type as it came from the parser, the
+             * patched field is the new one with variables corrected (see the Type.fixUp()
+             * documentation for details).
              *
-             * The method also adds children to the parent in the children field
-             * of Info.
+             * The method also adds children to the parent in the children field of Info.
              *
-             * This also sets the parentName and parent fields of Info. For
-             * 'Any' the parent is itself.
+             * This also sets the parentName and parent fields of Info. For 'Any' the parent
+             * is itself.
              */
             void fixUpParent() {
                 if (!defMissing) {
@@ -109,8 +114,11 @@ class GenDB {
                 children.forEach(c -> c.toDecl());
             }
 
-            // Unwrap the existentials in the type, and return the bounds in the order they appear.
-            // Called with a type declaration, so there should only be instances and existentials.
+            /**
+             * Unwrap the existentials in the type, and return the bounds in the order they
+             * appear. Called with a type declaration, so there should only be instances and
+             * existentials.
+             */
             private List<Bound> getBounds(Type t, List<Bound> env) {
                 if (t instanceof Inst) {
                     return env;
@@ -125,13 +133,12 @@ class GenDB {
             public String toString() {
                 return nm + " " + (defMissing ? "missing" : "defined") + " " + parentName;
             }
-        }
+        } /// End of Info //////////////////////////////////////////////////////////////////////
 
         /**
-         * Check if this type name exists in the GenDB, if not then create one
-         * and mark it as missing, report a warning that the type had to be
-         * 'patched'. This can come about because of builtin types. Any other
-         * reason is fishy.
+         * Check if this type name exists in the GenDB, if not then create one and mark
+         * it as missing, report a warning that the type had to be 'patched'. This can
+         * come about because of builtin types. Any other reason is fishy.
          */
         void patchIfNeeeded(String nm) {
             if (get(nm) == null) {
@@ -145,9 +152,9 @@ class GenDB {
             types.get("Any").toDecl();
         }
 
-        // Fix up all types, this is done before any type is transformed to a Decl.
         /**
-         * Fix
+         * Fix up the type hierarchy starting at Any. This method also prints the types
+         * we saw mulitple definitions for.
          */
         void fixUpAll() {
             if (!types.reusedNames.isEmpty()) {
@@ -171,9 +178,9 @@ class GenDB {
         }
 
         /**
-         * Return the names of the subtypes of a type. One thing we may be
-         * missing is for Any: Tuple and Union. Generally, Tuple and Union are
-         * treated specially, and we do not generate them from scratch.
+         * Return the names of the subtypes of a type. One thing we may be missing is
+         * for Any: Tuple and Union. Generally, Tuple and Union are treated specially,
+         * and we do not generate them from scratch.
          */
         List<String> getSubtypes(String nm) {
             var info = get(nm);
@@ -181,9 +188,9 @@ class GenDB {
         }
 
         /**
-         * Add a freshly parsed type declaration to the DB. Called from the
-         * parser. This method takes care of adding the name of the type in the
-         * upperCaseNames map and the reusedNames set.
+         * Add a freshly parsed type declaration to the DB. Called from the parser. This
+         * method takes care of adding the name of the type in the upperCaseNames map
+         * and the reusedNames set.
          */
         void addParsed(TypeDeclaration ty) {
             var nm = ty.nm();
@@ -207,14 +214,16 @@ class GenDB {
 
         /**
          * Is this type instance concrete. Consider:
+         * 
          * <pre>
-         *   struct S{T} end</pre> Then <tt>S</tt> is not concrete, but
-         * <tt>S{Int}</tt> is.
+         *   struct S{T} end
+         * </pre>
+         * 
+         * Then <tt>S</tt> is not concrete, but <tt>S{Int}</tt> is.
          */
         boolean isConcrete(String nm, int passedArgs) {
             var i = get(nm);
-            return i != null
-                    && // i is null if the type is not in the db
+            return i != null && // i is null if the type is not in the db
                     i.decl != null && !i.decl.isAbstract() && i.decl.argCount() == passedArgs;
         }
 
@@ -229,6 +238,9 @@ class GenDB {
             }
         }
 
+        /**
+         * Print the type hierarchy. This is a top down traversal of the type hierarchy.
+         */
         void printHierarchy() {
             if (App.PRINT_HIERARCHY) {
                 App.output("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
@@ -236,6 +248,7 @@ class GenDB {
             }
         }
 
+        /** Helper method for printing the type hierarchy */
         private void printHierarchy(Info n, int pos) {
             var str = n.decl == null || n.decl.isAbstract() ? CodeColors.abstractType(n.nm) : n.nm;
             str = n.decl.mod().contains("missing") ? ("? " + CodeColors.abstractType(str)) : str;
@@ -252,8 +265,8 @@ class GenDB {
     }
 
     /**
-     * This class holds data for every Julia function. A function is implemented
-     * by a set of methods. The internal Info class represent a single method
+     * This class holds data for every Julia function. A function is implemented by
+     * a set of methods. The internal Info class represent a single method
      * definition. The db can be queried by function name. s
      */
     static class Signatures {
@@ -274,8 +287,8 @@ class GenDB {
         final private HashMap<String, List<Info>> db = new HashMap<>();
 
         /**
-         * Return the list of signatures for a name. If the name is not in the
-         * DB, create an empty list.
+         * Return the list of signatures for a name. If the name is not in the DB,
+         * create an empty list.
          *
          * @return a list (never null)
          */
@@ -318,8 +331,8 @@ class GenDB {
         }
 
         /**
-         * Fix up all signatures. Call this to patch the databases after the
-         * types have been patched.
+         * Fix up all signatures. Call this to patch the databases after the types have
+         * been patched.
          */
         void fixUpAll() {
             // make sure that upperNames have all types
@@ -338,7 +351,7 @@ class GenDB {
                 for (var s : get(nm)) {
                     var n = s.patched;
                     try {
-                        s.sig = new Sig(nm, n.ty().toType(new ArrayList<>()), n.src());
+                        s.sig = new Sig(s.patched.nm(), n.ty().toType(new ArrayList<>()), n.src());
                     } catch (Exception e) {
                         App.warn("Error: " + n.nm() + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + n.src()));
                     }
@@ -356,12 +369,12 @@ class GenDB {
      * Add a mehotd declaration to the DB. Called from the parser.
      */
     static final void addSig(TySig sig) {
-        sigs.make(sig.nm()).pre_patched = sig;
+        sigs.make(sig.nameAndArity()).pre_patched = sig;
     }
 
     /**
-     * Performs all transformation needed for the types in the DB to be useable
-     * for genreation.
+     * Performs all transformation needed for the types in the DB to be useable for
+     * genreation.
      */
     static public void cleanUp() {
         sigs.fixUpAll();
@@ -384,20 +397,24 @@ interface Type {
     public String toString();
 
     /**
-     * Return a clone of this type. Since <tt>Var</tt> objects have a reference to their
-     * enclosing <tt>Bound</tt> object, we need to create a deep clone that properly rebinds
-     * all variables to their cloned bounds.
+     * Return a clone of this type. Since <tt>Var</tt> objects have a reference to
+     * their enclosing <tt>Bound</tt> object, we need to create a deep clone that
+     * properly rebinds all variables to their cloned bounds.
      */
     Type deepClone(HashMap<Bound, Bound> map);
 
     /**
-     * Structural equality means two types have the same syntactic representation. This is a weak form
-     * of equallity as it does not account for equivalences such as reording the elements of a union.
-     * Semantic equality is tricky due to distributivity of unions over tuples and existentials.
+     * Structural equality means two types have the same syntactic representation.
+     * This is a weak form of equallity as it does not account for equivalences such
+     * as reording the elements of a union. Semantic equality is tricky due to
+     * distributivity of unions over tuples and existentials.
      */
-     boolean structuralEquals(Type t);
+    boolean structuralEquals(Type t);
 
-    // Return a Julia string representation of the type
+    /**
+     * Return a Julia string representation of the type, this is a syntactic
+     * transformation only.
+     */
     String toJulia();
 
     // The top type "Any"
@@ -406,10 +423,12 @@ interface Type {
     // The empty union
     boolean isNone();
 
-    /** @return true if this type is a struct with all parameters bound or if it is a union with a single 
-     * concrete element. Missing types are not considered concrete. Currently does not deal correctly with
-     * aliases. The type Vector{Int} is is an alias for Array{Int,1} and is not considered concrete but  
-     * should be. TODO revisit treatemnt of aliases.
+    /**
+     * @return true if this type is a struct with all parameters bound or if it is a
+     *         union with a single concrete element. Missing types are not
+     *         considered concrete. Currently does not deal correctly with aliases.
+     *         The type Vector{Int} is is an alias for Array{Int,1} and is not
+     *         considered concrete but should be. TODO revisit treatemnt of aliases.
      */
     boolean isConcrete();
 
@@ -679,14 +698,14 @@ record Union(List<Type> tys) implements Type {
     /**
      * A union is concrete if it has a single element that is concrete.
      *
-     * Julia does not consider a type Union{} to be concrete, yet for our
-     * purposes perhaps it should be treated as such. The type does not
-     * represent any value, so would it not be "stable"?
+     * Julia does not consider a type Union{} to be concrete, yet for our purposes
+     * perhaps it should be treated as such. The type does not represent any value,
+     * so would it not be "stable"?
      */
     @Override
     public boolean isConcrete() {
         return //tys.isEmpty() || 
-                (tys.size() == 1 && tys.get(0).isConcrete());
+        (tys.size() == 1 && tys.get(0).isConcrete());
     }
 
 }
@@ -805,9 +824,98 @@ record Sig(String nm, Type ty, String src) {
         }
         Tuple args = (Tuple) t;
         var str = args.tys().stream().map(Type::toJulia).collect(Collectors.joining(","));
-        return "function " + nm + "(" + str + ")"
-                + (bounds.isEmpty() ? ""
-                : (" where {" + bounds.stream().map(Bound::toJulia).collect(Collectors.joining(",")) + "}"));
+        return "function " + nm + "(" + str + ")" + (bounds.isEmpty() ? "" : (" where {" + bounds.stream().map(Bound::toJulia).collect(Collectors.joining(",")) + "}"));
     }
 
+    public String nameAndArity() {
+        var t = ty;
+        while (t instanceof Exist e)
+            t = e.ty();
+        if (t instanceof Tuple tup) {
+            return nm + "/" + tup.tys().size();
+        }
+        return nm + "/0";
+    }
+
+}
+
+class Method {
+    Sig sig;
+    String nameArity;
+    HashMap<String, Type> env = new HashMap<>();
+    List<String> argNames = new ArrayList<>();
+    Type returnType;
+    List<Calls> ops = new ArrayList<>();
+    String filename;
+
+    record Calls(String tgt, List<String> args, Sig called) {
+
+        @Override
+        public String toString() {
+            var s = tgt != null ? tgt + " = " : "";
+            return s + called + " (" + args.stream().collect(Collectors.joining(", ")) + ")";
+        }
+    }
+
+    Method(MethodInformation mi, String filename) {
+        this.sig = mi.decl;
+        this.filename = filename;
+        this.nameArity = mi.decl.nameAndArity();
+        this.returnType = mi.returnType;
+        for (var v : mi.arguments) {
+            argNames.add(v.nm());
+            var ty = v.ty().toTy().fixUp(new ArrayList<>());
+            env.put(v.nm(), ty.toType(new ArrayList<>()));
+        }
+        for (var v : mi.locals) {
+            var ty = v.ty().toTy().fixUp(new ArrayList<>());
+            env.put(v.nm(), ty.toType(new ArrayList<>()));
+        }
+        for (var op : mi.ops) {
+            if (op.tgt() != null && op.ret() != null) {
+                if (!env.containsKey(op.tgt())) {
+                    var ty = op.ret().toTy().fixUp(new ArrayList<>());
+                    env.put(op.tgt(), ty.toType(new ArrayList<>()));
+                }
+            }
+        }
+        for (var op : mi.ops) {
+            var tys = new ArrayList<Type>();
+            for (var arg : op.args()) {
+                if (env.containsKey(arg)) {
+                    tys.add(env.get(arg));
+                } else {
+                    if (arg.charAt(0) == '\"') {
+                        tys.add(new Inst("String", List.of()));
+                    } else if (arg.charAt(0) == ':') {
+                        tys.add(new Inst("Symbol", List.of()));
+                    } else if (arg.charAt(0) >= '0' && arg.charAt(0) <= '9') {
+                        tys.add(new Inst("Int64", List.of()));
+                    } else if (arg.equals("false") || arg.equals("true")) {
+                        tys.add(new Inst("Bool", List.of()));
+                    } else if (arg.equals("nothing")) {
+                        tys.add(new Inst("Nothing", List.of()));
+                    } else {
+                        System.err.println("Missing type for " + arg);
+                        tys.add(GenDB.types.get("Any").decl.ty());
+                    }
+                }
+            }
+            var s = new Sig(op.op(), new Tuple(tys), "none");
+            var args = new ArrayList<String>();
+            for (var arg : op.args())
+                if (env.containsKey(arg)) args.add(arg);
+            ops.add(new Calls(op.tgt(), args, s));
+        }
+    }
+
+    @Override
+    public String toString() {
+        var s = sig + " => " + returnType + " @ " + filename + "\n";
+        s += env + "\n\nOps:\n";
+        for (var op : ops) {
+            s += op + "\n";
+        }
+        return s;
+    }
 }

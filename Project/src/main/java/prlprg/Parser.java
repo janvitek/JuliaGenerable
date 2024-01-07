@@ -1,12 +1,14 @@
 package prlprg;
 
+import java.io.File;
+import java.io.FilenameFilter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static prlprg.CodeColors.color;
 
@@ -14,52 +16,57 @@ class Parser {
 
     interface ParsedType {
 
-        // Creates the simpler format
+        /** Creates a type in a simpler format */
         Ty toTy();
 
-        // ParsedType names can include string and numbers and concatenated vars
+        /**
+         * ParsedType names can include string and numbers and concatenated vars, as
+         * well as parenthised expressions, such as
+         * 
+         * <pre>
+         *  Int    Intvar"#32"     typeof(:+)
+         * </pre>
+         */
         static String parseTypeName(Parser p) {
-            var tok = p.take();
-            if (tok.is("typeof") || tok.is("keytype")) {
-                var str = tok.toString();
+            var nm = p.take().toString();
+            if (p.has("(")) {
                 var q = p.sliceMatchedDelims("(", ")");
-                if (q.isEmpty()) {
-                    return str; // typeof or keytype without parens (odd?)
-                }
-                str += "(";
+                nm += "(";
                 while (!q.isEmpty()) {
-                    str += q.take().toString();
+                    nm += q.take().toString();
                 }
-                return str + ")";
-            } else {
-                var nm = tok.toString();
-                if (nm.startsWith("\"") && nm.endsWith("\"")) {
-                    return nm; // A quoted string, leave it as is.
-                } else {
-                    return nm.replaceAll("\"", ""); // Get rid of quotes in case of MIME"xyz"
-                }
+                nm += ")";
             }
+            nm = nm.charAt(0) == '\"' && nm.charAt(nm.length() - 1) == '\"' ? nm : // A quoted string, leave it as is.
+                    nm.replaceAll("\"", ""); // Get rid of quotes in case of MIME"xyz"
+            return GenDB.types.upperCaseNames.containsKey(nm) ? GenDB.types.upperCaseNames.get(nm) : nm;
         }
 
-        // Function names are dotted identifiers and delims.
+        /**
+         * Function names are dotted identifiers and delims.
+         */
         static String parseFunctionName(Parser p) {
             var str = "";
-            while (!p.isEmpty() && !p.peek().is("(")) {
+            while (!p.isEmpty() && !p.peek().is("(") && !p.peek().is("::")) {
                 str += p.take().toString();
             }
             if (str.isEmpty()) {
                 p.failAt("Missing function name", p.peek());
             }
-            return str.replaceAll("\"", "");  // Get rid of quotes in case of "fun"
+            /// TOOD: I think we don't need this anymore...  return str.replaceAll("\"", "");  // Get rid of quotes in case of "fun"
+            return str;
         }
 
     }
 
-// An instance of a datatype constructor (not a union all or bound var).
+    // An instance of a datatype constructor (not a union all or bound var).
     record TypeInst(String nm, List<ParsedType> ps) implements ParsedType {
 
         static ParsedType parse(Parser p) {
             var name = ParsedType.parseTypeName(p);
+            if (!p.has("{")) {
+                return new TypeInst(name, null); // to denote the absence of type parameters (i.e. not an empty list)
+            }
             List<ParsedType> params = new ArrayList<>();
             var q = p.sliceMatchedDelims("{", "}");
             while (!q.isEmpty()) {
@@ -68,36 +75,38 @@ class Parser {
             return new TypeInst(name, params);
         }
 
+        // number with optional exponent
         static Pattern pattern = Pattern.compile("[-+]?\\d*\\.?\\d+([eE][-+]?\\d+)?");
 
         // An instance of a datatype with zero or more type parameters.
         // In the case the nm is Union or Tuple, create the specific types.
         @Override
         public Ty toTy() {
-            if (ps.isEmpty() && (nm.equals("true") || nm.equals("false") || nm.startsWith(":")
-                    || nm.startsWith("\"") || nm.startsWith("\'")
-                    || nm().startsWith("typeof(") || pattern.matcher(nm).matches())) {
-                return new TyCon(nm);
+            if (ps == null) {
+                if (nm.equals("true") || nm.equals("false") || nm.startsWith(":") || nm.startsWith("\"") || nm.startsWith("\'") || nm().startsWith("typeof(") || pattern.matcher(nm).matches()) {
+                    return new TyCon(nm);
+                } else {
+                    return new TyInst(nm, new ArrayList<>());
+                    // NOTE: this can return a Tuple or Union without any parameters. this is correct.
+                }
+            } else {
+                var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
+                return nm.equals("Tuple") ? new TyTuple(tys) : nm.equals("Union") ? new TyUnion(tys) : new TyInst(nm, tys);
             }
-            if (nm.equals("nothing")) {
-                return Ty.none();
-            }
-            var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
-            return nm.equals("Tuple") ? new TyTuple(tys)
-                    : nm.equals("Union") ? new TyUnion(tys)
-                    : new TyInst(nm, tys);
         }
 
         @Override
         public String toString() {
-            return nm + (ps.isEmpty() ? ""
-                    : "{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}");
+            return nm + (ps == null ? "" : "{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}");
         }
     }
 
-// A variable with optional upper and lower bounds. At this point we are still a little shaky
-// on which is which, so we parse all of them to ParsedType. Also, if we get an implicit variable
-// name, we create a fesh name for it. thwse names start with a question mark.
+    /**
+     * A variable with optional upper and lower bounds. At this point we are still a
+     * little shaky on which is which, so we parse all of them to ParsedType. Also,
+     * if we get an implicit variable name, we create a fesh name for it. thwse
+     * names start with a question mark.
+     */
     record BoundVar(ParsedType name, ParsedType lower, ParsedType upper) implements ParsedType {
 
         static TypeInst fresh() {
@@ -115,12 +124,9 @@ class Parser {
             var t = UnionAllInst.parse(p);
             if (p.has("<:")) {
                 var u = UnionAllInst.parse(p.drop());
-                return p.has("<:")
-                        ? new BoundVar(UnionAllInst.parse(p.drop()), t, u)
-                        : new BoundVar(t, null, u);
+                return p.has("<:") ? new BoundVar(UnionAllInst.parse(p.drop()), t, u) : new BoundVar(t, null, u);
             } else if (p.has(">:")) {
-                return p.isEmpty() ? new BoundVar(fresh(), t, null)
-                        : new BoundVar(t, UnionAllInst.parse(p.drop()), null);
+                return p.isEmpty() ? new BoundVar(fresh(), t, null) : new BoundVar(t, UnionAllInst.parse(p.drop()), null);
             } else {
                 return t;
             }
@@ -129,8 +135,7 @@ class Parser {
         // Create a bound variable, the default for lower and upper bouds are none (Union{}) and Any.
         @Override
         public Ty toTy() {
-            return new TyVar(name.toString(), lower == null ? Ty.none() : lower.toTy(),
-                    (upper == null || upper.toString().equals("Any")) ? Ty.any() : upper.toTy());
+            return new TyVar(name.toString(), lower == null ? Ty.none() : lower.toTy(), (upper == null || upper.toString().equals("Any")) ? Ty.any() : upper.toTy());
         }
 
         @Override
@@ -139,7 +144,7 @@ class Parser {
         }
     }
 
-// Int{X} where {Z <: X <: Y, Y <: Int} where {X <: Int}
+    // Int{X} where {Z <: X <: Y, Y <: Int} where {X <: Int}
     record UnionAllInst(ParsedType body, List<ParsedType> bounds) implements ParsedType {
 
         static ParsedType parse(Parser p) {
@@ -148,10 +153,7 @@ class Parser {
                 p = p.sliceMatchedDelims("(", ")");
                 if (p.isEmpty()) {
                     // This is a special case the whole type was '()' which apparently is an empty Tuple.
-                    // But it is not a type... In our examples it ocrurs in the following context:
-                    //    NamedTuple{()}
-                    // not sure what to do. So return nothing.
-                    return new TypeInst("Nothing", new ArrayList<>());
+                    return new TypeInst("Tuple", new ArrayList<>());
                 }
             }
             var type = TypeInst.parse(p);
@@ -186,8 +188,7 @@ class Parser {
 
         @Override
         public String toString() {
-            return body.toString() + (bounds.isEmpty() ? ""
-                    : " where " + bounds.stream().map(Object::toString).collect(Collectors.joining(", ")));
+            return body.toString() + (bounds.isEmpty() ? "" : " where " + bounds.stream().map(Object::toString).collect(Collectors.joining(", ")));
         }
     }
 
@@ -195,17 +196,7 @@ class Parser {
 
         static String parseModifiers(Parser p) {
             var str = "";
-            if (p.has("(")) {
-                if (!p.drop().take().is("closure")) {
-                    p.failAt("Expected 'closure'", p.peek());
-                }
-                if (!p.take().is(")")) {
-                    p.failAt("Expected ')'", p.peek());
-                }
-                str += "(closure) ";
-            }
-            while (p.has("abstract") || p.has("primitive") || p.has("struct") || p.has("type")
-                    || p.has("mutable")) {
+            while (p.has("abstract") || p.has("primitive") || p.has("struct") || p.has("type") || p.has("mutable")) {
                 str += p.take().toString() + " ";
             }
             return str;
@@ -246,25 +237,31 @@ class Parser {
 
         @Override
         public String toString() {
-            return modifiers + nm
-                    + (ps.isEmpty() ? "" : ("{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}"))
-                    + (parent == null ? "" : (" <: " + parent));
+            return modifiers + nm + (ps.isEmpty() ? "" : ("{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}")) + (parent == null ? "" : (" <: " + parent));
         }
     }
 
+    /**
+     * A Param has name and a type, furthermore a bool indicates if this is a
+     * vararg.
+     */
     record Param(String nm, ParsedType ty, boolean varargs) {
 
         // can be:  x   |  x :: T   |  :: T   |   x...  |   :: T...
         static Param parse(Parser p) {
+            var nm = "";
+            while (!p.isEmpty() && !p.has("::")) {
+                nm += p.take().toString();
+            }
+            nm = nm.isEmpty() ? "?NA" : nm;
             var tok = p.take();
-            var name = tok.is("::") ? "?NA" : tok.toString();
             var type = tok.is("::") ? UnionAllInst.parse(p) : null;
             var varargs = p.has("...") ? p.take().is("...") : false;
             if (type == null && p.has("::")) {
                 type = UnionAllInst.parse(p.drop());
                 varargs = p.has("...") ? p.take().is("...") : false;
             }
-            return new Param(name, type, varargs);
+            return new Param(nm, type, varargs);
         }
 
         Ty toTy() {
@@ -277,6 +274,13 @@ class Parser {
         }
     }
 
+    /**
+     * A function declaration of the form
+     * 
+     * <pre>
+     * function foo(x::T, y::T) where {T <: Int}
+     * </pre>
+     */
     record Function(String nm, List<Param> ps, List<ParsedType> wheres, String src) {
 
         static List<ParsedType> parseWhere(Parser p) {
@@ -286,7 +290,7 @@ class Parser {
             }
             p.drop();
             if (p.has("{")) {
-                p = p.sliceMatchedDelims("{", "}");  // we only need to read the where clause
+                p = p.sliceMatchedDelims("{", "}"); // we only need to read the where clause
             }
             while (!p.isEmpty()) {
                 wheres.add(BoundVar.parse(p));
@@ -301,7 +305,7 @@ class Parser {
 
         static Function parse(Parser p) {
             NameUtils.reset();
-            if (p.has("function")) {  // keyword is optional
+            if (p.has("function")) { // keyword is optional
                 p.drop();
             }
             var name = ParsedType.parseFunctionName(p);
@@ -334,13 +338,223 @@ class Parser {
 
         @Override
         public String toString() {
-            return nm + "(" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + ")"
-                    + (wheres.isEmpty() ? ""
-                    : (" where " + wheres.stream().map(Object::toString).collect(Collectors.joining(", "))));
+            return nm + "(" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + ")" + (wheres.isEmpty() ? "" : (" where " + wheres.stream().map(Object::toString).collect(Collectors.joining(", "))));
         }
     }
 
-    private List<Lex.Tok> toks = new ArrayList<>();
+    /**
+     * Holds the information obtained from code_warntype, this is slightly more raw
+     * than needed, we then build the Method class from this.
+     * 
+     * This is an approximate parser, due to time constraints it will not parse
+     * every bit of a method information, the idea is that even partial information
+     * can be of use. Over time, we can revisit and get more to parse. Some of it
+     * may be easy other stuff not so much.
+     */
+    static class MethodInformation {
+
+        Sig decl;
+        List<Type> staticArguments;
+        List<Param> arguments;
+        List<Param> locals;
+        Type returnType;
+        String src;
+        List<Op> ops = new ArrayList<>();
+        List<TySig> sigs = new ArrayList<>();
+
+        @Override
+        public String toString() {
+            return decl.toString() + "\n" + (staticArguments.isEmpty() ? "" : "staticArguments: " + staticArguments + "\n") + (arguments.isEmpty() ? "" : "arguments: " + arguments + "\n")
+                    + (locals.isEmpty() ? "" : "locals: " + locals + "\n") + "returnType: " + returnType + "\n" + "src: " + src + "\n" + ops.stream().map(Object::toString).collect(Collectors.joining("\n"));
+        }
+
+        void parseMethodInfoHeader(Parser p) {
+            p.take("MethodInstance").take("for");
+            var q = p.sliceLine();
+            var tdecl = Function.parse(q).toTy();
+            tdecl = tdecl.fixUp(new ArrayList<>());
+            this.decl = new Sig(tdecl.nm(), tdecl.ty().toType(new ArrayList<>()), tdecl.src());
+            q = p.sliceLine();
+            while (!q.isEmpty() && !q.has("@")) {
+                q.drop();
+            }
+            q.take("@");
+            this.src = "";
+            while (!q.isEmpty()) {
+                src += q.take().toString() + " ";
+            }
+            src = src.trim();
+
+        }
+
+        List<Type> parseStaticArguments(Parser p) {
+            var bs = new ArrayList<Type>();
+            if (p.has("Static")) {
+                p.take("Static").take("Parameters");
+                while (!p.isEmpty() && !p.has("Arguments") && !p.has("Locals") && !p.has("Body")) {
+                    var q = p.sliceLine();
+                    var pty = BoundVar.parse(q);
+                    var ty = pty.toTy().fixUp(new ArrayList<>());
+                    bs.add(ty.toType(new ArrayList<>()));
+                }
+            }
+            return bs;
+        }
+
+        List<Param> parseArguments(Parser p) {
+            var ps = new ArrayList<Param>();
+            if (p.has("Arguments")) {
+                p.take("Arguments");
+                while (!p.isEmpty() && !p.has("Locals") && !p.has("Body")) {
+                    var q = p.sliceLine();
+                    ps.add(Param.parse(q));
+                }
+            }
+            return ps;
+        }
+
+        List<Param> parseLocals(Parser p) {
+            var ps = new ArrayList<Param>();
+            if (p.has("Locals")) {
+                p.take("Locals");
+                while (!p.isEmpty() && !p.has("Body")) {
+                    var q = p.sliceLine();
+                    ps.add(Param.parse(q));
+                }
+            }
+            return ps;
+        }
+
+        Type parseReturnType(Parser p) {
+            if (!p.has("Body")) {
+                return null;
+            }
+            p.take("Body").take("::");
+            var pty = UnionAllInst.parse(p);
+            var ty = pty.toTy().fixUp(new ArrayList<>());
+            return ty.toType(new ArrayList<>());
+        }
+
+        void parseHeader(Parser p) {
+            parseMethodInfoHeader(p);
+            this.staticArguments = parseStaticArguments(p);
+            try {
+                this.arguments = parseArguments(p);
+            } catch (Exception e) {
+                App.warn("Error parsing arguments: " + e.getMessage());
+            }
+            try {
+                this.locals = parseLocals(p);
+            } catch (Exception e) {
+                App.warn("Error parsing locals: " + e.getMessage());
+            }
+            try {
+                this.returnType = parseReturnType(p);
+            } catch (Exception e) {
+                App.warn("Error parsing return type: " + e.getMessage());
+            }
+        }
+
+        record Op(String tgt, String op, List<String> args, ParsedType ret) {
+
+            @Override
+            public String toString() {
+                if (tgt == null) return op + "(" + args.stream().collect(Collectors.joining(", ")) + ")" + (ret == null ? "" : " :: " + ret);
+                if (tgt.equals("nop")) return "nop";
+                return tgt + " = " + op + "(" + args.stream().collect(Collectors.joining(", ")) + ")" + (ret == null ? "" : " :: " + ret);
+            }
+        }
+
+        void parseBody(Parser p) {
+            while (!p.isEmpty()) {
+                if (p.has("MethodInstance")) return; // there can be more than one MethodInstance per file
+                // this happens when code_warntype is given arguments such as Any that may cover
+                // multiple methods. Normally the type generator does not do that, but it can happen.
+                var q = p.sliceLine();
+                var last = q.peek();
+                try {
+                    if (q.peek().isNumber()) {
+                        q.drop().drop();
+                    } else if (q.peek().is("│")) {
+                        q.drop();
+                    } else if (q.peek().toString().startsWith("└")) {
+                        q.drop();
+                    } else {
+                        throw new Error("Weird");
+                    }
+                    q.failIfEmpty("Expected more...", last);
+                    var tok = q.peek();
+                    if (tok.is("goto") || tok.is("return") || tok.is("nothing")) {
+                        q.drop();
+                        continue;
+                    }
+                    ops.add(parseOp(q));
+                } catch (Throwable e) {
+                    App.warn("Error parsing op: " + last.getLine());
+                }
+            }
+        }
+
+        Op parseOp(Parser p) {
+            if (p.has("(")) {
+                var q = p.sliceMatchedDelims("(", ")");
+                var nm = q.take().toString();
+                q.take("=");
+                var op = parseCall(q);
+                return new Op(nm, op.op, op.args, op.ret);
+            } else {
+                var tok = p.peek();
+                if (tok.toString().startsWith("%")) {
+                    var tmp = p.take().toString();
+                    p.take("=");
+                    var op = parseCall(p);
+                    return new Op(tmp, op.op, op.args, op.ret);
+                } else {
+                    var op = parseCall(p);
+                    return new Op(null, op.op, op.args, op.ret);
+                }
+            }
+        }
+
+        Op inlineCall(Parser p) {
+            var q = p.sliceMatchedDelims("(", ")");
+            var lhs = q.take();
+            var op = q.take();
+            var rhs = q.take();
+            var r = p.has("::") ? UnionAllInst.parse(p.take("::")) : null;
+            return new Op(lhs.toString(), op.toString(), List.of(lhs.toString(), rhs.toString()), r);
+        }
+
+        Op normalCall(Parser p) {
+            var nm = ParsedType.parseFunctionName(p);
+            var q = p.sliceMatchedDelims("(", ")");
+            var args = new ArrayList<String>();
+            while (!q.isEmpty()) {
+                var r = q.sliceNextCommaOrSemi();
+                args.add(r.take().toString());
+            }
+            var r = p.has("::") ? UnionAllInst.parse(p.take("::")) : null;
+            return new Op(null, nm, args, r);
+        }
+
+        Op parseCall(Parser p) {
+            return p.has("(") ? inlineCall(p) : normalCall(p);
+        }
+
+        static List<Method> parse(Parser p, String filename) {
+            var ms = new ArrayList<Method>();
+            while (!p.isEmpty()) {
+                var mi = new MethodInformation();
+                mi.parseHeader(p);
+                mi.parseBody(p);
+                var m = new Method(mi, filename);
+                ms.add(m);
+            }
+            return ms;
+        }
+    }
+
+    protected List<Lex.Tok> toks = new ArrayList<>();
     Lex.Tok last;
 
     // When reading data from file, there may be closures, we usually don't want to look at those types/signatures
@@ -371,6 +585,28 @@ class Parser {
         }
     }
 
+    public static void main(String[] args) {
+        File dir = new File("/tmp/t0");
+        FilenameFilter filter = (file, name) -> name.endsWith(".tst");
+        File[] files = dir.listFiles(filter);
+        if (files != null) {
+            for (File file : files) {
+                try {
+                    var p = new Parser().withFile(file.toString());
+                    System.err.println(file.toString() + " ...\n");
+                    var ms = MethodInformation.parse(p, file.toString());
+                    for (var m : ms) {
+                        System.err.println(m);
+                    }
+                } catch (Throwable e) {
+                    System.err.println("Error parsing file " + file.toString() + ": " + e.getMessage());
+                }
+            }
+        } else {
+            System.err.println("The directory is empty or does not exist.");
+        }
+    }
+
     enum Kind {
         DELIMITER, IDENTIFIER, STRING, EOF;
     }
@@ -379,7 +615,7 @@ class Parser {
 
         String[] lns;
         int pos, off;
-        static char[] delimiters = {'{', '}', ':', ',', ';', '=', '(', ')', '[', ']', '#', '<', '>'};
+        static char[] delimiters = { '{', '}', ':', ',', ';', '=', '(', ')', '[', ']', '#', '<', '>' };
 
         Lex(String[] lns) {
             this.lns = lns;
@@ -389,16 +625,12 @@ class Parser {
             List<Tok> toks = new ArrayList<>();
             while (true) {
                 var tok = next();
-                if (tok.k == Kind.EOF) {
-                    break;
-                }
+                if (tok.k == Kind.EOF) break;
                 toks.add(tok);
             }
             while (true) {
                 var ntoks = combineTokens(new ArrayList<>(toks));
-                if (toks.size() == ntoks.size()) {
-                    return splitOffThreeDots(toks);
-                }
+                if (toks.size() == ntoks.size()) return splitOffThreeDots(toks);
                 toks = ntoks;
             }
         }
@@ -427,15 +659,9 @@ class Parser {
                 var dd = prv.isDelimiter() && cur.isDelimiter();
                 var is = prv.isIdentifier() && cur.isString();
                 var di = prv.isDelimiter() && cur.isIdentifier();
-                if (!dd && !is && !di) {
-                    continue;
-                }
-                if (matchSymbol(prv, cur, "::")
-                        || matchSymbol(prv, cur, ">:")
-                        || matchSymbol(prv, cur, "<<")
-                        || matchSymbol(prv, cur, "==")
-                        || matchSymbol(prv, cur, "===")
-                        || matchSymbol(prv, cur, "<:")) {
+                if (!dd && !is && !di) continue;
+
+                if (matchSymbol(prv, cur, "::") || matchSymbol(prv, cur, ">:") || matchSymbol(prv, cur, "<<") || matchSymbol(prv, cur, "==") || matchSymbol(prv, cur, "===") || matchSymbol(prv, cur, "<:") || matchSymbol(prv, cur, ":>")) {
                     toks.set(i - 1, null);
                     toks.set(i, new Tok(this, Kind.DELIMITER, prv.ln, prv.start, cur.end));
                     smashed = true;
@@ -525,7 +751,7 @@ class Parser {
                 for (int i = start; i < end; i++) {
                     var c = charAt(i);
                     var digit = Character.isDigit(c);
-                    if (!digit || c != '.') {
+                    if (!digit && c != '.') {
                         return false;
                     }
                     if (!digit) {
@@ -563,7 +789,7 @@ class Parser {
 
         Tok next() {
             if (pos >= lns.length) {
-                return new Tok(this, Kind.EOF, pos, off, off);
+                return eof();
             }
             if (off >= lns[pos].length()) {
                 pos++;
@@ -597,11 +823,7 @@ class Parser {
                 return new Tok(this, Kind.STRING, pos, start, off);
             } else {
                 off++;
-                while (off < lns[pos].length()
-                        && !Character.isWhitespace(lns[pos].codePointAt(off))
-                        && !isDelimiter(lns[pos].codePointAt(off))
-                        && lns[pos].charAt(off) != '"'
-                        && lns[pos].charAt(off) != '\'') {
+                while (off < lns[pos].length() && !Character.isWhitespace(lns[pos].codePointAt(off)) && !isDelimiter(lns[pos].codePointAt(off)) && lns[pos].charAt(off) != '"' && lns[pos].charAt(off) != '\'') {
                     off++;
                 }
                 return new Tok(this, Kind.IDENTIFIER, pos, start, off);
@@ -698,6 +920,17 @@ class Parser {
         return !toks.isEmpty() ? toks.remove(0) : eof();
     }
 
+    Parser take(String s) {
+        if (isEmpty()) {
+            throw new Error("Expected " + s + " but got nothing");
+        }
+        var t = take();
+        if (!t.is(s)) {
+            throw new Error("Expected " + s + " but got " + t);
+        }
+        return this;
+    }
+
     Parser add(Lex.Tok t) {
         toks.addLast(t);
         return this;
@@ -739,23 +972,24 @@ interface Ty {
     }
 
     /**
-     * Transforms a Ty to a Type object, bounds are resolved from their
-     * enclosing environment.
+     * Transforms a Ty to a Type object, bounds are resolved from their enclosing
+     * environment.
      *
-     * @param env bounds in scope
+     * @param env
+     *                bounds in scope
      */
     Type toType(List<Bound> env);
 
     /**
      * The parser does not know what identifiers represent variables and what
-     * represent types. The fix up method constructs a list of variables in
-     * scope and replaces TyInst by TyVar when appropriate. Fixup also takes
-     * care of `typedf` which is turned into a constant (TyCon). `Nothing` is an
-     * alias that is replaced by Union{}. If fixup encounters an identifier that
-     * is not a varaiable and that does not occur in the GendDB, it will assume
-     * that this is a missing type and add it.
+     * represent types. The fix up method constructs a list of variables in scope
+     * and replaces TyInst by TyVar when appropriate. Fixup also takes care of
+     * `typedf` which is turned into a constant (TyCon). If fixup encounters an
+     * identifier that is not a varaiable and that does not occur in the GendDB, it
+     * will assume that this is a missing type and add it.
      *
-     * @param bounds bounds in scope
+     * @param bounds
+     *                   bounds in scope
      * @return a fixed up Ty
      */
     Ty fixUp(List<TyVar> bounds);
@@ -771,8 +1005,7 @@ record TyInst(String nm, List<Ty> tys) implements Ty {
     }
 
     /**
-     * After this call we have a valide TyInst or TyVar, or a TyCon or a
-     * Ty.None.
+     * After this call we have a valide TyInst or TyVar, or a TyCon or a Ty.None.
      */
     @Override
     public Ty fixUp(List<TyVar> bounds) {
@@ -783,32 +1016,29 @@ record TyInst(String nm, List<Ty> tys) implements Ty {
             }
             throw new RuntimeException("Type " + nm() + " is a variable used as a type.");
         }
-        switch (nm()) {
-            case "typeof": // typeof is a special case
-                return new TyCon(toString());
-            case "Nothing":
-                return Ty.None;
-            default:
-                GenDB.types.patchIfNeeeded(nm);
-                var args = new ArrayList<Ty>();
-                var vars = new ArrayList<TyVar>();
-                var newBounds = new ArrayList<TyVar>(bounds);
-                for (var a : tys) {
-                    if (a instanceof TyVar tv && !inList(tv, bounds)) {
-                        tv = (TyVar) tv.fixUp(bounds);
-                        newBounds.add(tv);
-                        vars.add(tv);
-                        args.add(tv);
-                    } else {
-                        args.add(a.fixUp(newBounds));
-                    }
-                }
-                Ty t = new TyInst(nm, args);
-                for (var v : vars) {
-                    t = new TyExist(v, t);
-                }
-                return t;
+        if (nm.contains("(") || nm.contains("\"")) {
+            return new TyCon(nm);
         }
+        GenDB.types.patchIfNeeeded(nm);
+        var args = new ArrayList<Ty>();
+        var vars = new ArrayList<TyVar>();
+        var newBounds = new ArrayList<TyVar>(bounds);
+        for (var a : tys) {
+            if (a instanceof TyVar tv && !inList(tv, bounds)) {
+                tv = (TyVar) tv.fixUp(bounds);
+                newBounds.add(tv);
+                vars.add(tv);
+                args.add(tv);
+            } else {
+                args.add(a.fixUp(newBounds));
+            }
+        }
+        Ty t = new TyInst(nm, args);
+        for (var v : vars) {
+            t = new TyExist(v, t);
+        }
+        return t;
+
     }
 
     /**
@@ -836,9 +1066,9 @@ record TyVar(String nm, Ty low, Ty up) implements Ty {
     }
 
     /**
-     * A Var has a reference to its defining Bound, in the process of converting
-     * a Ty to a Type we need to have the bounds in scope so we can initialize
-     * the Var with the correct bounds.
+     * A Var has a reference to its defining Bound, in the process of converting a
+     * Ty to a Type we need to have the bounds in scope so we can initialize the Var
+     * with the correct bounds.
      */
     @Override
     public Type toType(List<Bound> env) {
@@ -928,8 +1158,9 @@ record TyExist(Ty v, Ty ty) implements Ty {
     }
 
     /**
-     * The TyExist becomes an Exist with all parameters recurisvely converted. Fix up needs to patch the 
-     * parser's work which may have created a TyInst for the bound variable.
+     * The TyExist becomes an Exist with all parameters recurisvely converted. Fix
+     * up needs to patch the parser's work which may have created a TyInst for the
+     * bound variable.
      */
     @Override
     public Ty fixUp(List<TyVar> bound) {
@@ -980,8 +1211,8 @@ record TyExist(Ty v, Ty ty) implements Ty {
 }
 
 /**
- * A type declaration has modifiers, a name, type expression and a parent type. We also keep the source text
- * for debugging purposes.
+ * A type declaration has modifiers, a name, type expression and a parent type.
+ * We also keep the source text for debugging purposes.
  */
 record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
 
@@ -992,12 +1223,15 @@ record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
 
     /**
      * Given a type declaration,
-     * <pre>
-     *   mod lhs <: rhs end </pre>
-     * where lhs has the form T{X} and T is a type name, X is a variable, 
-     * and rhs has the form S{Ty} where S is a type name and Ty is a Ty expression.
-     * This method fixes up X and rhs. It also wraps LHS into TyExists.
      * 
+     * <pre>
+     *   mod lhs <: rhs end
+     * </pre>
+     * 
+     * where lhs has the form T{X} and T is a type name, X is a variable, and rhs
+     * has the form S{Ty} where S is a type name and Ty is a Ty expression. This
+     * method fixes up X and rhs. It also wraps LHS into TyExists.
+     *
      * @return a new TyDecl with all elements recurisvely fixed up
      */
     TyDecl fixUp() {
@@ -1006,40 +1240,35 @@ record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
         var fixedArgs = new ArrayList<TyVar>();
         for (var targ : lhs.tys()) {
             switch (targ) {
-                case TyVar tv ->
-                    fixedArgs.add((TyVar) tv.fixUp(fixedArgs));
-                case TyInst ti -> {
-                    if (!ti.tys().isEmpty()) {
-                        throw new RuntimeException("Should be a TyVar but is a type: " + targ);
-                    }
-                    fixedArgs.add(new TyVar(ti.nm(), Ty.none(), Ty.any()));
-                }
-                default ->
-                    throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: " + targ);
+            case TyVar tv -> fixedArgs.add((TyVar) tv.fixUp(fixedArgs));
+            case TyInst ti -> {
+                if (!ti.tys().isEmpty()) throw new RuntimeException("Should be TyVar but is: " + targ);
+                fixedArgs.add(new TyVar(ti.nm(), Ty.none(), Ty.any()));
+            }
+            default -> throw new RuntimeException("Should be TyVar or TyInst with no arguments: " + targ);
             }
         }
         var fixedRHS = (TyInst) rhs.fixUp(fixedArgs);
         var args = new ArrayList<Ty>();
         args.addAll(fixedArgs);
         Ty t = new TyInst(lhs.nm(), args);
-        for (var arg : fixedArgs.reversed()) {
+        for (var arg : fixedArgs.reversed())
             t = new TyExist(arg, t);
-        }
         return new TyDecl(mod, nm, t, fixedRHS, src);
     }
 
 }
 
 /**
- * The representation of a method with a name and type signature (a tuple possibly wrapped in existentials).
- * The source information is retained for debugging purposes.
+ * The representation of a method with a name and type signature (a tuple
+ * possibly wrapped in existentials). The source information is retained for
+ * debugging purposes.
  */
 record TySig(String nm, Ty ty, String src) {
 
     @Override
     public String toString() {
         return "function " + nm + " " + ty + CodeColors.comment("\n# " + src);
-
     }
 
     /**
@@ -1049,4 +1278,11 @@ record TySig(String nm, Ty ty, String src) {
         return new TySig(nm, ty.fixUp(bounds), src);
     }
 
+    /** Return the mehtod name and method arity */
+    String nameAndArity() {
+        var t = ty;
+        while (t instanceof TyExist te)
+            t = te.ty();
+        return nm + (t instanceof TyTuple ? "/" + ((TyTuple) t).tys().size() : "/0");
+    }
 }

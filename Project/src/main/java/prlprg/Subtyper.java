@@ -592,7 +592,7 @@ class Subtyper {
         }
         GenDB.cleanUp();
         var sub = new Subtyper();
-        var functions = GenDB.sigs.get("a");
+        var functions = GenDB.sigs.get("a"); // TOOD : revisit name with arity?
         for (var me : functions) {
             var m = me.sig;
             System.err.println("Generating subtypes of " + m);

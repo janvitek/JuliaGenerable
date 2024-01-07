@@ -2,7 +2,9 @@ package prlprg;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileWriter;
+import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.FileVisitResult;
@@ -15,6 +17,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.stream.Collectors;
+
+import prlprg.Parser.MethodInformation;
 
 /**
  * Class for orchestrating the generation of type stability tests.
@@ -38,8 +42,8 @@ class Orchestrator {
     }
 
     /**
-     * A context remembers where this generator is writing to. We assume there
-     * will be multiple instances working concurrently (at some point).
+     * A context remembers where this generator is writing to. We assume there will
+     * be multiple instances working concurrently (at some point).
      */
     class Context {
 
@@ -48,6 +52,7 @@ class Orchestrator {
         Path pkgs;
         Path tests;
         List<String> testFiles = new ArrayList<>();
+        int count = 0;
 
         public Context() {
             try {
@@ -67,7 +72,8 @@ class Orchestrator {
         /**
          * Recursively delete the contents of the directory
          *
-         * @param path to the directory to delete
+         * @param path
+         *                 to the directory to delete
          */
         void delete(Path p) {
             try {
@@ -124,22 +130,6 @@ class Orchestrator {
         System.exit(0);
     }
 
-    void readResults(Context ctxt) {
-        for (var nm : ctxt.testFiles) {
-            var mi = MethodParser.parseFile(ctxt.tmp.resolve(nm).toString());
-            if (mi == null) {
-                App.output("Error parsing file " + nm);
-            } else {
-                var rty = TypeParser.fromString(mi.retType(),types);
-                var s = mi.nm() + " " + rty.toJulia();
-                if (!rty.isConcrete()) {
-                    s+= " %% Abstract";
-                }
-                App.output(s);
-            }
-        }
-    }
-
     void createGroundTests(Context ctxt) {
         try {
             try (var w = new BufferedWriter(new FileWriter(ctxt.tests.toString()))) {
@@ -159,19 +149,53 @@ class Orchestrator {
                         w.write("open(\"" + nm + "\", \"w\") do file\nwrite(file, String(take!(buffer)))\nend\n");
                     }
                 }
+                ctxt.count = cnt;
             }
         } catch (IOException e) {
             throw new Error(e);
         }
     }
 
+    void readResults(Context ctxt) {
+        File dir = ctxt.tmp.toFile();
+        FilenameFilter filter = (file, name) -> name.endsWith(".tst");
+        File[] files = dir.listFiles(filter);
+        if (files == null) {
+            System.err.println("The directory does not exist.");
+            return;
+        }
+        if (files.length != ctxt.count) {
+            System.err.println("Expected " + ctxt.count + " files, found " + files.length);
+        }
+        int count = 0;
+        for (File file : files) {
+            try {
+                var p = new Parser().withFile(file.toString());
+                var ms = MethodInformation.parse(p, file.toString());
+                if (!ms.isEmpty()) {
+                    count++;
+                }
+                for (var m : ms) {
+                    System.err.println(m);
+                }
+            } catch (Throwable e) {
+                System.err.println("Error parsing file " + file.toString() + ": " + e.getMessage());
+            }
+        }
+        if (count != ctxt.count) {
+            System.err.println("Expected " + ctxt.count + " methods, found " + count);
+        }
+    }
+
     /**
-     * Add the package name of a sig to the set of packages. A sig's package is
-     * the first part of its name. If the name does not contain a dot then
-     * nothing is added. Does the same to the types of the sig.
+     * Add the package name of a sig to the set of packages. A sig's package is the
+     * first part of its name. If the name does not contain a dot then nothing is
+     * added. Does the same to the types of the sig.
      *
-     * @param s the sig
-     * @param pkgs the set of packages
+     * @param s
+     *                 the sig
+     * @param pkgs
+     *                 the set of packages
      */
     void add_pkgs(Sig s, HashSet<String> pkgs) {
         add_nm_to_pkgs(s.nm(), pkgs);
@@ -192,20 +216,20 @@ class Orchestrator {
      */
     private void add_pkgs_for_ty(Type ty, HashSet<String> pkgs) {
         switch (ty) {
-            case Inst inst:
-                add_nm_to_pkgs(inst.nm(), pkgs);
-                break;
-            case Tuple t:
-                t.tys().forEach(typ -> add_pkgs_for_ty(typ, pkgs));
-                break;
-            case Exist e:
-                add_pkgs_for_ty(e.ty(), pkgs);
-                add_pkgs_for_ty(e.b().low(), pkgs);
-                add_pkgs_for_ty(e.b().up(), pkgs);
-                break;
-            case Union u:
-                u.tys().forEach(typ -> add_pkgs_for_ty(typ, pkgs));
-            default:
+        case Inst inst:
+            add_nm_to_pkgs(inst.nm(), pkgs);
+            break;
+        case Tuple t:
+            t.tys().forEach(typ -> add_pkgs_for_ty(typ, pkgs));
+            break;
+        case Exist e:
+            add_pkgs_for_ty(e.ty(), pkgs);
+            add_pkgs_for_ty(e.b().low(), pkgs);
+            add_pkgs_for_ty(e.b().up(), pkgs);
+            break;
+        case Union u:
+            u.tys().forEach(typ -> add_pkgs_for_ty(typ, pkgs));
+        default:
         }
     }
 
@@ -230,7 +254,8 @@ class Orchestrator {
     /**
      * Execute a Julia script.
      *
-     * @param dir the directory to execute in
+     * @param dir
+     *                the directory to execute in
      */
     void exec(Context ctxt) {
         try {
@@ -238,151 +263,11 @@ class Orchestrator {
             processBuilder.directory(ctxt.tmp.toFile());
             Process process = processBuilder.start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            while (reader.readLine() != null) {}
+            while (reader.readLine() != null) {
+            }
             process.waitFor();
         } catch (IOException | InterruptedException e) {
             throw new Error(e);
         }
     }
-}
-
-
-/**
- * Class for parsing types from strings returned by code_warntype which may have capitalized type names.x
- */
-class TypeParser {
-
-    static Type fromString(String s, GenDB.Types types) {
-        var toks = new ArrayList<String>();
-        var cur = "";
-        for (var c : s.toCharArray()) {
-            switch (c) {
-                case ' ' -> {
-                    if (!cur.isEmpty()) {
-                        toks.add(cur);
-                    }
-                    cur = "";
-                }
-                case '{', '}', ',' -> {
-                    if (!cur.isEmpty()) {
-                        toks.add(cur);
-                    }
-                    toks.add(c + "");
-                    cur = "";
-                }
-                default -> {
-                    cur += c;
-                }
-            }
-        }
-        if (!cur.isEmpty()) {
-            toks.add(cur);
-        }
-        var ntoks = new ArrayList<String>();
-        for (var t : toks) {
-            if (t.equals("{") || t.equals("}") || t.equals(",")) {
-                ntoks.add(t);
-            } else {
-                if (types.upperCaseNames.containsKey(t)) {
-                    ntoks.add(types.upperCaseNames.get(t));
-                } else {
-                    ntoks.add(t);
-                }
-            }
-        }
-        return parseType(ntoks);
-    }
-
-    static Integer parseInt(String s) {
-        try {
-            return Integer.parseInt(s);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    static Type parseType(List<String> toks) {
-        if (toks.isEmpty()) {
-            return null;
-        }
-        var t = toks.remove(0);
-        if (t.equals("Tuple")) {
-            var args = sliceCurly(toks);
-            if (args == null) { // Note that this is a Tuple type with no type arguments
-                return new Inst("Tuple", new ArrayList<>());
-            }
-            var tys = new ArrayList<Type>();
-            while (!args.isEmpty()) {
-                var arg = sliceComma(args);
-                tys.add(parseType(arg));
-            }
-            return new Tuple(tys);
-        } else if (t.equals("Union")) {
-            var args = sliceCurly(toks);
-            if (args == null) { // Again, this is a Union type with no type arguments
-                return new Inst("Union", new ArrayList<>());
-            }
-            var tys = new ArrayList<Type>();
-            while (!args.isEmpty()) {
-                var arg = sliceComma(args);
-                tys.add(parseType(arg));
-            }
-            return new Union(tys);
-        } else if (parseInt(t) != null) {
-            return new Con(t);
-        } else {
-            var args = sliceCurly(toks);
-            args = args == null ? new ArrayList<>() : args;
-            var tys = new ArrayList<Type>();
-            while (!args.isEmpty()) {
-                var arg = sliceComma(args);
-                tys.add(parseType(arg));
-            }
-            return new Inst(t, tys);
-        }
-    }
-
-    static List<String> sliceCurly(List<String> toks) {
-        var res = new ArrayList<String>();
-        if (toks.isEmpty() || !toks.get(0).equals("{")) {
-            return null;
-        }
-        toks.remove(0);
-        int cnt = 1;
-        while (!toks.isEmpty()) {
-            var t = toks.remove(0);
-            if (t.equals("}") && cnt == 1) {
-                break;
-            }
-            res.add(t);
-            if (t.equals("{")) {
-                cnt++;
-            } else if (t.equals("}")) {
-                cnt--;
-            }
-        }
-        return res;
-    }
-
-    static List<String> sliceComma(List<String> toks) {
-        var res = new ArrayList<String>();
-        if (toks.isEmpty()) {
-            return res;
-        }
-        int cnt = 0;
-        while (!toks.isEmpty()) {
-            var t = toks.remove(0);
-            if (t.equals(",") && cnt == 0) {
-                break;
-            }
-            res.add(t);
-            if (t.equals("{")) {
-                cnt++;
-            } else if (t.equals("}")) {
-                cnt--;
-            }
-        }
-        return res;
-    }
-
 }
