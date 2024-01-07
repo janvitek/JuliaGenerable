@@ -52,7 +52,9 @@ class GenDB {
             List<Info> children = new ArrayList<>(); // nodes of direct children in the type hierarchy
             List<Type> level_1_kids = new ArrayList<>(); // the Fuel==1 children of this type
 
-            // Create a type info from a parsed type declaration
+            /**
+             * Create a type info from a parsed type declaration
+             */
             Info(TypeDeclaration ty) {
                 NameUtils.registerName(ty.nm());
                 this.nm = ty.nm();
@@ -61,7 +63,9 @@ class GenDB {
                 this.defMissing = false;
             }
 
-            // Create a type info for a missing type
+            /**
+             * Create a type info for a missing type
+             */
             Info(String missingType) {
                 this.nm = missingType;
                 NameUtils.registerName(nm);
@@ -252,7 +256,9 @@ class GenDB {
             }
         }
 
-        /** Helper method for printing the type hierarchy */
+        /**
+         * Helper method for printing the type hierarchy
+         */
         private void printHierarchy(Info n, int pos) {
             var str = n.decl == null || n.decl.isAbstract() ? CodeColors.abstractType(n.nm) : n.nm;
             str = n.decl.mod().contains("missing") ? ("? " + CodeColors.abstractType(str)) : str;
@@ -346,7 +352,11 @@ class GenDB {
             }
         }
 
-        void toDeclAll() {
+        /**
+         * Transform all signatures to Sigs. This is done after all types have been
+         * patched.
+         */
+        void toSigAll() {
             for (var nm : allNames()) {
                 for (var s : get(nm)) {
                     var n = s.patched;
@@ -365,6 +375,10 @@ class GenDB {
     static Inst any = new Inst("Any", List.of());
     static Union none = new Union(List.of());
 
+    /**
+     * Save both the Types and Sigs to a file. Currently in the temp directory. This
+     * assumes we have only one generator running at a time.
+     */
     static final void saveDB() {
         try {
             var file = new FileOutputStream("/tmp/db.ser");
@@ -374,12 +388,15 @@ class GenDB {
             out.close();
             file.close();
             App.info("Saved DB to file");
-
         } catch (IOException e) {
             throw new RuntimeException("Failed to save DB: " + e.getMessage());
         }
     }
 
+    /**
+     * Read the DB from a file. Currently in the temp directory. This assumes we
+     * have only one generator running at a time.
+     */
     static final boolean readDB() {
         try {
             var file = new FileInputStream("/tmp/db.ser");
@@ -412,7 +429,7 @@ class GenDB {
         types.fixUpAll();
         types.toDeclAll();
         types.printHierarchy();
-        sigs.toDeclAll();
+        sigs.toSigAll();
     }
 
 }
@@ -448,10 +465,16 @@ interface Type {
      */
     String toJulia();
 
-    // The top type "Any"
+    /**
+     * A type is equal to Any if it is an instance of Any or if it is a Union all of
+     * the form "T where T".
+     */
     boolean isAny();
 
-    // The empty union
+    /**
+     * A type is equal to None if it is a Union with no elements. NOTE: `Union` and
+     * `Union{}` are not the same thing.
+     */
     boolean isNone();
 
     /**
@@ -465,10 +488,17 @@ interface Type {
 
 }
 
-// A construtor instance may have type parameters, examples are: Int32 and Vector{Int,N}. The LHS
-// of a type declaration can only have bound variables. The RHS of a type declaration can have a
-// mix of instance and variables (bound on LHS of <:). On its own, an instance should not have
-// free variables.
+/**
+ * A construtor instance may have type parameters, examples are:
+ * 
+ * <pre>
+ * Int32    Vector{Int,N}
+ * </pre>
+ * 
+ * The LHS of a type declaration can only have bound variables. The RHS of a
+ * type declaration can have a mix of instance and variables (bound on LHS of
+ * <:). On its own, an instance should not have free variables.
+ */
 record Inst(String nm, List<Type> tys) implements Type, Serializable {
 
     @Override
@@ -517,6 +547,10 @@ record Inst(String nm, List<Type> tys) implements Type, Serializable {
         return GenDB.types.isConcrete(nm, tys.size());
     }
 
+    /**
+     * Return the list of all types declaration that are subtypes of this type. This
+     * is a recursive computation that does not unfold existentials.
+     */
     List<Decl> subtypeDecls() {
         var res = new ArrayList<Decl>();
         var wl = new ArrayList<String>();
@@ -530,7 +564,11 @@ record Inst(String nm, List<Type> tys) implements Type, Serializable {
     }
 }
 
-// A variable refers to a Bound in an enclosing Exist. Free variables are not expected.
+/**
+ * A variable refers to a Bound in an enclosing Exist. Free variables are not
+ * allowed.
+ * 
+ */
 record Var(Bound b) implements Type, Serializable {
 
     @Override
@@ -570,9 +608,12 @@ record Var(Bound b) implements Type, Serializable {
 
 }
 
-// A Bound introduces a variable, with an upper and a lower bound. Julia allows writing inconsistent
-// bounds, i.e. !(low <: up). These are meaningless types which cannot be used. We do not check this.
-// We check that types are well-formed (no undefined constructor and no free variables)
+/**
+ * A Bound introduces a variable, with an upper and a lower bound. Julia allows
+ * writing inconsistent bounds, i.e. !(low <: up). These are meaningless types
+ * which cannot be used. We do not check this. We check that types are
+ * well-formed (no undefined constructor and no free variables)
+ */
 record Bound(String nm, Type low, Type up) implements Serializable {
 
     @Override
@@ -580,24 +621,41 @@ record Bound(String nm, Type low, Type up) implements Serializable {
         return (!low.isNone() ? low + "<:" : "") + CodeColors.variable(nm) + (!up.isAny() ? "<:" + up : "");
     }
 
+    /**
+     * Return a deep clone of this bound. The map is used to ensure that variables
+     * are properly rebound.
+     */
     public Bound deepClone(HashMap<Bound, Bound> map) {
         var me = new Bound(nm, low, up); // fix up and low
         map.put(this, me);
         return me;
     }
 
+    /**
+     * Structural equality means two bounds have the same syntactic representation.
+     * This is a weak form of equallity as it does not account for equivalences such
+     * as reording the elements of a union. Semantic equality is tricky due to
+     * distributivity of unions over tuples and existentials.
+     */
     public boolean structuralEquals(Bound b) {
         return nm.equals(b.nm) && low.structuralEquals(b.low) && up.structuralEquals(b.up);
     }
 
+    /**
+     * Return a Julia string representation of the bound, this is a syntactic
+     * transformation only.
+     */
     public String toJulia() {
         return (!low.isNone() ? low.toJulia() + "<:" : "") + nm + (!up.isAny() ? "<:" + up.toJulia() : "");
     }
 
 }
 
-// A constant, such as a number, character or string. The implementation of the parser does not attempt
-// do much we constant, they are treated as uninterpreted strings.
+/**
+ * A constant, such as a number, character or string. The implementation of the
+ * parser does not attempt do much we constant, they are treated as
+ * uninterpreted strings.
+ */
 record Con(String nm) implements Type, Serializable {
 
     @Override
@@ -637,6 +695,10 @@ record Con(String nm) implements Type, Serializable {
 
 }
 
+/**
+ * An existential type is of the form "∃ T. ty" where T is a variable and ty is
+ * a type.
+ */
 record Exist(Bound b, Type ty) implements Type, Serializable {
 
     @Override
@@ -677,6 +739,10 @@ record Exist(Bound b, Type ty) implements Type, Serializable {
 
 }
 
+/**
+ * A Untion type is of the form "T1 | T2 | ... | Tn" where T1, ..., Tn are
+ * types. An empty union represents no values.
+ */
 record Union(List<Type> tys) implements Type, Serializable {
 
     @Override
@@ -734,6 +800,9 @@ record Union(List<Type> tys) implements Type, Serializable {
 
 }
 
+/**
+ * A tuple type is of the form "(T1, T2, ..., Tn)" where T1, ..., Tn are types.
+ */
 record Tuple(List<Type> tys) implements Type, Serializable {
 
     @Override
@@ -823,6 +892,11 @@ record Decl(String mod, String nm, Type ty, Inst parInst, Decl parent, String sr
     }
 }
 
+/**
+ * A type signature is of the form "f{T}(x::T, y::T) where T" where f is the
+ * function name, T is a type variable, x and y are arguments and T is a type
+ * bound.
+ */
 record Sig(String nm, Type ty, String src) implements Serializable {
 
     // we say a method signature is "ground" if all of its arguments are concrete
@@ -860,6 +934,9 @@ record Sig(String nm, Type ty, String src) implements Serializable {
 
 }
 
+/**
+ * Information about a method returned by code_warntype.
+ */
 class Method implements Serializable {
     Sig sig;
     String nameArity;
@@ -869,6 +946,9 @@ class Method implements Serializable {
     List<Calls> ops = new ArrayList<>();
     String filename;
 
+    /**
+     * A function call.
+     */
     record Calls(String tgt, List<String> args, Sig called) {
 
         @Override

@@ -107,7 +107,7 @@ class Parser {
 
         static TypeInst fresh() {
             var nm = NameUtils.fresh();
-            return new TypeInst(nm, new ArrayList<>());
+            return new TypeInst(nm, null);
         }
 
         // can get ::  T   |   T <: U   |   L <: T <: U   | T >: L |   >: L
@@ -1123,7 +1123,6 @@ record TyExist(Ty v, Ty ty) implements Ty, Serializable {
             newBound.add(tv);
             return new TyExist(tv, body.fixUp(newBound));
         } else if (maybeVar instanceof TyTuple) {
-            // struct RAICode.QueryEvaluator.Vectorized.Operators.var\"#21#22\"{var\"#10063#T\", var\"#10064#vars\", var_types, *, var\"#10065#target\", Tuple} <: Function end (from module RAICode.QueryEvaluator.Vectorized.Operators)
             throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: got tuple ");
         } else {
             throw new RuntimeException("Should be a TyVar or a TyInst with no arguments: " + maybeVar);
