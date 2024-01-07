@@ -3,6 +3,7 @@ package prlprg;
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -32,9 +33,8 @@ class Parser {
             if (p.has("(")) {
                 var q = p.sliceMatchedDelims("(", ")");
                 nm += "(";
-                while (!q.isEmpty()) {
+                while (!q.isEmpty())
                     nm += q.take().toString();
-                }
                 nm += ")";
             }
             nm = nm.charAt(0) == '\"' && nm.charAt(nm.length() - 1) == '\"' ? nm : // A quoted string, leave it as is.
@@ -47,12 +47,9 @@ class Parser {
          */
         static String parseFunctionName(Parser p) {
             var str = "";
-            while (!p.isEmpty() && !p.peek().is("(") && !p.peek().is("::")) {
+            while (!p.isEmpty() && !p.peek().is("(") && !p.peek().is("::"))
                 str += p.take().toString();
-            }
-            if (str.isEmpty()) {
-                p.failAt("Missing function name", p.peek());
-            }
+            if (str.isEmpty()) p.failAt("Missing function name", p.peek());
             /// TOOD: I think we don't need this anymore...  return str.replaceAll("\"", "");  // Get rid of quotes in case of "fun"
             return str;
         }
@@ -64,14 +61,13 @@ class Parser {
 
         static ParsedType parse(Parser p) {
             var name = ParsedType.parseTypeName(p);
-            if (!p.has("{")) {
-                return new TypeInst(name, null); // to denote the absence of type parameters (i.e. not an empty list)
-            }
+            if (!p.has("{")) return new TypeInst(name, null); // to denote the absence of type parameters (i.e. not an empty list)
+
             List<ParsedType> params = new ArrayList<>();
             var q = p.sliceMatchedDelims("{", "}");
-            while (!q.isEmpty()) {
+            while (!q.isEmpty())
                 params.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
-            }
+
             return new TypeInst(name, params);
         }
 
@@ -157,21 +153,17 @@ class Parser {
                 }
             }
             var type = TypeInst.parse(p);
-            if (!p.has("where")) {
-                return type;
-            }
-            if (p.drop().has("{")) {
-                p = p.sliceMatchedDelims("{", "}");
-            }
+            if (!p.has("where")) return type;
+
+            if (p.drop().has("{")) p = p.sliceMatchedDelims("{", "}");
+
             var boundVars = new ArrayList<ParsedType>();
             while (!p.isEmpty()) {
                 boundVars.add(BoundVar.parse(p));
                 if (p.has(",")) {
                     p.drop().failIfEmpty("Missing type parameter", p.peek());
-
-                } else {
+                } else
                     break;
-                }
             }
             return new UnionAllInst(type, boundVars);
         }
@@ -180,9 +172,9 @@ class Parser {
         public Ty toTy() {
             var ty = body.toTy();
             var it = bounds.listIterator(bounds.size());
-            while (it.hasPrevious()) { // Going backwards, building Exists inside out
+            while (it.hasPrevious()) // Going backwards, building Exists inside out
                 ty = new TyExist(it.previous().toTy(), ty);
-            }
+
             return ty;
         }
 
@@ -214,9 +206,8 @@ class Parser {
             }
             if (p.peek().isNumber()) {
                 p.drop();
-                if (!modifiers.contains("primitive")) {
-                    p.failAt("Expected 'primitive'", p.peek());
-                }
+                if (!modifiers.contains("primitive")) p.failAt("Expected 'primitive'", p.peek());
+
             }
             ParsedType parent = null;
             if (p.has("<:")) {
@@ -250,9 +241,9 @@ class Parser {
         // can be:  x   |  x :: T   |  :: T   |   x...  |   :: T...
         static Param parse(Parser p) {
             var nm = "";
-            while (!p.isEmpty() && !p.has("::")) {
+            while (!p.isEmpty() && !p.has("::"))
                 nm += p.take().toString();
-            }
+
             nm = nm.isEmpty() ? "?NA" : nm;
             var tok = p.take();
             var type = tok.is("::") ? UnionAllInst.parse(p) : null;
@@ -285,20 +276,17 @@ class Parser {
 
         static List<ParsedType> parseWhere(Parser p) {
             var wheres = new ArrayList<ParsedType>();
-            if (!p.has("where")) {
-                return wheres;
-            }
+            if (!p.has("where")) return wheres;
+
             p.drop();
-            if (p.has("{")) {
-                p = p.sliceMatchedDelims("{", "}"); // we only need to read the where clause
-            }
+            if (p.has("{")) p = p.sliceMatchedDelims("{", "}"); // we only need to read the where clause
+
             while (!p.isEmpty()) {
                 wheres.add(BoundVar.parse(p));
                 if (p.has(",")) {
                     p.drop().failIfEmpty("Missing type parameter", p.peek());
-                } else if (p.has("[")) { // comment with line/file info
+                } else if (p.has("[")) // comment with line/file info
                     break;
-                }
             }
             return wheres;
         }
@@ -314,15 +302,13 @@ class Parser {
             var params = new ArrayList<Param>();
             while (!q.isEmpty()) {
                 var r = q.sliceNextCommaOrSemi();
-                if (r.isEmpty()) {
-                    break;
-                }
+                if (r.isEmpty()) break;
+
                 params.add(Param.parse(r));
             }
             var wheres = parseWhere(p);
-            if (p.has("[")) {
-                p.sliceMatchedDelims("[", "]"); // drops it
-            }
+            if (p.has("[")) p.sliceMatchedDelims("[", "]"); // drops it
+
             return new Function(name, params, wheres, source);
         }
 
@@ -330,9 +316,9 @@ class Parser {
             List<Ty> tys = ps.stream().map(Param::toTy).collect(Collectors.toList());
             var reverse = wheres.reversed();
             Ty nty = new TyTuple(tys);
-            for (var where : reverse) {
+            for (var where : reverse)
                 nty = new TyExist(where.toTy(), nty);
-            }
+
             return new TySig(nm, nty, src);
         }
 
@@ -375,16 +361,14 @@ class Parser {
             tdecl = tdecl.fixUp(new ArrayList<>());
             this.decl = new Sig(tdecl.nm(), tdecl.ty().toType(new ArrayList<>()), tdecl.src());
             q = p.sliceLine();
-            while (!q.isEmpty() && !q.has("@")) {
+            while (!q.isEmpty() && !q.has("@"))
                 q.drop();
-            }
+
             q.take("@");
             this.src = "";
-            while (!q.isEmpty()) {
+            while (!q.isEmpty())
                 src += q.take().toString() + " ";
-            }
             src = src.trim();
-
         }
 
         List<Type> parseStaticArguments(Parser p) {
@@ -426,9 +410,8 @@ class Parser {
         }
 
         Type parseReturnType(Parser p) {
-            if (!p.has("Body")) {
-                return null;
-            }
+            if (!p.has("Body")) return null;
+
             p.take("Body").take("::");
             var pty = UnionAllInst.parse(p);
             var ty = pty.toTy().fixUp(new ArrayList<>());
@@ -574,15 +557,13 @@ class Parser {
     }
 
     void parseSigs() {
-        while (!isEmpty()) {
+        while (!isEmpty())
             GenDB.addSig(Function.parse(sliceLine()).toTy());
-        }
     }
 
     void parseTypes() {
-        while (!isEmpty()) {
+        while (!isEmpty())
             GenDB.types.addParsed(TypeDeclaration.parse(sliceLine()));
-        }
     }
 
     public static void main(String[] args) {
@@ -642,9 +623,8 @@ class Parser {
                 if (s.endsWith("...") && s.length() > 3) {
                     ntoks.add(new Tok(t.l, t.k, t.ln, t.start, t.end - 3));
                     ntoks.add(new Tok(t.l, Kind.DELIMITER, t.ln, t.end - 3, t.end));
-                } else {
+                } else
                     ntoks.add(t);
-                }
             }
             return ntoks;
         }
@@ -699,11 +679,10 @@ class Parser {
             if (cur.end - prv.start != sym.length()) { // not the right length
                 return false;
             }
-            for (int i = 0; i < sym.length(); i++) {
+            for (int i = 0; i < sym.length(); i++)
                 if (sym.charAt(i) != prv.charAt(i + prv.start)) { // can read past of token,
                     return false; // as long as both are on the same line, which they are
                 }
-            }
             return true;
         }
 
@@ -733,11 +712,8 @@ class Parser {
                 if (length() != s.length()) { // have to be of the same length
                     return false;
                 }
-                for (int i = 0; i < s.length(); i++) {
-                    if (charAt(i + start) != s.charAt(i)) {
-                        return false;
-                    }
-                }
+                for (int i = 0; i < s.length(); i++)
+                    if (charAt(i + start) != s.charAt(i)) return false;
                 return true;
             }
 
@@ -751,12 +727,8 @@ class Parser {
                 for (int i = start; i < end; i++) {
                     var c = charAt(i);
                     var digit = Character.isDigit(c);
-                    if (!digit && c != '.') {
-                        return false;
-                    }
-                    if (!digit) {
-                        dots++;
-                    }
+                    if (!digit && c != '.') return false;
+                    if (!digit) dots++;
                 }
                 return dots == 0 || (dots == 1 && length() > 1);
             }
@@ -788,9 +760,8 @@ class Parser {
         }
 
         Tok next() {
-            if (pos >= lns.length) {
-                return eof();
-            }
+            if (pos >= lns.length) return eof();
+
             if (off >= lns[pos].length()) {
                 pos++;
                 off = 0;
@@ -800,32 +771,28 @@ class Parser {
             var start = off;
             if (Character.isWhitespace(cp)) {
                 off++;
-                while (off < lns[pos].length() && Character.isWhitespace(lns[pos].codePointAt(off))) {
+                while (off < lns[pos].length() && Character.isWhitespace(lns[pos].codePointAt(off)))
                     off++;
-                }
                 return next();
             } else if (isDelimiter(cp)) {
                 off++;
                 return new Tok(this, Kind.DELIMITER, pos, start, off);
             } else if (cp == '"') {
                 off++;
-                while (off < lns[pos].length() && lns[pos].charAt(off) != '"') {
+                while (off < lns[pos].length() && lns[pos].charAt(off) != '"')
                     off++;
-                }
                 off++;
                 return new Tok(this, Kind.STRING, pos, start, off);
             } else if (cp == '\'') {
                 off++;
-                while (off < lns[pos].length() && lns[pos].charAt(off) != '\'') {
+                while (off < lns[pos].length() && lns[pos].charAt(off) != '\'')
                     off++;
-                }
                 off++;
                 return new Tok(this, Kind.STRING, pos, start, off);
             } else {
                 off++;
-                while (off < lns[pos].length() && !Character.isWhitespace(lns[pos].codePointAt(off)) && !isDelimiter(lns[pos].codePointAt(off)) && lns[pos].charAt(off) != '"' && lns[pos].charAt(off) != '\'') {
+                while (off < lns[pos].length() && !Character.isWhitespace(lns[pos].codePointAt(off)) && !isDelimiter(lns[pos].codePointAt(off)) && lns[pos].charAt(off) != '"' && lns[pos].charAt(off) != '\'')
                     off++;
-                }
                 return new Tok(this, Kind.IDENTIFIER, pos, start, off);
             }
         }
@@ -835,9 +802,8 @@ class Parser {
     // Used for "(" and ")" and "{" and "}".
     Parser sliceMatchedDelims(String s, String e) {
         var p = new Parser();
-        if (!has(s)) {
-            return p; // empty slice
-        }
+        if (!has(s)) return p; // empty slice
+
         drop();
         var count = 1; // we have seen 1 starting delimiter
         while (!(count == 1 && has(e))) { // stop when next token is matching close
@@ -870,24 +836,17 @@ class Parser {
                 break;
             }
         }
-        if (has(",") || has(";")) {
-            drop(); // don't drop if empty
-        }
-        if (count != 0) {
-            failAt("Bracketing went wrong while looking for  , or ;", last);
-        }
+        if (has(",") || has(";")) drop(); // don't drop if empty
+        if (count != 0) failAt("Bracketing went wrong while looking for  , or ;", last);
         return p;
     }
 
     Parser sliceLine() {
         var p = new Parser();
-        if (isEmpty()) {
-            return p;
-        }
+        if (isEmpty()) return p;
         int ln = peek().ln;
-        while (!peek().isEOF() && peek().ln == ln) {
+        while (!peek().isEOF() && peek().ln == ln)
             p.add(take());
-        }
         return p;
     }
 
@@ -905,9 +864,7 @@ class Parser {
 
     Lex.Tok peek() {
         var tok = !toks.isEmpty() ? toks.get(0) : eof();
-        if (!tok.isEOF()) {
-            last = tok;
-        }
+        if (!tok.isEOF()) last = tok;
         return tok;
     }
 
@@ -921,13 +878,9 @@ class Parser {
     }
 
     Parser take(String s) {
-        if (isEmpty()) {
-            throw new Error("Expected " + s + " but got nothing");
-        }
+        if (isEmpty()) throw new Error("Expected " + s + " but got nothing");
         var t = take();
-        if (!t.is(s)) {
-            throw new Error("Expected " + s + " but got " + t);
-        }
+        if (!t.is(s)) throw new Error("Expected " + s + " but got " + t);
         return this;
     }
 
@@ -941,9 +894,7 @@ class Parser {
     }
 
     void failIfEmpty(String msg, Lex.Tok last) {
-        if (isEmpty()) {
-            failAt(msg, last);
-        }
+        if (isEmpty()) failAt(msg, last);
     }
 }
 
@@ -996,7 +947,7 @@ interface Ty {
 
 }
 
-record TyInst(String nm, List<Ty> tys) implements Ty {
+record TyInst(String nm, List<Ty> tys) implements Ty, Serializable {
 
     @Override
     public String toString() {
@@ -1011,14 +962,10 @@ record TyInst(String nm, List<Ty> tys) implements Ty {
     public Ty fixUp(List<TyVar> bounds) {
         var varOrNull = bounds.stream().filter(v -> v.nm().equals(nm())).findFirst();
         if (varOrNull.isPresent()) {
-            if (tys.isEmpty()) {
-                return varOrNull.get();
-            }
+            if (tys.isEmpty()) return varOrNull.get();
             throw new RuntimeException("Type " + nm() + " is a variable used as a type.");
         }
-        if (nm.contains("(") || nm.contains("\"")) {
-            return new TyCon(nm);
-        }
+        if (nm.contains("(") || nm.contains("\"")) return new TyCon(nm);
         GenDB.types.patchIfNeeeded(nm);
         var args = new ArrayList<Ty>();
         var vars = new ArrayList<TyVar>();
@@ -1034,9 +981,8 @@ record TyInst(String nm, List<Ty> tys) implements Ty {
             }
         }
         Ty t = new TyInst(nm, args);
-        for (var v : vars) {
+        for (var v : vars)
             t = new TyExist(v, t);
-        }
         return t;
 
     }
@@ -1058,7 +1004,7 @@ record TyInst(String nm, List<Ty> tys) implements Ty {
 
 }
 
-record TyVar(String nm, Ty low, Ty up) implements Ty {
+record TyVar(String nm, Ty low, Ty up) implements Ty, Serializable {
 
     @Override
     public String toString() {
@@ -1094,7 +1040,7 @@ record TyVar(String nm, Ty low, Ty up) implements Ty {
  * A constant such as 5 or a symbol or a typeof. The value of the constant is
  * kept as its original string representation.
  */
-record TyCon(String nm) implements Ty {
+record TyCon(String nm) implements Ty, Serializable {
 
     @Override
     public String toString() {
@@ -1112,7 +1058,7 @@ record TyCon(String nm) implements Ty {
     }
 }
 
-record TyTuple(List<Ty> tys) implements Ty {
+record TyTuple(List<Ty> tys) implements Ty, Serializable {
 
     @Override
     public String toString() {
@@ -1131,7 +1077,7 @@ record TyTuple(List<Ty> tys) implements Ty {
 
 }
 
-record TyUnion(List<Ty> tys) implements Ty {
+record TyUnion(List<Ty> tys) implements Ty, Serializable {
 
     @Override
     public String toString() {
@@ -1150,7 +1096,7 @@ record TyUnion(List<Ty> tys) implements Ty {
 
 }
 
-record TyExist(Ty v, Ty ty) implements Ty {
+record TyExist(Ty v, Ty ty) implements Ty, Serializable {
 
     @Override
     public String toString() {
@@ -1195,9 +1141,7 @@ record TyExist(Ty v, Ty ty) implements Ty {
             up = tvar.up().toType(env);
         } else { // Given that we have alreadty performed fixup, this should not occur. Or? 
             var inst = (TyInst) v();
-            if (!inst.tys().isEmpty()) {
-                throw new RuntimeException("Should be a TyVar but is a type: " + ty);
-            }
+            if (!inst.tys().isEmpty()) throw new RuntimeException("Should be a TyVar but is a type: " + ty);
             name = inst.nm();
             low = GenDB.none;
             up = GenDB.any;
@@ -1214,7 +1158,7 @@ record TyExist(Ty v, Ty ty) implements Ty {
  * A type declaration has modifiers, a name, type expression and a parent type.
  * We also keep the source text for debugging purposes.
  */
-record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
+record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) implements Serializable {
 
     @Override
     public String toString() {
@@ -1264,7 +1208,7 @@ record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) {
  * possibly wrapped in existentials). The source information is retained for
  * debugging purposes.
  */
-record TySig(String nm, Ty ty, String src) {
+record TySig(String nm, Ty ty, String src) implements Serializable {
 
     @Override
     public String toString() {

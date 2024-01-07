@@ -13,7 +13,7 @@ public class App {
             "-r=../Inputs/", // root directory with input files
             "-f=stdf2.jlg", // file with function signatures
             "-t=stdt2.jlg", // file with type declarations
-            "-h=FALSE", // print hierarchy
+            "-h=TRUE", // print hierarchy
             "-s=FALSE", // print shorter type names
             "-v=FALSE", // verbose
     };
@@ -23,22 +23,24 @@ public class App {
     public static void main(String[] args) {
         parseArgs(defaultArgs); // set default values
         parseArgs(args); // override them with command line arguments
-        warn("Parsing...");
-        var p = debug ? new Parser().withString(tstr) : new Parser().withFile(dir + types);
-        p.parseTypes();
-        p = debug ? new Parser().withString(str) : new Parser().withFile(dir + functions);
-        p.parseSigs();
-        warn("Preparing type and signature database...");
-        GenDB.cleanUp();
-        var sigs = GenDB.sigs.allSigs();
-        int sigsC = 0, groundC = 0;
-        for (var sig : sigs) {
-            sigsC++;
-            if (sig.isGround()) {
-                groundC++;
+
+        if (!GenDB.readDB()) {
+            warn("Parsing...");
+            var p = debug ? new Parser().withString(tstr) : new Parser().withFile(dir + types);
+            p.parseTypes();
+            p = debug ? new Parser().withString(str) : new Parser().withFile(dir + functions);
+            p.parseSigs();
+            warn("Preparing type and signature database...");
+            GenDB.cleanUp();
+            var sigs = GenDB.sigs.allSigs();
+            int sigsC = 0, groundC = 0;
+            for (var sig : sigs) {
+                sigsC++;
+                if (sig.isGround()) groundC++;
             }
+            warn("Sigs: " + sigsC + ", ground: " + groundC);
+            GenDB.saveDB();
         }
-        warn("Sigs: " + sigsC + ", ground: " + groundC);
 
         Orchestrator gen = new Orchestrator(GenDB.types, GenDB.sigs);
         gen.gen();

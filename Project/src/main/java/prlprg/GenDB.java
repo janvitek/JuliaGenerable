@@ -1,5 +1,11 @@
 package prlprg;
 
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.io.FileInputStream;
+import java.io.ObjectInputStream;
 import prlprg.Parser.MethodInformation;
 import java.util.HashSet;
 import java.util.ArrayList;
@@ -12,7 +18,7 @@ import prlprg.Parser.TypeDeclaration;
 
 class GenDB {
 
-    static class Types {
+    static class Types implements Serializable {
 
         final private HashMap<String, Info> db = new HashMap<>(); // all types
         final HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused (i.e. types with multiple declarations)
@@ -33,11 +39,10 @@ class GenDB {
          * ready to be used for generation. The class keeps all these stages for
          * debugging purposes.
          */
-        class Info {
+        class Info implements Serializable {
 
             String nm; //name of the type
             boolean defMissing; // was this patched because it was missing ?
-            TypeDeclaration parsed; // the parsed type declaration
             TyDecl pre_patched; // the type declaration before patching
             TyDecl patched; // the type declaration after patching
             Decl decl; // the final form of the type declaration, this is used for subtype generation
@@ -51,7 +56,6 @@ class GenDB {
             Info(TypeDeclaration ty) {
                 NameUtils.registerName(ty.nm());
                 this.nm = ty.nm();
-                this.parsed = ty;
                 this.pre_patched = ty.toTy();
                 this.patched = pre_patched; // default, good for simple types
                 this.defMissing = false;
@@ -269,12 +273,12 @@ class GenDB {
      * a set of methods. The internal Info class represent a single method
      * definition. The db can be queried by function name. s
      */
-    static class Signatures {
+    static class Signatures implements Serializable {
 
         /**
          * Represents a method.
          */
-        class Info {
+        class Info implements Serializable {
 
             TySig pre_patched;
             TySig patched;
@@ -294,9 +298,7 @@ class GenDB {
          */
         List<Info> get(String nm) {
             var res = db.get(nm);
-            if (res == null) {
-                db.put(nm, res = new ArrayList<>());
-            }
+            if (res == null) db.put(nm, res = new ArrayList<>());
             return res;
         }
 
@@ -323,9 +325,8 @@ class GenDB {
         List<Sig> allSigs() {
             var res = new ArrayList<Sig>();
             for (var nm : allNames()) {
-                for (var info : get(nm)) {
+                for (var info : get(nm))
                     res.add(info.sig);
-                }
             }
             return res;
         }
@@ -340,9 +341,8 @@ class GenDB {
             types.upperCaseNames.put("UNION", "Union");
             types.upperCaseNames.put("TUPLE", "Tuple");
             for (var name : allNames()) {
-                for (var sig : get(name)) {
+                for (var sig : get(name))
                     sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
-                }
             }
         }
 
@@ -360,10 +360,41 @@ class GenDB {
         }
     }
 
-    static final Types types = new Types();
-    static final Signatures sigs = new Signatures();
+    static Types types = new Types();
+    static Signatures sigs = new Signatures();
     static Inst any = new Inst("Any", List.of());
     static Union none = new Union(List.of());
+
+    static final void saveDB() {
+        try {
+            var file = new FileOutputStream("/tmp/db.ser");
+            var out = new ObjectOutputStream(file);
+            out.writeObject(types);
+            out.writeObject(sigs);
+            out.close();
+            file.close();
+            App.info("Saved DB to file");
+
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to save DB: " + e.getMessage());
+        }
+    }
+
+    static final boolean readDB() {
+        try {
+            var file = new FileInputStream("/tmp/db.ser");
+            var in = new ObjectInputStream(file);
+            types = (Types) in.readObject();
+            sigs = (Signatures) in.readObject();
+            in.close();
+            file.close();
+            App.info("Read DB from file");
+            return true;
+        } catch (Exception e) {
+            App.warn("Failed to read DB: " + e.getMessage());
+            return false;
+        }
+    }
 
     /**
      * Add a mehotd declaration to the DB. Called from the parser.
@@ -438,7 +469,7 @@ interface Type {
 // of a type declaration can only have bound variables. The RHS of a type declaration can have a
 // mix of instance and variables (bound on LHS of <:). On its own, an instance should not have
 // free variables.
-record Inst(String nm, List<Type> tys) implements Type {
+record Inst(String nm, List<Type> tys) implements Type, Serializable {
 
     @Override
     public String toString() {
@@ -455,13 +486,10 @@ record Inst(String nm, List<Type> tys) implements Type {
     @Override
     public boolean structuralEquals(Type t) {
         if (t instanceof Inst i) {
-            if (!nm.equals(i.nm) || tys.size() != i.tys.size()) {
-                return false;
-            }
+            if (!nm.equals(i.nm) || tys.size() != i.tys.size()) return false;
+
             for (int j = 0; j < tys.size(); j++) {
-                if (!tys.get(j).structuralEquals(i.tys.get(j))) {
-                    return false;
-                }
+                if (!tys.get(j).structuralEquals(i.tys.get(j))) return false;
             }
             return true;
         }
@@ -493,18 +521,17 @@ record Inst(String nm, List<Type> tys) implements Type {
         var res = new ArrayList<Decl>();
         var wl = new ArrayList<String>();
         wl.add(nm);
-        while (!wl.isEmpty()) {
+        while (!wl.isEmpty())
             for (var subnm : GenDB.types.getSubtypes(wl.removeFirst())) {
                 res.add(GenDB.types.get(nm).decl);
                 wl.add(subnm);
             }
-        }
         return res;
     }
 }
 
 // A variable refers to a Bound in an enclosing Exist. Free variables are not expected.
-record Var(Bound b) implements Type {
+record Var(Bound b) implements Type, Serializable {
 
     @Override
     public String toString() {
@@ -546,7 +573,7 @@ record Var(Bound b) implements Type {
 // A Bound introduces a variable, with an upper and a lower bound. Julia allows writing inconsistent
 // bounds, i.e. !(low <: up). These are meaningless types which cannot be used. We do not check this.
 // We check that types are well-formed (no undefined constructor and no free variables)
-record Bound(String nm, Type low, Type up) {
+record Bound(String nm, Type low, Type up) implements Serializable {
 
     @Override
     public String toString() {
@@ -571,7 +598,7 @@ record Bound(String nm, Type low, Type up) {
 
 // A constant, such as a number, character or string. The implementation of the parser does not attempt
 // do much we constant, they are treated as uninterpreted strings.
-record Con(String nm) implements Type {
+record Con(String nm) implements Type, Serializable {
 
     @Override
     public String toString() {
@@ -610,7 +637,7 @@ record Con(String nm) implements Type {
 
 }
 
-record Exist(Bound b, Type ty) implements Type {
+record Exist(Bound b, Type ty) implements Type, Serializable {
 
     @Override
     public String toString() {
@@ -650,7 +677,7 @@ record Exist(Bound b, Type ty) implements Type {
 
 }
 
-record Union(List<Type> tys) implements Type {
+record Union(List<Type> tys) implements Type, Serializable {
 
     @Override
     public String toString() {
@@ -666,13 +693,10 @@ record Union(List<Type> tys) implements Type {
     @Override
     public boolean structuralEquals(Type t) {
         if (t instanceof Union u) {
-            if (tys.size() != u.tys.size()) {
-                return false;
-            }
+            if (tys.size() != u.tys.size()) return false;
+
             for (int i = 0; i < tys.size(); i++) {
-                if (!tys.get(i).structuralEquals(u.tys.get(i))) {
-                    return false;
-                }
+                if (!tys.get(i).structuralEquals(u.tys.get(i))) return false;
             }
             return true;
         }
@@ -710,7 +734,7 @@ record Union(List<Type> tys) implements Type {
 
 }
 
-record Tuple(List<Type> tys) implements Type {
+record Tuple(List<Type> tys) implements Type, Serializable {
 
     @Override
     public String toString() {
@@ -726,13 +750,9 @@ record Tuple(List<Type> tys) implements Type {
     @Override
     public boolean structuralEquals(Type t) {
         if (t instanceof Tuple tu) {
-            if (tys.size() != tu.tys.size()) {
-                return false;
-            }
+            if (tys.size() != tu.tys.size()) return false;
             for (int i = 0; i < tys.size(); i++) {
-                if (!tys.get(i).structuralEquals(tu.tys.get(i))) {
-                    return false;
-                }
+                if (!tys.get(i).structuralEquals(tu.tys.get(i))) return false;
             }
             return true;
         }
@@ -773,7 +793,7 @@ record Tuple(List<Type> tys) implements Type {
  * "V{Int} <: AbsV{Int}"), `parent` is the parent's declaration and `src` is the
  * source code of the declaration.
  */
-record Decl(String mod, String nm, Type ty, Inst parInst, Decl parent, String src) {
+record Decl(String mod, String nm, Type ty, Inst parInst, Decl parent, String src) implements Serializable {
 
     @Override
     public String toString() {
@@ -803,7 +823,7 @@ record Decl(String mod, String nm, Type ty, Inst parInst, Decl parent, String sr
     }
 }
 
-record Sig(String nm, Type ty, String src) {
+record Sig(String nm, Type ty, String src) implements Serializable {
 
     // we say a method signature is "ground" if all of its arguments are concrete
     boolean isGround() {
@@ -812,7 +832,7 @@ record Sig(String nm, Type ty, String src) {
 
     @Override
     public String toString() {
-        return "function " + nm + " " + ty;
+        return nm + "" + ty;
     }
 
     String toJulia() {
@@ -827,19 +847,20 @@ record Sig(String nm, Type ty, String src) {
         return "function " + nm + "(" + str + ")" + (bounds.isEmpty() ? "" : (" where {" + bounds.stream().map(Bound::toJulia).collect(Collectors.joining(",")) + "}"));
     }
 
-    public String nameAndArity() {
+    int arity() {
         var t = ty;
         while (t instanceof Exist e)
             t = e.ty();
-        if (t instanceof Tuple tup) {
-            return nm + "/" + tup.tys().size();
-        }
-        return nm + "/0";
+        return t instanceof Tuple tup ? tup.tys().size() : 0;
+    }
+
+    public String nameAndArity() {
+        return nm + "/" + arity();
     }
 
 }
 
-class Method {
+class Method implements Serializable {
     Sig sig;
     String nameArity;
     HashMap<String, Type> env = new HashMap<>();
@@ -871,15 +892,15 @@ class Method {
             var ty = v.ty().toTy().fixUp(new ArrayList<>());
             env.put(v.nm(), ty.toType(new ArrayList<>()));
         }
-        for (var op : mi.ops) {
+        for (var op : mi.ops)
             if (op.tgt() != null && op.ret() != null) {
                 if (!env.containsKey(op.tgt())) {
                     var ty = op.ret().toTy().fixUp(new ArrayList<>());
                     env.put(op.tgt(), ty.toType(new ArrayList<>()));
                 }
             }
-        }
         for (var op : mi.ops) {
+            if (op.op().equals("Core.Const") || op.op().equals("Core.NewvarNode")) continue;
             var tys = new ArrayList<Type>();
             for (var arg : op.args()) {
                 if (env.containsKey(arg)) {
