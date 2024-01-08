@@ -1,8 +1,7 @@
 package prlprg;
 
 class CodeColors {
-    // TODO: Change colors for the light mode (I, Jan, dont' use it)
-
+    // Feel free to change colors for the light mode (I, i.e. Jan, dont' use it)
     // ANSI escape codes for text colors in light mode
     static String lightRed = "\u001B[31m";
     static String lightGreen = "\u001B[32m";
@@ -30,43 +29,25 @@ class CodeColors {
     // Helper method to get the appropriate ANSI escape code based on the current mode
     static String getTextColor(String color) {
         return switch (mode) {
-            case LIGHT ->
-                ""; // not implemented
-            case DARK ->
-                switch (color) {
-                    case "LightRed" ->
-                        lightRed;
-                    case "LightGreen" ->
-                        lightGreen;
-                    case "LightYellow" ->
-                        lightYellow;
-                    case "Red" ->
-                        darkRed;
-                    case "Green" ->
-                        darkGreen;
-                    case "Yellow" ->
-                        darkYellow;
-                    case "reset" ->
-                        ResetText;
-                    case "Blue" ->
-                        BLUE;
-                    case "Magenta" ->
-                        MAGENTA;
-                    case "Cyan" ->
-                        CYAN;
-                    case "LightWhite" ->
-                        LIGHT_WHITE;
-                    case "BrightYellow" ->
-                        BRIGHT_YELLOW;
-                    case "BrightMagenta" ->
-                        BRIGHT_MAGENTA;
-                    case "BrightCyan" ->
-                        BRIGHT_CYAN;
-                    default ->
-                        "";
-                };
-            default ->
-                "";
+        case LIGHT -> ""; // not implemented
+        case DARK -> switch (color) {
+        case "LightRed" -> lightRed;
+        case "LightGreen" -> lightGreen;
+        case "LightYellow" -> lightYellow;
+        case "Red" -> darkRed;
+        case "Green" -> darkGreen;
+        case "Yellow" -> darkYellow;
+        case "reset" -> ResetText;
+        case "Blue" -> BLUE;
+        case "Magenta" -> MAGENTA;
+        case "Cyan" -> CYAN;
+        case "LightWhite" -> LIGHT_WHITE;
+        case "BrightYellow" -> BRIGHT_YELLOW;
+        case "BrightMagenta" -> BRIGHT_MAGENTA;
+        case "BrightCyan" -> BRIGHT_CYAN;
+        default -> "";
+        };
+        default -> "";
         };
     }
 

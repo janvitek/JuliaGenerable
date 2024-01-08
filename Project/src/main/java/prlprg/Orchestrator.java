@@ -13,6 +13,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
 import java.util.ArrayList;
@@ -29,13 +31,21 @@ class Orchestrator {
 
     static int num = 0;
 
+    /**
+     * Generate a unique number in a possibly concurrent context. These numbers are
+     * used for temproary director names.
+     */
     static synchronized int nextNum() {
         return num++;
     }
 
-    GenDB.Types types;
-    GenDB.Signatures sigs;
+    GenDB.Types types; // reference to the GenDB for convenience
+    GenDB.Signatures sigs; // reference to the GenDB for convenience
 
+    /**
+     * Create an orchestrator for the given GenDB.
+     * 
+     */
     Orchestrator(GenDB.Types types, GenDB.Signatures sigs) {
         this.types = types;
         this.sigs = sigs;
@@ -47,26 +57,33 @@ class Orchestrator {
      */
     class Context {
 
-        Path tmp;
-        Path imports;
-        Path pkgs;
-        Path tests;
-        List<String> testFiles = new ArrayList<>();
-        int count = 0;
+        Path root; // for all data procduced by this JVM
+        Path tmp; // path to the temp directory that holds the Julia results e.g. /tmp/t0
+        Path imports; // complete path for the file that has all the inmport statements
+        Path pkgs; // complete path for the file that has the list of packages used
+        Path tests; // complete path for the file that holds the code to run the tests
+        List<String> testFiles = new ArrayList<>(); // the name of the test files created
+        int count = 0; // how many fles we actually see in the /tmp/t0 dir after Julia has run
 
+        /**
+         * Create a context with a temporary directory.
+         */
         public Context() {
+            var dt = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
             try {
-                var p = Paths.get("/tmp").resolve("t" + nextNum());
+                var p = Paths.get("/tmp").resolve("jl_" + dt);
                 if (Files.exists(p)) {
                     delete(p);
                 }
-                tmp = Files.createDirectory(p);
+                root = Files.createDirectory(p);
+                p = p.resolve("out." + nextNum());
+                tmp = Files.createDirectories(p);
             } catch (IOException e) {
-                throw new Error(e);
+                throw new Error(e); // deletion shouold not fail... without a valid context there is not much we can do
             }
-            imports = tmp.resolve("imports.jl");
-            pkgs = tmp.resolve("pkgs.txt");
-            tests = tmp.resolve("tests.jl");
+            imports = root.resolve("imports.jl");
+            pkgs = root.resolve("pkgs.txt");
+            tests = root.resolve("tests.jl");
         }
 
         /**
@@ -92,11 +109,15 @@ class Orchestrator {
                     }
                 });
             } catch (IOException e) {
-                throw new Error(e);
+                throw new Error(e); // not sure what else but rethrow if we fail to delete, we could ignore.e..
             }
         }
     }
 
+    /**
+     * Create the packages file that list all the packages that were referenced in
+     * the DB.
+     */
     void createPkgs(Context ctxt) {
         var pkgs = new HashSet<String>();
         sigs.allSigs().forEach(s -> add_pkgs(s, pkgs));
@@ -121,8 +142,12 @@ class Orchestrator {
         }
     }
 
+    /**
+     * Generate the tests and run them.
+     */
     void gen() {
         var ctxt = new Context();
+        // populate Input...
         createPkgs(ctxt);
         createGroundTests(ctxt);
         exec(ctxt);
@@ -130,6 +155,9 @@ class Orchestrator {
         System.exit(0);
     }
 
+    /**
+     * Create test for methods who have all concerete arguments.
+     */
     void createGroundTests(Context ctxt) {
         try {
             try (var w = new BufferedWriter(new FileWriter(ctxt.tests.toString()))) {
@@ -156,6 +184,9 @@ class Orchestrator {
         }
     }
 
+    /**
+     * Read the results of the tests as genereated by Julia.
+     */
     void readResults(Context ctxt) {
         File dir = ctxt.tmp.toFile();
         FilenameFilter filter = (file, name) -> name.endsWith(".tst");
@@ -176,6 +207,12 @@ class Orchestrator {
                     count++;
                 }
                 for (var m : ms) {
+                    var nmAr = m.nameArity;
+                    var siginfo = sigs.get(nmAr);
+                    if (siginfo == null) {
+                        App.warn(nmAr + " not found !!!!!!");
+                    }
+
                     System.err.println(m);
                 }
             } catch (Throwable e) {
@@ -191,11 +228,6 @@ class Orchestrator {
      * Add the package name of a sig to the set of packages. A sig's package is the
      * first part of its name. If the name does not contain a dot then nothing is
      * added. Does the same to the types of the sig.
-     *
-     * @param s
-     *                 the sig
-     * @param pkgs
-     *                 the set of packages
      */
     void add_pkgs(Sig s, HashSet<String> pkgs) {
         add_nm_to_pkgs(s.nm(), pkgs);
