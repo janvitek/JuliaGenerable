@@ -6,7 +6,9 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.io.FileInputStream;
 import java.io.ObjectInputStream;
+
 import prlprg.Parser.MethodInformation;
+
 import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -27,6 +29,7 @@ class GenDB {
 
     static class Types implements Serializable {
 
+        final NameUtils names = new NameUtils();
         final private HashMap<String, Info> db = new HashMap<>(); // all types
         final HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused (i.e. types with multiple declarations)
         final HashMap<String, String> upperCaseNames = new HashMap<>(); // code_warntype returns upper case names
@@ -63,7 +66,7 @@ class GenDB {
              * Create a type info from a parsed type declaration
              */
             Info(TypeDeclaration ty) {
-                NameUtils.registerName(ty.nm());
+                types.names.registerName(ty.nm());
                 this.nm = ty.nm();
                 this.pre_patched = ty.toTy();
                 this.patched = pre_patched; // default, good for simple types
@@ -75,7 +78,7 @@ class GenDB {
              */
             Info(String missingType) {
                 this.nm = missingType;
-                NameUtils.registerName(nm);
+                types.names.registerName(nm);
                 this.decl = isAny() ? new Decl("abstract type", "Any", any, any, null, "") : new Decl("missing type", nm, new Inst(nm, new ArrayList<>()), any, null, "NA");
                 this.defMissing = true;
             }
@@ -303,6 +306,8 @@ class GenDB {
          */
         final private HashMap<String, List<Info>> db = new HashMap<>();
 
+        final NameUtils names = new NameUtils(); // names for shortening/lookup
+
         /**
          * Return the list of signatures for a name. If the name is not in the DB,
          * create an empty list.
@@ -310,8 +315,27 @@ class GenDB {
          * @return a list (never null)
          */
         List<Info> get(String nm) {
+            nm = names.shortName(nm); // All names are short
             var res = db.get(nm);
             if (res == null) db.put(nm, res = new ArrayList<>());
+            return res;
+        }
+
+        /**
+         * Attempt to fiddle with the name to see if there is a matching method.
+         */
+        List<Info> tryHarderToGet(String nm) {
+            var res = get(nm);
+            if (res.isEmpty()) {
+                var snm = names.shortName(nm);
+                res = get(snm);
+            }
+            if (res.isEmpty()) {
+                var lnms = names.fullNames(nm);
+                if (lnms != null && lnms.size() == 1) {
+                    res = get(lnms.get(0));
+                }
+            }
             return res;
         }
 
@@ -320,6 +344,7 @@ class GenDB {
          */
         Info make(String nm) {
             var info = new Info();
+            names.registerName(nm);
             var res = get(nm);
             res.add(info);
             return info;
@@ -511,7 +536,7 @@ record Inst(String nm, List<Type> tys) implements Type, Serializable {
     @Override
     public String toString() {
         var args = tys.stream().map(Type::toString).collect(Collectors.joining(","));
-        var snm = NameUtils.shorten(nm);
+        var snm = GenDB.types.names.shorten(nm);
         return snm + (tys.isEmpty() ? "" : "{" + args + "}");
     }
 
@@ -874,7 +899,7 @@ record Decl(String mod, String nm, Type ty, Inst parInst, Decl parent, String sr
     @Override
     public String toString() {
         var ignore = nm.equals("Any") || this.parent.nm.equals("Any"); // parent is null for Any
-        var snm = NameUtils.shorten(nm);
+        var snm = GenDB.types.names.shorten(nm);
         return CodeColors.comment(snm + " ≡ ") + mod + " " + ty + (ignore ? "" : CodeColors.comment(" <: ") + parInst);
     }
 
@@ -945,12 +970,14 @@ record Sig(String nm, Type ty, String src) implements Serializable {
  * Information about a method returned by code_warntype.
  */
 class Method implements Serializable {
-    Sig sig; // method signature
+    Sig sig; // method signature that was used to instantiate
+    Sig originSig; // method signature that was declared
     HashMap<String, Type> env = new HashMap<>(); // map from all variable/arg names to their inferred type
     List<String> argNames = new ArrayList<>(); // list of argument names
     Type returnType; // return type of the method
     List<Calls> ops = new ArrayList<>(); // operations that we were able to parse
     String filename; // source file name with code_warntype information
+    String originPackageAndFile; // where does the code come from?
 
     /**
      * A function call. The field tgt is the possibly null variable the result is
@@ -976,7 +1003,9 @@ class Method implements Serializable {
     Method(MethodInformation mi, String filename) {
         this.sig = mi.decl;
         this.filename = filename;
+        this.originSig = mi.originDecl;
         this.returnType = mi.returnType;
+        this.originPackageAndFile = mi.src;
         for (var v : mi.arguments) {
             argNames.add(v.nm());
             var ty = v.ty().toTy().fixUp(new ArrayList<>());
@@ -1026,10 +1055,11 @@ class Method implements Serializable {
 
     @Override
     public String toString() {
-        var s = sig + " => " + returnType + " @ " + filename + "\n";
-        s += env + "\n\nOps:\n";
+        var s = originSig + ":: " + returnType + " @ " + filename + "\n";
+        s += "  instance = " + sig + "\n";
+        s += "  " + env + "\n-----\nOps:\n";
         for (var op : ops) {
-            s += op + "\n";
+            s += "   " + op + "\n";
         }
         return s;
     }

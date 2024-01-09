@@ -1,44 +1,63 @@
 package prlprg;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.io.Serializable;
 
 /**
  * Utility class for generating names for types and type variables. NOTE: This
  * is not thread safe.s
  */
-public class NameUtils {
+class NameUtils implements Serializable {
 
-    // Some type names are long, we try to shorten them while ensuring that there is no ambiguity.
-    // When there is ambiguity, we just use the full name. To do this, we make a pass over the database
-    // and first observe all short names that are unique, and then use them.
-    private final static HashMap<String, HashSet<String>> occurences = new HashMap<>();
+    /**
+     * A short name is a name without prefix. A long name is the full name with
+     * prefix. If a shortname has multiple mappings then it is ambiguous.
+     */
+    private final HashMap<String, HashSet<String>> shortToLongNames = new HashMap<>();
+
+    /**
+     * Given a short name, return its full names.
+     */
+    List<String> fullNames(String s) {
+        var l = shortToLongNames.get(s);
+        return l == null ? List.of() : new ArrayList<String>(l);
+    }
+
+    /**
+     * Given a name with dots return its suffix.
+     */
+    String shortName(String s) {
+        return suffix(s);
+    }
 
     /**
      * Register a name in the database of names. This is used to shorten names.
      */
-    static void registerName(String s) {
+    void registerName(String s) {
         var suffix = suffix(s);
-        var occs = occurences.getOrDefault(suffix, new HashSet<>());
+        var occs = shortToLongNames.getOrDefault(suffix, new HashSet<>());
         occs.add(s);
-        occurences.put(suffix, occs);
+        shortToLongNames.put(suffix, occs);
     }
 
     /**
      * Return the suffix of a name, i.e., the part after the last dot.
      */
-    static private String suffix(String s) {
+    private String suffix(String s) {
         var i = s.lastIndexOf(".");
         return i == -1 ? s : s.substring(i + 1);
     }
 
     /**
-     * Shorten a name if possible.
+     * Shorten a name if possible and if requested in the arguments to the program.
      */
-    static String shorten(String s) {
+    String shorten(String s) {
         if (App.SHORTEN) {
             var suffix = suffix(s);
-            return occurences.get(suffix).size() == 1 ? suffix : s;
+            return shortToLongNames.get(suffix).size() == 1 ? suffix : s;
         } else {
             return s;
         }

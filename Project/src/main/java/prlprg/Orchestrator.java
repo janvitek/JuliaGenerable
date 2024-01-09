@@ -213,9 +213,11 @@ class Orchestrator {
                 for (var m : ms) {
                     var nm = m.sig.nm();
                     var siginfo = sigs.get(nm);
+                    var s2 = sigs.tryHarderToGet(nm);
                     if (siginfo == null) {
                         App.warn(nm + " not found !!!!!!");
                     }
+                    var nms = sigs.allNames();
 
                     System.err.println(m);
                 }
