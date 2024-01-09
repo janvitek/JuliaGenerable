@@ -9,7 +9,6 @@ import java.io.ObjectInputStream;
 
 import prlprg.Parser.MethodInformation;
 
-import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -31,8 +30,6 @@ class GenDB {
 
         final NameUtils names = new NameUtils();
         final private HashMap<String, Info> db = new HashMap<>(); // all types
-        final HashSet<String> reusedNames = new HashSet<>(); // names of types that are reused (i.e. types with multiple declarations)
-        final HashMap<String, String> upperCaseNames = new HashMap<>(); // code_warntype returns upper case names
 
         /**
          * This class holds all information on a type including various stages of
@@ -66,8 +63,7 @@ class GenDB {
              * Create a type info from a parsed type declaration
              */
             Info(TypeDeclaration ty) {
-                types.names.registerName(ty.nm());
-                this.nm = ty.nm();
+                this.nm = names.normalize(ty.nm());
                 this.pre_patched = ty.toTy();
                 this.patched = pre_patched; // default, good for simple types
                 this.defMissing = false;
@@ -77,8 +73,7 @@ class GenDB {
              * Create a type info for a missing type
              */
             Info(String missingType) {
-                this.nm = missingType;
-                types.names.registerName(nm);
+                this.nm = names.normalize(missingType);
                 this.decl = isAny() ? new Decl("abstract type", "Any", any, any, null, "") : new Decl("missing type", nm, new Inst(nm, new ArrayList<>()), any, null, "NA");
                 this.defMissing = true;
             }
@@ -175,9 +170,6 @@ class GenDB {
          * we saw mulitple definitions for.
          */
         void fixUpAll() {
-            if (!types.reusedNames.isEmpty()) {
-                App.warn("Multiple type definitions for: " + types.reusedNames.stream().collect(Collectors.joining(", ")));
-            }
             all().forEach(i -> i.fixUpParent());
         }
 
@@ -206,28 +198,10 @@ class GenDB {
         }
 
         /**
-         * Add a freshly parsed type declaration to the DB. Called from the parser. This
-         * method takes care of adding the name of the type in the upperCaseNames map
-         * and the reusedNames set.
+         * Add a freshly parsed type declaration to the DB. Called from the parser.
          */
         void addParsed(TypeDeclaration ty) {
-            var nm = ty.nm();
-            // We expect each type to have a non ambiguous upper case name, if not the case,
-            // either accept inaccuracy or change the code that uses code_warntype.
-            var upper = nm.toUpperCase();
-            if (upperCaseNames.containsKey(upper)) {
-                var other = upperCaseNames.get(upper);
-                if (!other.equals(nm)) {
-                    App.warn("!!!Types " + other + " and " + nm + " have same capitalization!!!");
-                }
-            }
-            upperCaseNames.put(upper, nm);
-            // We expect a single definition per type. If there are multiple we have a
-            // a vague hope that they are the same. This is not checked!
-            if (get(nm) != null) {
-                reusedNames.add(nm); // remember we have seen this type before and overwrite it
-            }
-            db.put(nm, new Info(ty));
+            db.put(ty.nm(), new Info(ty));
         }
 
         /**
@@ -306,8 +280,6 @@ class GenDB {
          */
         final private HashMap<String, List<Info>> db = new HashMap<>();
 
-        final NameUtils names = new NameUtils(); // names for shortening/lookup
-
         /**
          * Return the list of signatures for a name. If the name is not in the DB,
          * create an empty list.
@@ -315,27 +287,9 @@ class GenDB {
          * @return a list (never null)
          */
         List<Info> get(String nm) {
-            nm = names.shortName(nm); // All names are short
+            nm = types.names.normalize(nm);
             var res = db.get(nm);
             if (res == null) db.put(nm, res = new ArrayList<>());
-            return res;
-        }
-
-        /**
-         * Attempt to fiddle with the name to see if there is a matching method.
-         */
-        List<Info> tryHarderToGet(String nm) {
-            var res = get(nm);
-            if (res.isEmpty()) {
-                var snm = names.shortName(nm);
-                res = get(snm);
-            }
-            if (res.isEmpty()) {
-                var lnms = names.fullNames(nm);
-                if (lnms != null && lnms.size() == 1) {
-                    res = get(lnms.get(0));
-                }
-            }
             return res;
         }
 
@@ -344,7 +298,6 @@ class GenDB {
          */
         Info make(String nm) {
             var info = new Info();
-            names.registerName(nm);
             var res = get(nm);
             res.add(info);
             return info;
@@ -375,9 +328,9 @@ class GenDB {
          */
         void fixUpAll() {
             // make sure that upperNames have all types
-            types.upperCaseNames.put("ANY", "Any");
-            types.upperCaseNames.put("UNION", "Union");
-            types.upperCaseNames.put("TUPLE", "Tuple");
+            types.names.normalize("Any");
+            types.names.normalize("Union");
+            types.names.normalize("Tuple");
             for (var name : allNames()) {
                 for (var sig : get(name))
                     sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
@@ -536,8 +489,7 @@ record Inst(String nm, List<Type> tys) implements Type, Serializable {
     @Override
     public String toString() {
         var args = tys.stream().map(Type::toString).collect(Collectors.joining(","));
-        var snm = GenDB.types.names.shorten(nm);
-        return snm + (tys.isEmpty() ? "" : "{" + args + "}");
+        return nm + (tys.isEmpty() ? "" : "{" + args + "}");
     }
 
     @Override
@@ -899,8 +851,7 @@ record Decl(String mod, String nm, Type ty, Inst parInst, Decl parent, String sr
     @Override
     public String toString() {
         var ignore = nm.equals("Any") || this.parent.nm.equals("Any"); // parent is null for Any
-        var snm = GenDB.types.names.shorten(nm);
-        return CodeColors.comment(snm + " ≡ ") + mod + " " + ty + (ignore ? "" : CodeColors.comment(" <: ") + parInst);
+        return CodeColors.comment(nm + " ≡ ") + mod + " " + ty + (ignore ? "" : CodeColors.comment(" <: ") + parInst);
     }
 
     /**

@@ -15,10 +15,10 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashSet;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.stream.Collectors;
+import java.util.HashSet;
 
 import prlprg.Parser.MethodInformation;
 
@@ -124,11 +124,13 @@ class Orchestrator {
      */
     void createPkgs(Context ctxt) {
         var pkgs = new HashSet<String>();
-        sigs.allSigs().forEach(s -> add_pkgs(s, pkgs));
-        types.all().forEach(t -> add_pkgs_for_ty(t.decl.ty(), pkgs));
-        pkgs.remove("Base"); // can't add because alraedy there
-        pkgs.remove("Core"); // " 
-        pkgs.remove("Pkg"); // should already be there      
+        for (var p : GenDB.types.names.packages) {
+            if (p.startsWith("Base.") || p.startsWith("Core.") || p.startsWith("Pkg.") || p.equals("Base") || p.equals("Core") || p.equals("Pkg")) {
+                continue;
+            }
+            var prefix = p.contains(".") ? p.substring(0, p.indexOf(".")) : p;
+            pkgs.add(prefix);
+        }
         try {
             try (var pkgsf = new BufferedWriter(new FileWriter(ctxt.pkgs.toString()))) {
                 for (var p : pkgs) {
@@ -160,7 +162,8 @@ class Orchestrator {
     }
 
     /**
-     * Create test for methods who have all concerete arguments.
+     * Create test for methods that have all concerete arguments. A different
+     * approach will be needed for other methods.
      */
     void createGroundTests(Context ctxt) {
         try {
@@ -213,7 +216,6 @@ class Orchestrator {
                 for (var m : ms) {
                     var nm = m.sig.nm();
                     var siginfo = sigs.get(nm);
-                    var s2 = sigs.tryHarderToGet(nm);
                     if (siginfo == null) {
                         App.warn(nm + " not found !!!!!!");
                     }
@@ -227,47 +229,6 @@ class Orchestrator {
         }
         if (count != ctxt.count) {
             System.err.println("Expected " + ctxt.count + " methods, found " + count);
-        }
-    }
-
-    /**
-     * Add the package name of a sig to the set of packages. A sig's package is the
-     * first part of its name. If the name does not contain a dot then nothing is
-     * added. Does the same to the types of the sig.
-     */
-    void add_pkgs(Sig s, HashSet<String> pkgs) {
-        add_nm_to_pkgs(s.nm(), pkgs);
-        add_pkgs_for_ty(s.ty(), pkgs);
-    }
-
-    /**
-     * Add the package name of a function or type name to the set of packages.
-     */
-    private void add_nm_to_pkgs(String nm, HashSet<String> pkgs) {
-        if (nm.contains(".")) {
-            pkgs.add(nm.split("\\.", 2)[0]);
-        }
-    }
-
-    /**
-     * Add the package names of the types in a type to the set of packages.
-     */
-    private void add_pkgs_for_ty(Type ty, HashSet<String> pkgs) {
-        switch (ty) {
-        case Inst inst:
-            add_nm_to_pkgs(inst.nm(), pkgs);
-            break;
-        case Tuple t:
-            t.tys().forEach(typ -> add_pkgs_for_ty(typ, pkgs));
-            break;
-        case Exist e:
-            add_pkgs_for_ty(e.ty(), pkgs);
-            add_pkgs_for_ty(e.b().low(), pkgs);
-            add_pkgs_for_ty(e.b().up(), pkgs);
-            break;
-        case Union u:
-            u.tys().forEach(typ -> add_pkgs_for_ty(typ, pkgs));
-        default:
         }
     }
 

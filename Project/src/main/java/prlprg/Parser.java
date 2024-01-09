@@ -48,9 +48,9 @@ class Parser {
                     nm += q.take().toString();
                 nm += ")";
             }
-            nm = nm.charAt(0) == '\"' && nm.charAt(nm.length() - 1) == '\"' ? nm : // A quoted string, leave it as is.
-                    nm.replaceAll("\"", ""); // Get rid of quotes in case of MIME"xyz"
-            return GenDB.types.upperCaseNames.containsKey(nm) ? GenDB.types.upperCaseNames.get(nm) : nm;
+            // nm = nm.charAt(0) == '\"' && nm.charAt(nm.length() - 1) == '\"' ? nm : // A quoted string, leave it as is.
+            //        nm.replaceAll("\"", ""); // Get rid of quotes in case of MIME"xyz"
+            return nm.contains(")") ? nm : GenDB.types.names.normalize(nm);
         }
 
         /**
@@ -61,7 +61,7 @@ class Parser {
             while (!p.isEmpty() && !p.peek().is("(") && !p.peek().is("::"))
                 str += p.take().toString();
             if (str.isEmpty()) p.failAt("Missing function name", p.peek());
-            /// TOOD: I think we don't need this anymore...  return str.replaceAll("\"", "");  // Get rid of quotes in case of "fun"
+            GenDB.types.names.registerPackage(str);
             return str;
         }
 
@@ -98,7 +98,8 @@ class Parser {
                 }
             } else {
                 var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
-                return nm.equals("Tuple") ? new TyTuple(tys) : nm.equals("Union") ? new TyUnion(tys) : new TyInst(nm, tys);
+                // Due to code_warntype #@$%#$$ we need to deal with Tuple and TUPLE, samme for unions.
+                return nm.toLowerCase().equals("tuple") ? new TyTuple(tys) : nm.toLowerCase().equals("union") ? new TyUnion(tys) : new TyInst(nm, tys);
             }
         }
 
@@ -1031,7 +1032,8 @@ record TyInst(String nm, List<Ty> tys) implements Ty, Serializable {
      */
     @Override
     public Type toType(List<Bound> env) {
-        return new Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
+        var name = GenDB.types.names.normalize(nm());
+        return new Inst(name, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
     }
 
 }

@@ -1,66 +1,89 @@
 package prlprg;
 
-import java.util.ArrayList;
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
-import java.io.Serializable;
 
 /**
- * Utility class for generating names for types and type variables. NOTE: This
- * is not thread safe.s
+ * A utility class to deal with names. This is used to shorten names, deal with
+ * upper case names from code_warntype and to generate fresh names for type
+ * variables.
+ * 
+ * NOTE: this is imprecise for File and FILE - two different classes but if they
+ * are returned as abstract then we will get File.
  */
 class NameUtils implements Serializable {
 
-    /**
-     * A short name is a name without prefix. A long name is the full name with
-     * prefix. If a shortname has multiple mappings then it is ambiguous.
-     */
-    private final HashMap<String, HashSet<String>> shortToLongNames = new HashMap<>();
+    private final HashMap<String, String> upperToLowerNames = new HashMap<>();
+
+    private final HashMap<String, String> namesFromBase = new HashMap<>();
+
+    final HashSet<String> packages = new HashSet<>();
 
     /**
-     * Given a short name, return its full names.
+     * Add the upper cased version of a name to our database. This is used to deal
+     * with the results of code_warntype that force names to be upper case when they
+     * are not concrete.
      */
-    List<String> fullNames(String s) {
-        var l = shortToLongNames.get(s);
-        return l == null ? List.of() : new ArrayList<String>(l);
+    private void addToUpper(String low) {
+        var upper = low.toUpperCase();
+        if (upper.equals(low)) return;
+        upperToLowerNames.put(upper, low);
+    }
+
+    String toLower(String s) {
+        if (upperToLowerNames.containsKey(s)) {
+            return upperToLowerNames.get(s);
+        } else {
+            return s;
+        }
     }
 
     /**
-     * Given a name with dots return its suffix.
+     * Normalize a name. This is used to shorten names. This method will strip the
+     * names that start with Base.* and Core.* from their prefix. And also will
+     * strip names that end with a suffix that occurs in Base.* and Core.* of their
+     * prefix.
+     * 
+     * <pre>
+     *    Base.Any => Any    
+     *    Foo.Any => Any
+     * </pre>
+     * 
+     * The first is stripped because it starts with Base, the second because it also
+     * occura in Base.
      */
-    String shortName(String s) {
-        return suffix(s);
-    }
-
-    /**
-     * Register a name in the database of names. This is used to shorten names.
-     */
-    void registerName(String s) {
+    String normalize(String s) {
+        addToUpper(s);
+        registerPackage(s);
         var suffix = suffix(s);
-        var occs = shortToLongNames.getOrDefault(suffix, new HashSet<>());
-        occs.add(s);
-        shortToLongNames.put(suffix, occs);
+        addToUpper(suffix);
+        if (s.toLowerCase().startsWith("base.") || s.toLowerCase().startsWith("core.")) {
+            namesFromBase.put(suffix, s);
+            return s;
+        } else if (namesFromBase.containsKey(suffix)) {
+            return namesFromBase.get(suffix);
+        } else {
+            return s;
+        }
+    }
+
+    String prefix(String s) {
+        var i = s.lastIndexOf(".");
+        return i == -1 ? null : s.substring(0, i);
     }
 
     /**
      * Return the suffix of a name, i.e., the part after the last dot.
      */
-    private String suffix(String s) {
+    String suffix(String s) {
         var i = s.lastIndexOf(".");
         return i == -1 ? s : s.substring(i + 1);
     }
 
-    /**
-     * Shorten a name if possible and if requested in the arguments to the program.
-     */
-    String shorten(String s) {
-        if (App.SHORTEN) {
-            var suffix = suffix(s);
-            return shortToLongNames.get(suffix).size() == 1 ? suffix : s;
-        } else {
-            return s;
-        }
+    void registerPackage(String p) {
+        var prefix = prefix(p);
+        if (prefix != null) packages.add(prefix);
     }
 
     // The goal is to generate name for type variables that are distinct from user generated

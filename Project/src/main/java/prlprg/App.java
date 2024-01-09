@@ -6,7 +6,7 @@ import prlprg.Subtyper.Fuel;
 
 public class App {
 
-    public static boolean debug, PRINT_HIERARCHY = true, SHORTEN, verbose;
+    public static boolean debug, PRINT_HIERARCHY = true, verbose;
     static String dir, types, functions;
     static String[] defaultArgs = { "-d=FALSE", // run micro tests
             "-c=NONE", // color the output : DARK, LIGHT, NONE
@@ -14,7 +14,6 @@ public class App {
             "-f=stdf2.jlg", // file with function signatures
             "-t=stdt2.jlg", // file with type declarations
             "-h=TRUE", // print hierarchy
-            "-s=FALSE", // print shorter type names
             "-v=FALSE", // verbose
     };
 
@@ -144,8 +143,6 @@ public class App {
                 debug = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-h")) { // debug
                 PRINT_HIERARCHY = arg.substring(3).strip().equals("TRUE");
-            } else if (arg.startsWith("-s")) { // debug
-                SHORTEN = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-d")) { // debug
                 debug = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-v")) {
