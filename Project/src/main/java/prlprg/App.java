@@ -27,7 +27,7 @@ public class App {
         if (!GenDB.readDB()) {
             warn("Parsing...");
             var p = debug ? new Parser().withString(tstr) : new Parser().withFile(dir + types);
-                p.parseTypes();
+            p.parseTypes();
             p = debug ? new Parser().withString(str) : new Parser().withFile(dir + functions);
             p.parseSigs();
             warn("Preparing type and signature database...");
@@ -45,6 +45,7 @@ public class App {
         Orchestrator gen = new Orchestrator(GenDB.types, GenDB.sigs);
         gen.gen();
         // for now the above exit();
+        // What follows will be moved to orchestrator  or GenDB.
         var sub = new Subtyper();
         var cnt = 0;
         for (var i : GenDB.types.all()) {

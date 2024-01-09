@@ -16,6 +16,13 @@ import java.util.stream.Collectors;
 
 import prlprg.Parser.TypeDeclaration;
 
+/**
+ * A database containing all the information that we have acquired about types
+ * and signatures of methods.
+ * 
+ * NOTE: for some reason I have static variables in the DB, perhaps this should
+ * be revisited. I don't recall why that was.
+ */
 class GenDB {
 
     static class Types implements Serializable {
@@ -417,7 +424,7 @@ class GenDB {
      * Add a mehotd declaration to the DB. Called from the parser.
      */
     static final void addSig(TySig sig) {
-        sigs.make(sig.nameAndArity()).pre_patched = sig;
+        sigs.make(sig.nm()).pre_patched = sig;
     }
 
     /**
@@ -921,33 +928,36 @@ record Sig(String nm, Type ty, String src) implements Serializable {
         return "function " + nm + "(" + str + ")" + (bounds.isEmpty() ? "" : (" where {" + bounds.stream().map(Bound::toJulia).collect(Collectors.joining(",")) + "}"));
     }
 
+    /**
+     * Returns the number of arguments of this function. The encoding has a number
+     * of existentials wrapping a tuple, so we unwrap the existentials and return
+     * the tuple's arity.
+     */
     int arity() {
         var t = ty;
         while (t instanceof Exist e)
             t = e.ty();
         return t instanceof Tuple tup ? tup.tys().size() : 0;
     }
-
-    public String nameAndArity() {
-        return nm + "/" + arity();
-    }
-
 }
 
 /**
  * Information about a method returned by code_warntype.
  */
 class Method implements Serializable {
-    Sig sig;
-    String nameArity;
-    HashMap<String, Type> env = new HashMap<>();
-    List<String> argNames = new ArrayList<>();
-    Type returnType;
-    List<Calls> ops = new ArrayList<>();
-    String filename;
+    Sig sig; // method signature
+    HashMap<String, Type> env = new HashMap<>(); // map from all variable/arg names to their inferred type
+    List<String> argNames = new ArrayList<>(); // list of argument names
+    Type returnType; // return type of the method
+    List<Calls> ops = new ArrayList<>(); // operations that we were able to parse
+    String filename; // source file name with code_warntype information
 
     /**
-     * A function call.
+     * A function call. The field tgt is the possibly null variable the result is
+     * assigned to, this can be a temporary %1 or a local variable. The args contain
+     * the argumets passed.
+     * 
+     * Since our parser is approximate, this may be wrong.
      */
     record Calls(String tgt, List<String> args, Sig called) {
 
@@ -958,10 +968,14 @@ class Method implements Serializable {
         }
     }
 
+    /**
+     * Constructor gets the raw MethodInformation from the parser along with the
+     * name of source file and performs all the necessary clean up and
+     * transformations.
+     */
     Method(MethodInformation mi, String filename) {
         this.sig = mi.decl;
         this.filename = filename;
-        this.nameArity = mi.decl.nameAndArity();
         this.returnType = mi.returnType;
         for (var v : mi.arguments) {
             argNames.add(v.nm());

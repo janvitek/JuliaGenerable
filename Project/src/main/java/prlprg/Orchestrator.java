@@ -29,7 +29,7 @@ import prlprg.Parser.MethodInformation;
  */
 class Orchestrator {
 
-    static int num = 0;
+    private static int num = 0; // internal counter for unique names
 
     /**
      * Generate a unique number in a possibly concurrent context. These numbers are
@@ -44,7 +44,6 @@ class Orchestrator {
 
     /**
      * Create an orchestrator for the given GenDB.
-     * 
      */
     Orchestrator(GenDB.Types types, GenDB.Signatures sigs) {
         this.types = types;
@@ -54,6 +53,11 @@ class Orchestrator {
     /**
      * A context remembers where this generator is writing to. We assume there will
      * be multiple instances working concurrently (at some point).
+     * 
+     * If we ever get to multiple concurent tasks running in parallel, then each
+     * should have its own context, with the same root but different tmp
+     * directories. One will have to figure out what is private to each instance and
+     * what can be shared across them.
      */
     class Context {
 
@@ -207,10 +211,10 @@ class Orchestrator {
                     count++;
                 }
                 for (var m : ms) {
-                    var nmAr = m.nameArity;
-                    var siginfo = sigs.get(nmAr);
+                    var nm = m.sig.nm();
+                    var siginfo = sigs.get(nm);
                     if (siginfo == null) {
-                        App.warn(nmAr + " not found !!!!!!");
+                        App.warn(nm + " not found !!!!!!");
                     }
 
                     System.err.println(m);

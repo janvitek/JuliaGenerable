@@ -21,29 +21,24 @@ class Subtyper {
             return nullGen;
         }
         var tg = switch (t) {
-            case Con con ->
-                new ConGen(con, f);
-            case Inst inst -> {
-                // Takes care of the case `inst` does not have arguments it expects, in which case
-                // it will be provided existentials taken from its decl.
-                var decl = GenDB.types.get(inst.nm()).decl;
-                var argCount = decl.argCount();
-                if (argCount == inst.tys().size()) {
-                    yield new InstGen(inst, f);
-                } else if (inst.tys().isEmpty()) {
-                    yield new ExistGen((Exist) decl.ty(), f);
-                } else {
-                    throw new RuntimeException("Wrong number of arguments for " + inst);
-                }
+        case Con con -> new ConGen(con, f);
+        case Inst inst -> {
+            // Takes care of the case `inst` does not have arguments it expects, in which case
+            // it will be provided existentials taken from its decl.
+            var decl = GenDB.types.get(inst.nm()).decl;
+            var argCount = decl.argCount();
+            if (argCount == inst.tys().size()) {
+                yield new InstGen(inst, f);
+            } else if (inst.tys().isEmpty()) {
+                yield new ExistGen((Exist) decl.ty(), f);
+            } else {
+                throw new RuntimeException("Wrong number of arguments for " + inst);
             }
-            case Tuple tup ->
-                new TupleGen(tup, f);
-            case Union u ->
-                new UnionGen(u, f);
-            case Exist e ->
-                new ExistGen(e, f);
-            default ->
-                throw new RuntimeException("Unexpected type: " + t); // E,g, Var
+        }
+        case Tuple tup -> new TupleGen(tup, f);
+        case Union u -> new UnionGen(u, f);
+        case Exist e -> new ExistGen(e, f);
+        default -> throw new RuntimeException("Unexpected type: " + t); // E,g, Var
         };
         return tg.hasNext() ? tg : nullGen;
     }
@@ -183,26 +178,20 @@ class Subtyper {
 
         private Type subst(Type t, Bound b, Type repl) {
             return switch (t) {
-                case Var v ->
-                    v.b().equals(b) ? repl : v;
-                case Con c ->
-                    c;
-                case Inst i ->
-                    new Inst(i.nm(), i.tys().stream().map(ty -> subst(ty, b, repl)).collect(Collectors.toCollection(ArrayList::new)));
-                case Tuple p ->
-                    new Tuple(p.tys().stream().map(ty -> subst(ty, b, repl)).collect(Collectors.toCollection(ArrayList::new)));
-                case Union u ->
-                    new Union(u.tys().stream().map(ty -> subst(ty, b, repl)).collect(Collectors.toCollection(ArrayList::new)));
-                case Exist ex -> {
-                    var up = subst(ex.b().up(), b, repl);
-                    var low = subst(ex.b().low(), b, repl);
-                    var ty = subst(ex.ty(), b, repl);
-                    var newbound = new Bound(ex.b().nm(), low, up);
-                    ty = subst(ty, ex.b(), new Var(newbound));
-                    yield new Exist(newbound, ty);
-                }
-                default ->
-                    throw new RuntimeException("Unknown type: " + t);
+            case Var v -> v.b().equals(b) ? repl : v;
+            case Con c -> c;
+            case Inst i -> new Inst(i.nm(), i.tys().stream().map(ty -> subst(ty, b, repl)).collect(Collectors.toCollection(ArrayList::new)));
+            case Tuple p -> new Tuple(p.tys().stream().map(ty -> subst(ty, b, repl)).collect(Collectors.toCollection(ArrayList::new)));
+            case Union u -> new Union(u.tys().stream().map(ty -> subst(ty, b, repl)).collect(Collectors.toCollection(ArrayList::new)));
+            case Exist ex -> {
+                var up = subst(ex.b().up(), b, repl);
+                var low = subst(ex.b().low(), b, repl);
+                var ty = subst(ex.ty(), b, repl);
+                var newbound = new Bound(ex.b().nm(), low, up);
+                ty = subst(ty, ex.b(), new Var(newbound));
+                yield new Exist(newbound, ty);
+            }
+            default -> throw new RuntimeException("Unknown type: " + t);
             };
         }
 
@@ -232,7 +221,7 @@ class Subtyper {
     // Generates subtypes of an instance of a possibly parametric type. The arguments must be ground types.
     class InstGen extends TypeGen {
 
-        final List<Type> inst_arg_tys;  // reference, should not be modified
+        final List<Type> inst_arg_tys; // reference, should not be modified
         final List<String> kids; // copy of the kids array, updated
         TypeGen tg = null; // current generator
 
@@ -363,31 +352,25 @@ class Subtyper {
     // We removes some of the existentials.
     Type substitute(Type t, HashMap<Bound, Type> subst) {
         return switch (t) {
-            case Var v ->
-                subst.containsKey(v.b()) ? subst.get(v.b()) : v;
-            case Inst i ->
-                new Inst(i.nm(), i.tys().stream().map(ty -> substitute(ty, subst)).collect(Collectors.toCollection(ArrayList::new)));
-            case Exist e -> {
-                if (!subst.containsKey(e.b())) {
-                    var up = substitute(e.b().up(), subst);
-                    var low = substitute(e.b().low(), subst);
-                    var newsubst = new HashMap<Bound, Type>(subst);
-                    var newbound = new Bound(e.b().nm(), low, up);
-                    newsubst.put(e.b(), new Var(newbound));
-                    var ty = substitute(e.ty(), newsubst);
-                    yield new Exist(newbound, ty);
-                } else {
-                    yield substitute(e.ty(), subst);
-                }
+        case Var v -> subst.containsKey(v.b()) ? subst.get(v.b()) : v;
+        case Inst i -> new Inst(i.nm(), i.tys().stream().map(ty -> substitute(ty, subst)).collect(Collectors.toCollection(ArrayList::new)));
+        case Exist e -> {
+            if (!subst.containsKey(e.b())) {
+                var up = substitute(e.b().up(), subst);
+                var low = substitute(e.b().low(), subst);
+                var newsubst = new HashMap<Bound, Type>(subst);
+                var newbound = new Bound(e.b().nm(), low, up);
+                newsubst.put(e.b(), new Var(newbound));
+                var ty = substitute(e.ty(), newsubst);
+                yield new Exist(newbound, ty);
+            } else {
+                yield substitute(e.ty(), subst);
             }
-            case Tuple p ->
-                new Tuple(p.tys().stream().map(ty -> substitute(ty, subst)).collect(Collectors.toCollection(ArrayList::new)));
-            case Union u ->
-                new Union(u.tys().stream().map(ty -> substitute(ty, subst)).collect(Collectors.toCollection(ArrayList::new)));
-            case Con c ->
-                c;
-            default ->
-                throw new RuntimeException("Unexpected type: " + t);
+        }
+        case Tuple p -> new Tuple(p.tys().stream().map(ty -> substitute(ty, subst)).collect(Collectors.toCollection(ArrayList::new)));
+        case Union u -> new Union(u.tys().stream().map(ty -> substitute(ty, subst)).collect(Collectors.toCollection(ArrayList::new)));
+        case Con c -> c;
+        default -> throw new RuntimeException("Unexpected type: " + t);
         };
     }
 
@@ -396,68 +379,66 @@ class Subtyper {
     // unifyType  A{T},           A{Vector{Int}}  ==  {T -> Vector{Int}}
     boolean unifyType(Type t, Type u, HashMap<Bound, Type> subst) {
         return switch (t) {
-            case Var v -> {
-                if (subst.containsKey(v.b())) {
-                    var b = subst.get(v.b());
-                    failIf(!u.structuralEquals(b)); // this is too strict, there are equivalent types that will
-                } else { // not be structually equal. Revist when you start seeing failures.
-                    subst.put(v.b(), u);
+        case Var v -> {
+            if (subst.containsKey(v.b())) {
+                var b = subst.get(v.b());
+                failIf(!u.structuralEquals(b)); // this is too strict, there are equivalent types that will
+            } else { // not be structually equal. Revist when you start seeing failures.
+                subst.put(v.b(), u);
+            }
+            yield true;
+        }
+        case Con c -> u.structuralEquals(c);
+        case Inst i -> {
+            if (u instanceof Inst ui) {
+                if (!i.nm().equals(ui.nm()) || i.tys().size() != ui.tys().size()) {
+                    yield false;
+                }
+                for (int j = 0; j < i.tys().size(); j++) {
+                    if (!unifyType(i.tys().get(j), ui.tys().get(j), subst)) {
+                        yield false;
+                    }
                 }
                 yield true;
             }
-            case Con c ->
-                u.structuralEquals(c);
-            case Inst i -> {
-                if (u instanceof Inst ui) {
-                    if (!i.nm().equals(ui.nm()) || i.tys().size() != ui.tys().size()) {
+            yield false;
+        }
+        case Tuple p -> {
+            if (u instanceof Tuple up) {
+                if (p.tys().size() != up.tys().size()) {
+                    yield false;
+                }
+                for (int j = 0; j < p.tys().size(); j++) {
+                    if (!unifyType(p.tys().get(j), up.tys().get(j), subst)) {
                         yield false;
                     }
-                    for (int j = 0; j < i.tys().size(); j++) {
-                        if (!unifyType(i.tys().get(j), ui.tys().get(j), subst)) {
-                            yield false;
-                        }
-                    }
-                    yield true;
                 }
-                yield false;
+                yield true;
             }
-            case Tuple p -> {
-                if (u instanceof Tuple up) {
-                    if (p.tys().size() != up.tys().size()) {
+            yield false;
+        }
+        case Union tu -> {
+            if (u instanceof Union un) {
+                if (tu.tys().size() != un.tys().size()) {
+                    yield false;
+                }
+                for (int j = 0; j < tu.tys().size(); j++) {
+                    if (!unifyType(tu.tys().get(j), un.tys().get(j), subst)) {
                         yield false;
                     }
-                    for (int j = 0; j < p.tys().size(); j++) {
-                        if (!unifyType(p.tys().get(j), up.tys().get(j), subst)) {
-                            yield false;
-                        }
-                    }
-                    yield true;
                 }
-                yield false;
+                yield true;
             }
-            case Union tu -> {
-                if (u instanceof Union un) {
-                    if (tu.tys().size() != un.tys().size()) {
-                        yield false;
-                    }
-                    for (int j = 0; j < tu.tys().size(); j++) {
-                        if (!unifyType(tu.tys().get(j), un.tys().get(j), subst)) {
-                            yield false;
-                        }
-                    }
-                    yield true;
-                }
-                yield false;
+            yield false;
+        }
+        case Exist e -> {
+            if (u instanceof Exist) {
+                // That is hard, for now ignore this case. Revisit?
+                yield true;
             }
-            case Exist e -> {
-                if (u instanceof Exist) {
-                    // That is hard, for now ignore this case. Revisit?
-                    yield true;
-                }
-                yield false;
-            }
-            default ->
-                false;
+            yield false;
+        }
+        default -> false;
         };
     }
 
@@ -469,23 +450,18 @@ class Subtyper {
 
     Set<Bound> freeVars(Type t) {
         return switch (t) {
-            case Var v ->
-                Set.of(v.b());
-            case Inst i ->
-                i.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
-            case Tuple p ->
-                p.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
-            case Union u ->
-                u.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
-            case Exist e -> {
-                var free = new HashSet<Bound>(freeVars(e.ty())); // to make the set mutable
-                free.remove(e.b());
-                free.addAll(freeVars(e.b().up()));
-                free.addAll(freeVars(e.b().low()));
-                yield free;
-            }
-            default ->
-                Set.of();
+        case Var v -> Set.of(v.b());
+        case Inst i -> i.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
+        case Tuple p -> p.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
+        case Union u -> u.tys().stream().flatMap(ty -> freeVars(ty).stream()).collect(Collectors.toCollection(HashSet::new));
+        case Exist e -> {
+            var free = new HashSet<Bound>(freeVars(e.ty())); // to make the set mutable
+            free.remove(e.b());
+            free.addAll(freeVars(e.b().up()));
+            free.addAll(freeVars(e.b().low()));
+            yield free;
+        }
+        default -> Set.of();
         };
     }
 
@@ -506,77 +482,71 @@ class Subtyper {
 
     public static void main(String[] args) {
         switch (run) {
-            case 0 ->
-                test(tstr, str);
-            case 1 ->
-                test1();
-            case 2 ->
-                test2();
-            case 3 ->
-                test3();
-            case 4 ->
-                test4();
-            case 5 ->
-                test5();
+        case 0 -> test(tstr, str);
+        case 1 -> test1();
+        case 2 -> test2();
+        case 3 -> test3();
+        case 4 -> test4();
+        case 5 -> test5();
         }
     }
 
     static void test1() {
         var tys = """
-    abstrac  type A end
-    abstract type B end
-    abstract type AA <: A end
-    """;
+                abstrac  type A end
+                abstract type B end
+                abstract type AA <: A end
+                """;
         var funs = """
-    functio  a(::T) where T<:A
-    """;
+                functio  a(::T) where T<:A
+                """;
         test(tys, funs);
     }
 
     // This generates repeated entries because when we get A, we generate AA as a kid, and then we itterate and get AA again.
     static void test2() {
         var tys = """
-    abstract  type A end
-    abstract type B end
-    abstract type AA <: A end
-    """;
+                abstract  type A end
+                abstract type B end
+                abstract type AA <: A end
+                """;
         var funs = """
-    function  a(::T)  where T<:Any
-    """;
+                function  a(::T)  where T<:Any
+                """;
         test(tys, funs);
     }
 
     static void test3() {
         var tys = """
-    abstract  type A end
-    abstract type B{T<:A} end
-    abstract type AA <: A end
-    """;
+                abstract  type A end
+                abstract type B{T<:A} end
+                abstract type AA <: A end
+                """;
         var funs = """
-    function  a(::Any)
-    """;
+                function  a(::Any)
+                """;
         test(tys, funs);
     }
 
     static void test4() {
         var tys = """
-    abstract  type A end
-    abstract type B{T} end
-    abstract type AA <: A end
-    """;
+                abstract  type A end
+                abstract type B{T} end
+                abstract type AA <: A end
+                """;
         var funs = """
-    function  a(::Any, ::Any)
-    """;
+                function  a(::Any, ::Any)
+                """;
         test(tys, funs);
     }
 
     static void test5() {
         var tys = """
-    abstract  type B{T} <: Any end
-    """;
+                abstract  type B{T} <: Any end
+                """;
         var funs = """
-    function  a(::Any)
-    """;
+                function  a(::Any)
+                """;
         test(tys, funs);
     }
 
@@ -592,7 +562,7 @@ class Subtyper {
         }
         GenDB.cleanUp();
         var sub = new Subtyper();
-        var functions = GenDB.sigs.get("a"); // TOOD : revisit name with arity?
+        var functions = GenDB.sigs.get("a");
         for (var me : functions) {
             var m = me.sig;
             System.err.println("Generating subtypes of " + m);
@@ -605,28 +575,28 @@ class Subtyper {
     }
 
     static String tstr = """
-    abstract type A end
-    abstract type B end
-    abstract type AA <: A end
-    abstract type BB <: B end
-    abstract type BC <: B end
-    abstract type D end
-    abstract type Int end
-    abstract type F{T} end
-    abstract type G{T} <: F{T} end
-    abstract type H{T} end
-    abstract type HH{T} <: H{Vector{T}} end
-    abstract type Vector{T} end
-    """;
+            abstract type A end
+            abstract type B end
+            abstract type AA <: A end
+            abstract type BB <: B end
+            abstract type BC <: B end
+            abstract type D end
+            abstract type Int end
+            abstract type F{T} end
+            abstract type G{T} <: F{T} end
+            abstract type H{T} end
+            abstract type HH{T} <: H{Vector{T}} end
+            abstract type Vector{T} end
+            """;
     static String str = """
-    function a(::A, ::A)
-    function a(::A, ::B, ::A)
-    function a(::Tuple{AA,D}, ::BB)
-    function a(::Union{AA,D}, ::BC)
-    function a(::F{Int})
-    function a(::H{Vector{Int}})
-    function a(::T)  where T<:G{Int}
-    function a(::Any)
-    """;
+            function a(::A, ::A)
+            function a(::A, ::B, ::A)
+            function a(::Tuple{AA,D}, ::BB)
+            function a(::Union{AA,D}, ::BC)
+            function a(::F{Int})
+            function a(::H{Vector{Int}})
+            function a(::T)  where T<:G{Int}
+            function a(::Any)
+            """;
 
 }

@@ -1220,12 +1220,4 @@ record TySig(String nm, Ty ty, String src) implements Serializable {
     TySig fixUp(List<TyVar> bounds) {
         return new TySig(nm, ty.fixUp(bounds), src);
     }
-
-    /** Return the mehtod name and method arity */
-    String nameAndArity() {
-        var t = ty;
-        while (t instanceof TyExist te)
-            t = te.ty();
-        return nm + (t instanceof TyTuple ? "/" + ((TyTuple) t).tys().size() : "/0");
-    }
 }
