@@ -477,7 +477,7 @@ class Parser {
             if (!p.has("Body")) return null;
 
             p.take("Body").take("::");
-            var pty = UnionAllInst.parse(p);
+            var pty = UnionAllInst.parse(p); // this type could be all caps because code_warntype...
             var ty = pty.toTy().fixUp(new ArrayList<>());
             return ty.toType(new ArrayList<>());
         }
@@ -640,8 +640,11 @@ class Parser {
      * parse every declaration and add it to the DB.
      */
     void parseTypes() {
-        while (!isEmpty())
-            GenDB.it.types.addParsed(TypeDeclaration.parse(sliceLine()));
+        while (!isEmpty()) {
+            var p = sliceLine();
+            if (p.has("const")) continue; // TODO parse aliases
+            GenDB.it.types.addParsed(TypeDeclaration.parse(p));
+        }
     }
 
     /**
@@ -649,7 +652,7 @@ class Parser {
      */
 
     public static void main(String[] args) {
-        File dir = new File("/tmp/t0");
+        File dir = new File("/tmp/jl_162626/out.0/");
         FilenameFilter filter = (file, name) -> name.endsWith(".tst");
         File[] files = dir.listFiles(filter);
         if (files != null) {
@@ -851,7 +854,13 @@ class Parser {
             }
             int cp = lns[pos].codePointAt(off);
             var start = off;
-            if (Character.isWhitespace(cp)) {
+            if (cp == 0x1B) {
+                off++;
+                while (off < lns[pos].length() && lns[pos].charAt(off) != 'm')
+                    off++;
+                off++;
+                return next();
+            } else if (Character.isWhitespace(cp)) {
                 off++;
                 while (off < lns[pos].length() && Character.isWhitespace(lns[pos].codePointAt(off)))
                     off++;
@@ -873,8 +882,11 @@ class Parser {
                 return new Tok(this, Kind.STRING, pos, start, off);
             } else {
                 off++;
-                while (off < lns[pos].length() && !Character.isWhitespace(lns[pos].codePointAt(off)) && !isDelimiter(lns[pos].codePointAt(off)) && lns[pos].charAt(off) != '"' && lns[pos].charAt(off) != '\'')
+                while (off < lns[pos].length()) {
+                    cp = lns[pos].codePointAt(off);
+                    if (cp == 0x1B || Character.isWhitespace(cp) || isDelimiter(cp) || lns[pos].charAt(off) == '"' || lns[pos].charAt(off) == '\'') break;
                     off++;
+                }
                 return new Tok(this, Kind.IDENTIFIER, pos, start, off);
             }
         }

@@ -182,12 +182,11 @@ class GenDB implements Serializable {
          * Return the type info for a type name. Null if not found.
          */
         Info get(TypeName tn) {
-            var infos = db.get(tn.nm);
+            var infos = db.get(tn.nm); // use the trailing part of the name
             if (infos == null) return null;
             var eqs = new ArrayList<Info>();
             for (var i : infos)
                 if (i.nm.juliaEq(tn)) eqs.add(i); //semantic equality not syntactic.
-            if (eqs.size() != 1) System.err.println("Found " + eqs.size() + " matches for " + tn);
             return eqs.size() == 1 ? eqs.get(0) : null;
         }
 
@@ -209,8 +208,8 @@ class GenDB implements Serializable {
             var infos = db.get(tn.nm);
             if (infos == null) db.put(tn.nm, infos = new ArrayList<>());
             Info it = null;
-            for (var i : infos)
-                if (i.nm.equals(tn)) it = i;
+            for (var i : infos) // Infos holds all types withe same trailing name (e.g "Any") 
+                if (i.nm.juliaEq(tn)) it = i; // assume we are adding Core.Any and "".Any  is in ...
             if (it == null)
                 infos.add(new Info(ty));
             else {
@@ -992,7 +991,7 @@ class Method implements Serializable {
                 }
             }
         for (var op : mi.ops) {
-            if (op.op().equals("Core.Const") || op.op().equals("Core.NewvarNode")) continue;
+            if (op.op().toString().equals("Core.Const") || op.op().toString().equals("Core.NewvarNode")) continue;
             var tys = new ArrayList<Type>();
             for (var arg : op.args()) {
                 if (env.containsKey(arg)) {

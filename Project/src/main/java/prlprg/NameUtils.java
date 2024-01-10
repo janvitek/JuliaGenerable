@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
  * are all equivalent. On the other hand if we see
  *
  * <pre>
- *  abstract type SomeOhterPackage.Ptr{T} end
+ *  abstract type SomeOtherPackage.Ptr{T} end
  * </pre>
  *
  * then this defines a new type that is not the same as Base.Ptr.
@@ -45,16 +45,21 @@ import java.util.regex.Pattern;
 class NameUtils implements Serializable {
 
     static class TypeName implements Serializable {
-        String pkg; // package name can be ""
-        String nm; // suffix name never ""
-        boolean basic; // does this type come from Base or Core
+        final String pkg; // package name can be ""
+        final String nm; // suffix name never ""
+        final boolean basic; // does this type come from Base or Core
         boolean soft; // could this be a soft import a of a base type.
 
+        /**
+         * Create a type name from a package name and a suffix name. The basic property
+         * holds only for names that are defined in Base or Core and not for names of
+         * subpakages.
+         */
         protected TypeName(String pkg, String nm) {
             this.pkg = pkg;
             this.nm = nm;
             var plow = pkg.toLowerCase();
-            this.basic = plow.startsWith("base.") || plow.startsWith("core.") || plow.equals("");
+            this.basic = plow.equals("base") || plow.equals("core") || plow.equals("");
             this.soft = true;
         }
 

@@ -167,13 +167,14 @@ class Orchestrator {
         try {
             try (var w = new BufferedWriter(new FileWriter(ctxt.tests.toString()))) {
                 w.write("include(\"imports.jl\")\nusing InteractiveUtils\n");
+                w.write("InteractiveUtils.highlighting[:warntype] = false\n\n");
                 int cnt = 0;
                 for (var s : it.sigs.allSigs()) {
                     if (s.isGround()) {
                         var nm = "t" + cnt++ + ".tst";
                         ctxt.testFiles.add(nm);
                         w.write("buffer=IOBuffer()\ntry\n");
-                        w.write("code_warntype(buffer, ");
+                        w.write("code_warntype(IOContext(buffer, :color=>true), ");
                         w.write(juliaName(s));
                         w.write(", [");
                         w.write(((Tuple) s.ty()).tys().stream().map(Type::toJulia).collect(Collectors.joining(", ")));
@@ -213,7 +214,9 @@ class Orchestrator {
                 }
                 for (var m : ms) {
                     var nm = m.sig.nm();
+
                     var siginfo = it.sigs.get(nm.operationName());
+
                     if (siginfo == null) {
                         App.warn(nm + " not found !!!!!!");
                     }
