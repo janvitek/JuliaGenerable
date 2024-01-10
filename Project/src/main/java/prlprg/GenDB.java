@@ -78,8 +78,11 @@ class GenDB implements Serializable {
             }
 
             void replaceWith(Info i) {
-                if (!defMissing) App.warn("Replacing a non-missing type");
+                if (!defMissing) {
+                    App.warn("Replacing a non-missing type");
+                }
                 this.nm = i.nm;
+
                 this.pre_patched = i.pre_patched;
                 this.patched = i.patched;
                 this.defMissing = i.defMissing;
