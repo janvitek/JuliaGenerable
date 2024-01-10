@@ -2,98 +2,71 @@ module TypeDiscover
 
 export typediscover
 
-struct OpaqueDiscovery
-    x::Union{Function,Tuple{Module,Symbol,Type}}
+@enum Tag begin
+    # functions
+    Macro
+    Lambda
+    Constructor
+    Callable
+    Builtin
+    Intrinsic
+    Generic
+    # types
+    Alias
+    Closure
+    FunctionType
+    Typ
 end
 
 abstract type Discovery end
-abstract type FunctionDiscovery end
-abstract type TypeDiscovery end
 
-struct DiscoveredMacro <: FunctionDiscovery
-    f::Function
-    m::Method
-end
-struct DiscoveredLambda <: FunctionDiscovery
-    f::Function
-    m::Method
-end
-struct DiscoveredConstructor <: FunctionDiscovery
-    f::Function
-    m::Method
-end
-struct DiscoveredCallable <: FunctionDiscovery
-    f::Function
-    m::Method
-end
-struct DiscoveredBuiltin <: FunctionDiscovery
-    f::Function
-    m::Method
-end
-struct DiscoveredIntrinsic <: FunctionDiscovery
-    f::Function
-    m::Method
-end
-struct DiscoveredGeneric <: FunctionDiscovery
-    f::Function
-    m::Method
+struct FunctionDiscovery <: Discovery
+    tag::Tag
+    fun::Function
+    meth::Method
 end
 
-struct DiscoveredAlias <: TypeDiscovery
-    m::Module
-    s::Symbol
-    t::Type
-end
-struct DiscoveredClosure <: TypeDiscovery
-    m::Module
-    s::Symbol
-    t::Type
-end
-struct DiscoveredFunctionType <: TypeDiscovery
-    m::Module
-    s::Symbol
-    t::Type
-end
-struct DiscoveredType <: TypeDiscovery
-    m::Module
-    s::Symbol
-    t::Type
+struct TypeDiscovery <: Discovery
+    tag::Tag
+    mod::Module
+    sym::Symbol
+    type::Type
 end
 
-makefuncdiscovery(f::Function, m::Method) = begin
-    f isa Core.Builtin && return DiscoveredBuiltin(f, m)
-    f isa Core.IntrinsicFunction && return DiscoveredIntrinsic(f, m)
+tagof(f::Function)::Tag = begin
+    f isa Core.Builtin && return Builtin
+    f isa Core.IntrinsicFunction && return Intrinsic
     mt = typeof(f).name.mt
     name = mt.name
     hasname = isdefined(mt.module, name) && typeof(getfield(mt.module, name)) <: Function
     sname = string(name)
     if hasname
         if startswith(sname, '@')
-            return DiscoveredMacro(f, m)
+            return Macro
         else
-            return DiscoveredGeneric(f, m)
+            return Generic
         end
     elseif '#' in sname
-        return DiscoveredLambda(f, m)
+        return Lambda
     elseif mt === Base._TYPE_NAME.mt
-        return DiscoveredConstructor(f, m)
+        return Constructor
     else
-        return DiscoveredCallable(f, m)
+        return Callable
     end
 end
 
-maketypediscovery(m::Module, s::Symbol, t::Type) = begin
+tagof(m::Module, s::Symbol, t::Type)::Tag = begin
     base = Base.unwrap_unionall(t)
     if t <: Function
         if occursin("var\"#", string(base))
-            return DiscoveredClosure(m, s, t)
+            return Closure
         else
-            return DiscoveredFunctionType(m, s, t)
+            return FunctionType
         end
-    elseif base isa Union || t !== base.name.wrapper || string(s) != string(nameof(t))
-        return DiscoveredAlias(m, s, t)
+    elseif base isa Union || t !== base.name.wrapper || m !== base.name.module || string(s) != string(nameof(t))
+        return Alias
     else
-        return DiscoveredType(m, s, t)
+        return Typ
     end
 end
 
@@ -104,6 +77,10 @@ ismodulenested(m::Module, outer::Module)::Bool = begin
         m === sentinel && return false
         m = parentmodule(m)
     end
+end
+
+struct OpaqueDiscovery
+    x::Union{Function, Tuple{Module, Symbol, Type}}
 end
 
 discover(report::Function, modules::Vector{Module}) = begin
@@ -120,30 +97,9 @@ discover(report::Function, modules::Vector{Module}) = begin
         push!(visited, mod)
 
         for sym in names(mod; all=true, imported=true)
+            val = nothing
             try
                 val = getproperty(mod, sym)
-
-                if val isa Module && ismodulenested(val, root)
-                    discoveraux(val, root)
-                    continue
-                end
-
-                if val isa Function && sym ∉ [:include, :eval]
-                    d = OpaqueDiscovery(val)
-                    d ∈ discovered && continue
-                    push!(discovered, d)
-                    for m in methods(val)
-                        any(mod -> ismodulenested(m.module, mod), modules) && report(makefuncdiscovery(val, m))
-                    end
-                end
-
-                if val isa Type
-                    d = OpaqueDiscovery((mod, sym, val))
-                    d ∈ discovered && continue
-                    push!(discovered, d)
-                    report(maketypediscovery(mod, sym, val))
-                end
-
             catch e
                 if e isa UndefVarError
                     GlobalRef(mod, sym) ∉ [GlobalRef(Base, :active_repl), GlobalRef(Base, :active_repl_backend),
@@ -154,13 +110,34 @@ discover(report::Function, modules::Vector{Module}) = begin
                     throw(e)
                 end
             end
+
+            if val isa Module && ismodulenested(val, root)
+                discoveraux(val, root)
+                continue
+            end
+
+            if val isa Function && sym ∉ [:include, :eval]
+                d = OpaqueDiscovery(val)
+                d ∈ discovered && continue
+                push!(discovered, d)
+                tag = tagof(val)
+                for m in methods(val)
+                    any(mod -> ismodulenested(m.module, mod), modules) && report(FunctionDiscovery(tag, val, m))
+                end
+            end
+
+            if val isa Type
+                d = OpaqueDiscovery((mod, sym, val))
+                d ∈ discovered && continue
+                push!(discovered, d)
+                report(TypeDiscovery(tagof(mod, sym, val), mod, sym, val))
+            end
         end
     end
 
     for m in modules
         discoveraux(m, m)
     end
-
 end
 
 module TestMod
@@ -232,8 +209,38 @@ K(a, b, c) = K(a + b + c)
 
 end
 
+
+
+function BaseArgDeclPartsCustom(env, m::Method, html=false)
+    tv = Any[]
+    sig = m.sig
+    while isa(sig, UnionAll)
+        push!(tv, sig.var)
+        sig = sig.body
+    end
+    file = m.file
+    line = m.line
+    argnames = Base.method_argnames(m)
+    if length(argnames) >= m.nargs
+        show_env = Base.ImmutableDict{Symbol, Any}()
+        for kv in env
+            show_env = Base.ImmutableDict(show_env, kv)
+        end
+        for t in tv
+            show_env = Base.ImmutableDict(show_env, :unionall_env => t)
+        end
+        decls = Tuple{String,String}[Base.argtype_decl(show_env, argnames[i], sig, i, m.nargs, m.isva)
+                    for i = 1:m.nargs]
+        decls[1] = ("", sprint(Base.show_signature_function, Base.unwrapva(sig.parameters[1]), false, decls[1][1], html,
+                               context = show_env))
+    else
+        decls = Tuple{String,String}[("", "") for i = 1:length(sig.parameters::SimpleVector)]
+    end
+    return tv, decls, file, line
+end
+
 baseShowMethodCustom(io::IO, m::Method, kind::String) = begin
-    tv, decls, file, line = Base.arg_decl_parts(m)
+    tv, decls, file, line = BaseArgDeclPartsCustom(io.dict, m)
     sig = Base.unwrap_unionall(m.sig)
     if sig === Tuple
         # Builtin
@@ -267,88 +274,54 @@ baseShowTypeCustom(io::IO, @nospecialize(x::Type)) = begin
     if !Base.print_without_params(x)
         properx = Base.makeproper(io, x)
         if Base.make_typealias(properx) !== nothing || (Base.unwrap_unionall(x) isa Union && x <: Base.make_typealiases(properx)[2])
-            # show(IOContext(io, :compact => true), x)
-            if !(get(io, :compact, false)::Bool)
-                Base.printstyled(IOContext(io, :compact => false), x)
-            end
+            Base.printstyled(IOContext(io, :compact => false), x)
             return
         end
     end
     show(io, x)
 end
 
-Base.show(io::IO, d::DiscoveredMacro) = begin
+Base.show(io::IO, d::FunctionDiscovery) = begin
+    @assert Macro <= d.tag <= Generic
     print(io, "function ")
-    baseShowMethodCustom(io, d.m, "macro")
+    kind = lowercase(string(d.tag))
+    baseShowMethodCustom(io, d.meth, kind)
 end
 
-Base.show(io::IO, d::DiscoveredLambda) = begin
-    print(io, "function ")
-    baseShowMethodCustom(io, d.m, "lambda")
-end
-
-Base.show(io::IO, d::DiscoveredConstructor) = begin
-    print(io, "function ")
-    baseShowMethodCustom(io, d.m, "constructor")
-end
-
-Base.show(io::IO, d::DiscoveredCallable) = begin
-    print(io, "function ")
-    baseShowMethodCustom(io, d.m, "callable")
-end
-
-Base.show(io::IO, d::DiscoveredBuiltin) = begin
-    print(io, "function ")
-    baseShowMethodCustom(io, d.m, "builtin")
-end
-
-Base.show(io::IO, d::DiscoveredIntrinsic) = begin
-    print(io, "function ")
-    baseShowMethodCustom(io, d.m, "intrinsic")
-end
-
-Base.show(io::IO, d::DiscoveredGeneric) = begin
-    print(io, "function ")
-    baseShowMethodCustom(io, d.m, "generic")
-end
-
-Base.show(io::IO, d::DiscoveredAlias) = begin
-    print(io, "const $(d.m).$(d.s) = ")
-    baseShowTypeCustom(io, d.t)
-end
-
-Base.show(io::IO, d::DiscoveredClosure) = begin
-    show(io, DiscoveredType(d.m, d.s, d.t))
-end
-
-Base.show(io::IO, d::DiscoveredFunctionType) = begin
-    show(io, d.t)
-end
-
-Base.show(io::IO, d::DiscoveredType) = begin
-    print(io,
-        if isabstracttype(d.t)
-            "abstract type"
-        elseif isstructtype(d.t)
-            ismutabletype(d.t) ? "mutable struct" : "struct"
-        elseif isprimitivetype(d.t)
-            "primitive type"
-        else
-            "???"
-        end)
-    print(io, " ", Base.unwrap_unionall(d.t))
-    if supertype(d.t) !== Any
-        print(io, " <: ")
-        b = Base.unwrap_unionall(supertype(d.t))
-        Base.show_type_name(io, b.name)
-        isempty(b.parameters) || print(io, "{")
-        print(io, join(map(p -> p isa TypeVar ? p.name : p, b.parameters), ", "))
-        isempty(b.parameters) || print(io, "}")
+Base.show(io::IO, d::TypeDiscovery) = begin
+    @assert Alias <= d.tag <= Typ
+    if d.tag == Alias
+        print(io, "const ", d.mod, ".", d.sym, " = ")
+        baseShowTypeCustom(io, d.type)
+    elseif d.tag == FunctionType
+        show(io, d.type)
+    elseif d.tag == Closure || d.tag == Typ
+        print(io,
+            if isabstracttype(d.type)
+                "abstract type"
+            elseif isstructtype(d.type)
+                ismutabletype(d.type) ? "mutable struct" : "struct"
+            elseif isprimitivetype(d.type)
+                "primitive type"
+            else
+                "???"
+            end)
+        print(io, " ", Base.unwrap_unionall(d.type))
+        if supertype(d.type) !== Any
+            print(io, " <: ")
+            b = Base.unwrap_unionall(supertype(d.type))
+            Base.show_type_name(io, b.name)
+            isempty(b.parameters) || print(io, "{")
+            print(io, join(map(p -> p isa TypeVar ? p.name : p, b.parameters), ", "))
+            isempty(b.parameters) || print(io, "}")
+        end
+        if isprimitivetype(d.type)
+            print(io, " ", 8 * sizeof(d.type))
+        end
+        print(io, " end")
     end
-    if isprimitivetype(d.t)
-        print(io, " ", 8 * sizeof(d.t))
-    end
-    print(io, " end")
+    kind = lowercase(string(d.tag))
+    print(io, "  [", kind, " @ ", d.mod, ".", d.sym, "]")
 end
 
 typediscover(mods::AbstractVector{Module}=Base.loaded_modules_array();
@@ -361,33 +334,34 @@ typediscover(mods::AbstractVector{Module}=Base.loaded_modules_array();
     skip_builtins=true,
     skip_intrinsics=true,
     skip_generics=false,
-    skip_aliases=true,
+    skip_aliases=false,
     skip_closures=true,
     skip_functiontypes=true,
     skip_types=false) = begin
+
+    filt = Set{Tag}()
+    skip_macros && push!(filt, Macro)
+    skip_lambdas && push!(filt, Lambda)
+    skip_constructors && push!(filt, Constructor)
+    skip_callable && push!(filt, Callable)
+    skip_builtins && push!(filt, Builtin)
+    skip_intrinsics && push!(filt, Intrinsic)
+    skip_generics && push!(filt, Generic)
+    skip_aliases && push!(filt, Alias)
+    skip_closures && push!(filt, Closure)
+    skip_functiontypes && push!(filt, FunctionType)
+    skip_types && push!(filt, Type)
 
     mods = filter(m -> m !== TypeDiscover, mods)
 
     funio = isnothing(funcfile) ? Base.stdout : open(funcfile, "w")
     typio = isnothing(typefile) ? Base.stdout : open(typefile, "w")
 
-    shouldShow(::DiscoveredMacro) = !skip_macros
-    shouldShow(::DiscoveredLambda) = !skip_lambdas
-    shouldShow(::DiscoveredConstructor) = !skip_constructors
-    shouldShow(::DiscoveredCallable) = !skip_callable
-    shouldShow(::DiscoveredBuiltin) = !skip_builtins
-    shouldShow(::DiscoveredIntrinsic) = !skip_intrinsics
-    shouldShow(::DiscoveredGeneric) = !skip_generics
-    shouldShow(::DiscoveredAlias) = !skip_aliases
-    shouldShow(::DiscoveredClosure) = !skip_closures
-    shouldShow(::DiscoveredFunctionType) = !skip_functiontypes
-    shouldShow(::DiscoveredType) = !skip_types
-
     try
-        discover(mods) do x
-            shouldShow(x) || return
-            io = x isa FunctionDiscovery ? funio : typio
-            println(io, x)
+        discover(mods) do d::Discovery
+            d.tag ∈ filt && return
+            io = d isa FunctionDiscovery ? funio : typio
+            println(IOContext(io, :module => nothing), d)
         end
     finally
         funio === Base.stdout || close(funio)
