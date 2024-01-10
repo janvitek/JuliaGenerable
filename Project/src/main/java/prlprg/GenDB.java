@@ -13,8 +13,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import javax.management.RuntimeErrorException;
-
 import prlprg.NameUtils.TypeName;
 import prlprg.Parser.MethodInformation;
 import prlprg.Parser.TypeDeclaration;
