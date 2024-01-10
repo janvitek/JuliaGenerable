@@ -189,12 +189,17 @@ class NameUtils implements Serializable {
             } else if (!Character.isLetter(name.charAt(0)) && name.charAt(0) != '_') {
                 name = ":(" + name + ")";
             }
-            return pkg + name;
+            return pkg.equals("") ? name : pkg + "." + name;
         }
     }
 
     TypeName type(String exp) {
         // the parser can see weird names like typeof(t)
+        if (exp.startsWith("typeof(")) {
+            return new TypeName("", exp);
+        } else if (exp.startsWith("Symbol(")) {
+            return new TypeName("", exp);
+        }
         var suf = suffix(exp);
         var pre = prefix(exp);
         pre = pre == null ? "" : pre;
