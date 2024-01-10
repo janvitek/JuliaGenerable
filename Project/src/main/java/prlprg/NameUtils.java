@@ -7,47 +7,61 @@ import java.util.regex.Pattern;
 
 /**
  * A utility class to deal with names.
- * 
+ *
  * Type names are tricky because of imports and 'soft' imports. For example,
- * 
- * <prea> Base.Ptr Ptr SomeOtherPackage.Ptr </ptr>
- * 
- * are all equivalent. On the other hand if we see
- * 
- * <preA> abstract type SomeOhterPackage.Ptr{T} end
+ *
+ * <pre>
+ *  Base.Ptr
+ *  Ptr
+ *  SomeOtherPackage.Ptr
  * </pre>
- * 
- * then this defines a new type. Sigh.
- * 
- * Then, when we deal with code_warntype, it will capitalize types that are not
- * concrete. So we need to undo that as well.
- * 
+ *
+ * are all equivalent. On the other hand if we see
+ *
+ * <pre>
+ *  abstract type SomeOhterPackage.Ptr{T} end
+ * </pre>
+ *
+ * then this defines a new type that is not the same as Base.Ptr.
+ *
+ * Furthermore, some type definitions are built-in and will not be observed.
+ *
+ * Furthermore, the parser creates TypeNames before it can tell if a name refers
+ * to a type or a type variable in an existential.
+ *
+ * Finally, some expression that occur where a type can be found are program
+ * variables that are converted to type constants.
+ *
+ * And also, when we deal with code_warntype, it will capitalize types that are
+ * not concrete. So we need to undo that as well.
+ *
  * A previous implementation tried to find cannonical representations for types,
- * but that was tricky and messy.
- * 
- * This implementation will redefine the meaning of equality for type names.
- * upper case names from code_warntype and to generate fresh names for type
- * variables.
- * 
- * NOTE: this is imprecise for File and FILE - two different classes but if they
- * are returned as abstract then we will get File.
+ * but that was tricky and messy. This implementation redefines the meaning of
+ * equality for type names. So that we can distinguish between soft imports and
+ * defined names. Type variables are handled after parsing. Type constants are
+ * heuristically caught.
+ *
  */
 class NameUtils implements Serializable {
 
     static class TypeName implements Serializable {
-        String pkg;
-        String nm;
-        boolean basic;
-        boolean soft;
+        String pkg; // package name can be ""
+        String nm; // suffix name never ""
+        boolean basic; // does this type come from Base or Core
+        boolean soft; // could this be a soft import a of a base type.
 
         protected TypeName(String pkg, String nm) {
             this.pkg = pkg;
             this.nm = nm;
             var plow = pkg.toLowerCase();
-            this.basic = plow.startsWith("base.") || plow.startsWith("core.") || plow.startsWith("pkg.") || plow.equals("");
+            this.basic = plow.startsWith("base.") || plow.startsWith("core.") || plow.equals("");
             this.soft = true;
         }
 
+        /**
+         * This type name has an associated declaration in the DB. A side effect is that
+         * we know that the name cannot be a soft import.
+         */
         void seenDeclaration() {
             soft = false;
         }
@@ -58,10 +72,10 @@ class NameUtils implements Serializable {
         boolean likelyConstant() {
             if (nm.equals("true") || nm.equals("false") || nm.startsWith(":") || nm.startsWith("\"") || nm.startsWith("\'")) return true;
             if (nm.equals("nothing") || nm.equals("missing")) return true;
-            if (nm.startsWith("typeof(") || pattern.matcher(nm).matches() || nm.contains("(")) return true;
-            return false;
+            return nm.startsWith("typeof(") || pattern.matcher(nm).matches() || nm.contains("(");
         }
 
+        /** Syntacic equality */
         @Override
         public boolean equals(Object o) {
             if (o instanceof TypeName t) {
@@ -70,11 +84,33 @@ class NameUtils implements Serializable {
                 return false;
         }
 
+        /** Traditional hash */
         @Override
         public int hashCode() {
             return pkg.hashCode() + nm.hashCode();
         }
 
+        /**
+         * Is this type name the same as the given type name in Julia? Consider the
+         * following cases:
+         *
+         * <pre>
+         *   abstract type Foo.Ptr{T} end
+         *
+         *   Base.Ptr juliaEq Ptr  // true      1
+         *   Base.Ptr juliaEq Foo.Ptr // false  2
+         *   Ptr      juliaEq Foo.Ptr // false  3
+         *   Base.Ptr juliaEq Bar.Ptr // true   4
+         * </pre>
+         *
+         * Case 1 is true because Ptr is a soft import of Base.Ptr.
+         *
+         * Case 2 is false because Foo.Ptr is a new type.
+         *
+         * Case 3 is false because Ptr is a soft import of Base.Ptr.
+         *
+         * Case 4 is true because Bar.Ptr is a soft import of Base.Ptrp
+         */
         boolean juliaEq(TypeName t) {
             if (!nm.equals(t.nm)) return false;
             if (soft && t.basic) return true;
@@ -86,14 +122,18 @@ class NameUtils implements Serializable {
             return nm.equals("Any");
         }
 
-        boolean isNothing() {
-            return nm.equals("Nothing");
-        }
-
+        /**
+         * Try to handle the case when we see types from code_warn types. This will
+         * break if users choose to define either of these names for themselves.
+         */
         boolean isTuple() {
             return nm.equals("Tuple") || nm.equals("TUPLE");
         }
 
+        /**
+         * Try to handle the case when we see types from code_warn types. This will
+         * break if users choose to define either of these names for themselves.
+         */
         boolean isUnion() {
             return nm.equals("Union") || nm.equals("UNION");
         }
@@ -104,15 +144,20 @@ class NameUtils implements Serializable {
         }
     }
 
-    class FuncName {
-        String pkg;
-        String nm;
+    class FuncName implements Serializable {
+        private final String pkg;
+        private final String nm;
 
-        FuncName() {
+        String packageName() {
+            return pkg;
+        }
+
+        String operationName() {
+            return nm;
         }
 
         FuncName(String pkg, String nm) {
-            this.pkg = pkg;
+            this.pkg = pkg == null ? "" : pkg;
             this.nm = nm;
         }
 
@@ -125,8 +170,26 @@ class NameUtils implements Serializable {
         }
 
         @Override
+        public int hashCode() {
+            return pkg.hashCode() + nm.hashCode();
+        }
+
+        @Override
         public String toString() {
             return pkg.equals("") ? nm : pkg + "." + nm;
+        }
+
+        String toJulia() {
+            // FileWatching.|
+            // Pkg.Artifacts.var#verify_artifact#1
+            // Base.GMP.MPQ.//
+            var name = nm;
+            if (name.startsWith("var#")) {
+                name = name.substring(0, 3) + "\"" + name.substring(3) + "\"";
+            } else if (!Character.isLetter(name.charAt(0)) && name.charAt(0) != '_') {
+                name = ":(" + name + ")";
+            }
+            return pkg + name;
         }
     }
 
@@ -140,7 +203,15 @@ class NameUtils implements Serializable {
         if (names.containsKey(tn)) return names.get(tn);
         names.put(tn, tn);
         if (!pre.equals("")) packages.add(pre);
-        GenDB.types.addMissing(tn); // register the type if not there already
+        return tn;
+    }
+
+    FuncName function(String exp) {
+        var suf = suffix(exp);
+        var pre = prefix(exp);
+        pre = pre == null ? "" : pre;
+        var tn = new FuncName(pre, suf);
+        if (!pre.equals("")) packages.add(pre);
         return tn;
     }
 

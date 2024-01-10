@@ -23,15 +23,15 @@ public class App {
         parseArgs(defaultArgs); // set default values
         parseArgs(args); // override them with command line arguments
 
-        if (!GenDB.readDB()) {
+        if (true || !GenDB.readDB()) {
             warn("Parsing...");
             var p = debug ? new Parser().withString(tstr) : new Parser().withFile(dir + types);
             p.parseTypes();
             p = debug ? new Parser().withString(str) : new Parser().withFile(dir + functions);
             p.parseSigs();
             warn("Preparing type and signature database...");
-            GenDB.cleanUp();
-            var sigs = GenDB.sigs.allSigs();
+            GenDB.it.cleanUp();
+            var sigs = GenDB.it.sigs.allSigs();
             int sigsC = 0, groundC = 0;
             for (var sig : sigs) {
                 sigsC++;
@@ -39,15 +39,15 @@ public class App {
             }
             warn("Sigs: " + sigsC + ", ground: " + groundC);
             GenDB.saveDB();
-        }   
+        }
 
-        Orchestrator gen = new Orchestrator(GenDB.types, GenDB.sigs);
+        Orchestrator gen = new Orchestrator();
         gen.gen();
         // for now the above exit();
         // What follows will be moved to orchestrator  or GenDB.
         var sub = new Subtyper();
         var cnt = 0;
-        for (var i : GenDB.types.all()) {
+        for (var i : GenDB.it.types.all()) {
             var tg1 = sub.make(i.decl.ty(), new Fuel(1));
             var childs = new ArrayList<Type>();
             while (tg1.hasNext()) {
@@ -57,8 +57,8 @@ public class App {
             i.level_1_kids = childs;
         }
         warn("Generated " + cnt + " types");
-        for (var nm : GenDB.sigs.allNames()) {
-            for (var me : GenDB.sigs.get(nm)) {
+        for (var nm : GenDB.it.sigs.allNames()) {
+            for (var me : GenDB.it.sigs.get(nm)) {
                 var m = me.sig;
                 if (m.isGround()) {
                     continue; // Skip trivial cases

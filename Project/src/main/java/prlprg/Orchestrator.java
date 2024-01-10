@@ -15,10 +15,10 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 import java.util.ArrayList;
-import java.util.stream.Collectors;
 import java.util.HashSet;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import prlprg.Parser.MethodInformation;
 
@@ -39,21 +39,19 @@ class Orchestrator {
         return num++;
     }
 
-    GenDB.Types types; // reference to the GenDB for convenience
-    GenDB.Signatures sigs; // reference to the GenDB for convenience
+    GenDB it; // reference to the GenDB for convenience
 
     /**
      * Create an orchestrator for the given GenDB.
      */
-    Orchestrator(GenDB.Types types, GenDB.Signatures sigs) {
-        this.types = types;
-        this.sigs = sigs;
+    Orchestrator() {
+        this.it = GenDB.it;
     }
 
     /**
      * A context remembers where this generator is writing to. We assume there will
      * be multiple instances working concurrently (at some point).
-     * 
+     *
      * If we ever get to multiple concurent tasks running in parallel, then each
      * should have its own context, with the same root but different tmp
      * directories. One will have to figure out what is private to each instance and
@@ -124,7 +122,7 @@ class Orchestrator {
      */
     void createPkgs(Context ctxt) {
         var pkgs = new HashSet<String>();
-        for (var p : GenDB.types.names.packages) {
+        for (var p : it.names.packages) {
             if (p.startsWith("Base.") || p.startsWith("Core.") || p.startsWith("Pkg.") || p.equals("Base") || p.equals("Core") || p.equals("Pkg")) {
                 continue;
             }
@@ -170,7 +168,7 @@ class Orchestrator {
             try (var w = new BufferedWriter(new FileWriter(ctxt.tests.toString()))) {
                 w.write("include(\"imports.jl\")\nusing InteractiveUtils\n");
                 int cnt = 0;
-                for (var s : sigs.allSigs()) {
+                for (var s : it.sigs.allSigs()) {
                     if (s.isGround()) {
                         var nm = "t" + cnt++ + ".tst";
                         ctxt.testFiles.add(nm);
@@ -215,11 +213,11 @@ class Orchestrator {
                 }
                 for (var m : ms) {
                     var nm = m.sig.nm();
-                    var siginfo = sigs.get(nm);
+                    var siginfo = it.sigs.get(nm.operationName());
                     if (siginfo == null) {
                         App.warn(nm + " not found !!!!!!");
                     }
-                    var nms = sigs.allNames();
+                    var nms = it.sigs.allNames();
 
                     System.err.println(m);
                 }
@@ -236,18 +234,7 @@ class Orchestrator {
      * Convert a Sig's name to a Julia name.
      */
     String juliaName(Sig s) {
-        // FileWatching.|
-        // Pkg.Artifacts.var#verify_artifact#1
-        // Base.GMP.MPQ.//
-        var parts = s.nm().split("\\.");
-        var name = parts[parts.length - 1];
-        if (name.startsWith("var#")) {
-            name = name.substring(0, 3) + "\"" + name.substring(3) + "\"";
-        } else if (!Character.isLetter(name.charAt(0)) && name.charAt(0) != '_') {
-            name = ":(" + name + ")";
-        }
-        parts[parts.length - 1] = name;
-        return String.join(".", parts);
+        return s.nm().toJulia();
     }
 
     /**

@@ -1,6 +1,5 @@
 package prlprg;
 
-import prlprg.NameUtils.TypeName;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -8,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import prlprg.NameUtils.TypeName;
 import prlprg.Parser.Function;
 import prlprg.Parser.TypeDeclaration;
 
@@ -26,7 +26,7 @@ class Subtyper {
         case Inst inst -> {
             // Takes care of the case `inst` does not have arguments it expects, in which case
             // it will be provided existentials taken from its decl.
-            var decl = GenDB.types.get(inst.nm()).decl;
+            var decl = GenDB.it.types.get(inst.nm()).decl;
             var argCount = decl.argCount();
             if (argCount == inst.tys().size()) {
                 yield new InstGen(inst, f);
@@ -229,7 +229,7 @@ class Subtyper {
         InstGen(Inst inst, Fuel f) {
             super(null, f);
             this.inst_arg_tys = inst.tys();
-            this.kids = new ArrayList<>(GenDB.types.getSubtypes(inst.nm()));
+            this.kids = new ArrayList<>(GenDB.it.types.getSubtypes(inst.nm()));
             this.next = inst;
         }
 
@@ -238,7 +238,7 @@ class Subtyper {
                 return null;
             }
             var nm = kids.removeFirst();
-            var res = unifyDeclToInstance(GenDB.types.get(nm).decl, new Tuple(inst_arg_tys));
+            var res = unifyDeclToInstance(GenDB.it.types.get(nm).decl, new Tuple(inst_arg_tys));
             // Unify fails with a null return when we try to instantiate a subclass
             // with generic parameters which do not fit its definition.
             // For example, if we have a query for subtypes of A{Int} and
@@ -555,15 +555,15 @@ class Subtyper {
         App.debug = true;
         var p = new Parser().withString(tstr);
         while (!p.isEmpty()) {
-            GenDB.types.addParsed(TypeDeclaration.parse(p.sliceLine()));
+            GenDB.it.types.addParsed(TypeDeclaration.parse(p.sliceLine()));
         }
         p = new Parser().withString(str);
         while (!p.isEmpty()) {
-            GenDB.addSig(Function.parse(p.sliceLine()).toTy());
+            GenDB.it.addSig(Function.parse(p.sliceLine()).toTy());
         }
-        GenDB.cleanUp();
+        GenDB.it.cleanUp();
         var sub = new Subtyper();
-        var functions = GenDB.sigs.get("a");
+        var functions = GenDB.it.sigs.get("a");
         for (var me : functions) {
             var m = me.sig;
             System.err.println("Generating subtypes of " + m);

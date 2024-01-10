@@ -1,46 +1,45 @@
 package prlprg;
 
-import prlprg.NameUtils.TypeName;
-
+import prlprg.NameUtils.FuncName;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.io.FileInputStream;
-import java.io.ObjectInputStream;
-
-import prlprg.Parser.MethodInformation;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import javax.management.RuntimeErrorException;
+
+import prlprg.NameUtils.TypeName;
+import prlprg.Parser.MethodInformation;
 import prlprg.Parser.TypeDeclaration;
 
 /**
  * A database containing all the information that we have acquired about types
  * and signatures of methods.
- * 
+ *
  * NOTE: for some reason I have static variables in the DB, perhaps this should
  * be revisited. I don't recall why that was.
  */
-class GenDB {
+class GenDB implements Serializable {
 
-    static class Types implements Serializable {
+    class Types implements Serializable {
 
-        final NameUtils names = new NameUtils();
         final private HashMap<String, List<Info>> db = new HashMap<>(); // all types hashed by suffix
 
         /**
          * This class holds all information on a type including various stages of
          * preparation.
-         * 
+         *
          * <pre>
          * TypeDeclaration -> TyDecl -> TyDecl -> Decl
          * </pre>
-         * 
+         *
          * The <tt>TypeDeclaration</tt> we get from the parser is ill-formed, it
          * confuses constants, variables and types. The pre_patched TyDecl is in better
          * shape but still refers to some things as types or variables. The patched
@@ -186,8 +185,8 @@ class GenDB {
             if (infos == null) return null;
             var eqs = new ArrayList<Info>();
             for (var i : infos)
-                if (i.nm.juliaEq(tn)) eqs.add(i); //semantic equality not syntactic.            
-            System.err.println("Found " + eqs.size() + " matches for " + tn);
+                if (i.nm.juliaEq(tn)) eqs.add(i); //semantic equality not syntactic.
+            if (eqs.size() != 1) System.err.println("Found " + eqs.size() + " matches for " + tn);
             return eqs.size() == 1 ? eqs.get(0) : null;
         }
 
@@ -227,11 +226,11 @@ class GenDB {
 
         /**
          * Is this type instance concrete. Consider:
-         * 
+         *
          * <pre>
          *   struct S{T} end
          * </pre>
-         * 
+         *
          * Then <tt>S</tt> is not concrete, but <tt>S{Int}</tt> is.
          */
         boolean isConcrete(TypeName nm, int passedArgs) {
@@ -257,7 +256,7 @@ class GenDB {
         void printHierarchy() {
             if (App.PRINT_HIERARCHY) {
                 App.output("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
-                printHierarchy(get(types.names.getShort("Any")), 0);
+                printHierarchy(get(names.getShort("Any")), 0);
             }
         }
 
@@ -282,7 +281,7 @@ class GenDB {
     /**
      * This class holds data for every Julia function. A function is implemented by
      * a set of methods. The internal Info class represent a single method
-     * definition. The db can be queried by function name. s
+     * definition. The db can be queried by opertion name.
      */
     static class Signatures implements Serializable {
 
@@ -290,14 +289,18 @@ class GenDB {
          * Represents a method.
          */
         class Info implements Serializable {
-
+            FuncName nm; // full name
             TySig pre_patched;
             TySig patched;
             Sig sig;
+
+            Info(FuncName fn) {
+                this.nm = fn;
+            }
         }
 
         /**
-         * The DB is a map from function names to a list of methods.
+         * The DB is a map from operation names to a list of methods.
          */
         final private HashMap<String, List<Info>> db = new HashMap<>();
 
@@ -307,24 +310,25 @@ class GenDB {
          *
          * @return a list (never null)
          */
-        List<Info> get(String nm) {
-            var res = db.get(nm);
-            if (res == null) db.put(nm, res = new ArrayList<>());
+        List<Info> get(String opName) {
+            var res = db.get(opName);
+            if (res == null) db.put(opName, res = new ArrayList<>());
             return res;
         }
 
         /**
-         * Create a new method for a function name.
+         * Create a new method for a function name. It is okay to create methods with
+         * the same FuncName because they will be distinguished by their signatures.
          */
-        Info make(String nm) {
-            var info = new Info();
-            var res = get(nm);
-            res.add(info);
+        Info make(FuncName fn) {
+            var info = new Info(fn);
+            var infos = get(fn.operationName());
+            infos.add(info);
             return info;
         }
 
         /**
-         * Return the names of all functions in the DB.
+         * Return the operation names of all functions in the DB.
          */
         List<String> allNames() {
             return new ArrayList<>(db.keySet());
@@ -334,12 +338,7 @@ class GenDB {
          * Return all signatures in the DB.
          */
         List<Sig> allSigs() {
-            var res = new ArrayList<Sig>();
-            for (var nm : allNames()) {
-                for (var info : get(nm))
-                    res.add(info.sig);
-            }
-            return res;
+            return db.entrySet().stream().flatMap(e -> e.getValue().stream()).map(i -> i.sig).collect(Collectors.toList());
         }
 
         /**
@@ -372,10 +371,13 @@ class GenDB {
         }
     }
 
-    static Types types = new Types();
-    static Signatures sigs = new Signatures();
-    static Inst any = new Inst(GenDB.types.names.getShort("Any"), List.of());
-    static Union none = new Union(List.of());
+    static GenDB it = new GenDB();
+
+    NameUtils names = new NameUtils();
+    Types types = new Types();
+    Signatures sigs = new Signatures();
+    Inst any = new Inst(names.getShort("Any"), List.of());
+    Union none = new Union(List.of());
 
     /**
      * Save both the Types and Sigs to a file. Currently in the temp directory. This
@@ -385,8 +387,7 @@ class GenDB {
         try {
             var file = new FileOutputStream("/tmp/db.ser");
             var out = new ObjectOutputStream(file);
-            out.writeObject(types);
-            out.writeObject(sigs);
+            out.writeObject(it);
             out.close();
             file.close();
             App.info("Saved DB to file");
@@ -403,8 +404,7 @@ class GenDB {
         try {
             var file = new FileInputStream("/tmp/db.ser");
             var in = new ObjectInputStream(file);
-            types = (Types) in.readObject();
-            sigs = (Signatures) in.readObject();
+            it = (GenDB) in.readObject();
             in.close();
             file.close();
             App.info("Read DB from file");
@@ -418,7 +418,7 @@ class GenDB {
     /**
      * Add a mehotd declaration to the DB. Called from the parser.
      */
-    static final void addSig(TySig sig) {
+    final void addSig(TySig sig) {
         sigs.make(sig.nm()).pre_patched = sig;
     }
 
@@ -426,7 +426,7 @@ class GenDB {
      * Performs all transformation needed for the types in the DB to be useable for
      * genreation.
      */
-    static public void cleanUp() {
+    public void cleanUp() {
         sigs.fixUpAll();
         types.fixUpAll();
         types.toDeclAll();
@@ -492,11 +492,11 @@ interface Type {
 
 /**
  * A construtor instance may have type parameters, examples are:
- * 
+ *
  * <pre>
  * Int32    Vector{Int,N}
  * </pre>
- * 
+ *
  * The LHS of a type declaration can only have bound variables. The RHS of a
  * type declaration can have a mix of instance and variables (bound on LHS of
  * <:). On its own, an instance should not have free variables.
@@ -545,7 +545,7 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
 
     @Override
     public boolean isConcrete() {
-        return GenDB.types.isConcrete(nm, tys.size());
+        return GenDB.it.types.isConcrete(nm, tys.size());
     }
 
     /**
@@ -557,8 +557,8 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
         var wl = new ArrayList<TypeName>();
         wl.add(nm);
         while (!wl.isEmpty())
-            for (var subnm : GenDB.types.getSubtypes(wl.removeFirst())) {
-                res.add(GenDB.types.get(nm).decl);
+            for (var subnm : GenDB.it.types.getSubtypes(wl.removeFirst())) {
+                res.add(GenDB.it.types.get(nm).decl);
                 wl.add(subnm);
             }
         return res;
@@ -568,7 +568,7 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
 /**
  * A variable refers to a Bound in an enclosing Exist. Free variables are not
  * allowed.
- * 
+ *
  */
 record Var(Bound b) implements Type, Serializable {
 
@@ -795,7 +795,7 @@ record Union(List<Type> tys) implements Type, Serializable {
      */
     @Override
     public boolean isConcrete() {
-        return //tys.isEmpty() || 
+        return //tys.isEmpty() ||
         (tys.size() == 1 && tys.get(0).isConcrete());
     }
 
@@ -897,7 +897,7 @@ record Decl(String mod, TypeName nm, Type ty, Inst parInst, Decl parent, String 
  * function name, T is a type variable, x and y are arguments and T is a type
  * bound.
  */
-record Sig(String nm, Type ty, String src) implements Serializable {
+record Sig(FuncName nm, Type ty, String src) implements Serializable {
 
     // we say a method signature is "ground" if all of its arguments are concrete
     boolean isGround() {
@@ -951,7 +951,7 @@ class Method implements Serializable {
      * A function call. The field tgt is the possibly null variable the result is
      * assigned to, this can be a temporary %1 or a local variable. The args contain
      * the argumets passed.
-     * 
+     *
      * Since our parser is approximate, this may be wrong.
      */
     record Calls(String tgt, List<String> args, Sig called) {
@@ -998,18 +998,18 @@ class Method implements Serializable {
                     tys.add(env.get(arg));
                 } else {
                     if (arg.charAt(0) == '\"') {
-                        tys.add(new Inst(GenDB.types.names.getShort("String"), List.of()));
+                        tys.add(new Inst(GenDB.it.names.getShort("String"), List.of()));
                     } else if (arg.charAt(0) == ':') {
-                        tys.add(new Inst(GenDB.types.names.getShort("Symbol"), List.of()));
+                        tys.add(new Inst(GenDB.it.names.getShort("Symbol"), List.of()));
                     } else if (arg.charAt(0) >= '0' && arg.charAt(0) <= '9') {
-                        tys.add(new Inst(GenDB.types.names.getShort("Int64"), List.of()));
+                        tys.add(new Inst(GenDB.it.names.getShort("Int64"), List.of()));
                     } else if (arg.equals("false") || arg.equals("true")) {
-                        tys.add(new Inst(GenDB.types.names.getShort("Bool"), List.of()));
+                        tys.add(new Inst(GenDB.it.names.getShort("Bool"), List.of()));
                     } else if (arg.equals("nothing")) {
-                        tys.add(new Inst(GenDB.types.names.getShort("Nothing"), List.of()));
+                        tys.add(new Inst(GenDB.it.names.getShort("Nothing"), List.of()));
                     } else {
                         System.err.println("Missing type for " + arg);
-                        tys.add(GenDB.types.get(GenDB.types.names.getShort("Any")).decl.ty());
+                        tys.add(GenDB.it.types.get(GenDB.it.names.getShort("Any")).decl.ty());
                     }
                 }
             }
