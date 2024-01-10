@@ -97,30 +97,9 @@ discover(report::Function, modules::Vector{Module}) = begin
         push!(visited, mod)
 
         for sym in names(mod; all=true, imported=true)
+            val = nothing
             try
                 val = getproperty(mod, sym)
-
-                if val isa Module && ismodulenested(val, root)
-                    discoveraux(val, root)
-                    continue
-                end
-
-                if val isa Function && sym ∉ [:include, :eval]
-                    d = OpaqueDiscovery(val)
-                    d ∈ discovered && continue
-                    push!(discovered, d)
-                    tag = tagof(val)
-                    for m in methods(val)
-                        any(mod -> ismodulenested(m.module, mod), modules) && report(FunctionDiscovery(tag, val, m))
-                    end
-                end
-
-                if val isa Type
-                    d = OpaqueDiscovery((mod, sym, val))
-                    d ∈ discovered && continue
-                    push!(discovered, d)
-                    report(TypeDiscovery(tagof(mod, sym, val), mod, sym, val))
-                end
             catch e
                 if e isa UndefVarError
                     GlobalRef(mod, sym) ∉ [GlobalRef(Base, :active_repl), GlobalRef(Base, :active_repl_backend),
@@ -130,6 +109,28 @@ discover(report::Function, modules::Vector{Module}) = begin
                 else
                     throw(e)
                 end
+            end
+
+            if val isa Module && ismodulenested(val, root)
+                discoveraux(val, root)
+                continue
+            end
+
+            if val isa Function && sym ∉ [:include, :eval]
+                d = OpaqueDiscovery(val)
+                d ∈ discovered && continue
+                push!(discovered, d)
+                tag = tagof(val)
+                for m in methods(val)
+                    any(mod -> ismodulenested(m.module, mod), modules) && report(FunctionDiscovery(tag, val, m))
+                end
+            end
+
+            if val isa Type
+                d = OpaqueDiscovery((mod, sym, val))
+                d ∈ discovered && continue
+                push!(discovered, d)
+                report(TypeDiscovery(tagof(mod, sym, val), mod, sym, val))
             end
         end
     end
@@ -208,8 +209,38 @@ K(a, b, c) = K(a + b + c)
 
 end
 
+
+
+function BaseArgDeclPartsCustom(env, m::Method, html=false)
+    tv = Any[]
+    sig = m.sig
+    while isa(sig, UnionAll)
+        push!(tv, sig.var)
+        sig = sig.body
+    end
+    file = m.file
+    line = m.line
+    argnames = Base.method_argnames(m)
+    if length(argnames) >= m.nargs
+        show_env = Base.ImmutableDict{Symbol, Any}()
+        for kv in env
+            show_env = Base.ImmutableDict(show_env, kv)
+        end
+        for t in tv
+            show_env = Base.ImmutableDict(show_env, :unionall_env => t)
+        end
+        decls = Tuple{String,String}[Base.argtype_decl(show_env, argnames[i], sig, i, m.nargs, m.isva)
+                    for i = 1:m.nargs]
+        decls[1] = ("", sprint(Base.show_signature_function, Base.unwrapva(sig.parameters[1]), false, decls[1][1], html,
+                               context = show_env))
+    else
+        decls = Tuple{String,String}[("", "") for i = 1:length(sig.parameters::SimpleVector)]
+    end
+    return tv, decls, file, line
+end
+
 baseShowMethodCustom(io::IO, m::Method, kind::String) = begin
-    tv, decls, file, line = Base.arg_decl_parts(m)
+    tv, decls, file, line = BaseArgDeclPartsCustom(io.dict, m)
     sig = Base.unwrap_unionall(m.sig)
     if sig === Tuple
         # Builtin
