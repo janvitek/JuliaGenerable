@@ -39,7 +39,7 @@ public class App {
             }
             warn("Sigs: " + sigsC + ", ground: " + groundC);
             GenDB.saveDB();
-        }
+        }   
 
         Orchestrator gen = new Orchestrator(GenDB.types, GenDB.sigs);
         gen.gen();

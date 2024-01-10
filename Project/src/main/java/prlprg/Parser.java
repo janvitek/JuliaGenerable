@@ -1,5 +1,8 @@
 package prlprg;
 
+import prlprg.NameUtils.TypeName;
+import prlprg.NameUtils.FuncName;
+
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
@@ -39,7 +42,7 @@ class Parser {
          *  Int    Intvar"#32"     typeof(:+)
          * </pre>
          */
-        static String parseTypeName(Parser p) {
+        static TypeName parseTypeName(Parser p) {
             var nm = p.take().toString();
             if (p.has("(")) {
                 var q = p.sliceMatchedDelims("(", ")");
@@ -48,9 +51,7 @@ class Parser {
                     nm += q.take().toString();
                 nm += ")";
             }
-            // nm = nm.charAt(0) == '\"' && nm.charAt(nm.length() - 1) == '\"' ? nm : // A quoted string, leave it as is.
-            //        nm.replaceAll("\"", ""); // Get rid of quotes in case of MIME"xyz"
-            return nm.contains(")") ? nm : GenDB.types.names.normalize(nm);
+            return GenDB.types.names.type(nm);
         }
 
         /**
@@ -68,7 +69,7 @@ class Parser {
     }
 
     // An instance of a datatype constructor (not a union all or bound var).
-    record TypeInst(String nm, List<ParsedType> ps) implements ParsedType {
+    record TypeInst(TypeName nm, List<ParsedType> ps) implements ParsedType {
 
         static ParsedType parse(Parser p) {
             var name = ParsedType.parseTypeName(p);
@@ -82,24 +83,16 @@ class Parser {
             return new TypeInst(name, params);
         }
 
-        // number with optional exponent
-        static Pattern pattern = Pattern.compile("[-+]?\\d*\\.?\\d+([eE][-+]?\\d+)?");
-
         // An instance of a datatype with zero or more type parameters.
         // In the case the nm is Union or Tuple, create the specific types.
         @Override
         public Ty toTy() {
             if (ps == null) {
-                if (nm.equals("true") || nm.equals("false") || nm.startsWith(":") || nm.startsWith("\"") || nm.startsWith("\'") || nm().startsWith("typeof(") || pattern.matcher(nm).matches()) {
-                    return new TyCon(nm);
-                } else {
-                    return new TyInst(nm, new ArrayList<>());
-                    // NOTE: this can return a Tuple or Union without any parameters. this is correct.
-                }
+                return nm.likelyConstant() ? new TyCon(nm.toString()) : new TyInst(nm, new ArrayList<>());
+                // NOTE: this can return a Tuple or Union without any parameters. this is correct.
             } else {
                 var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
-                // Due to code_warntype #@$%#$$ we need to deal with Tuple and TUPLE, samme for unions.
-                return nm.toLowerCase().equals("tuple") ? new TyTuple(tys) : nm.toLowerCase().equals("union") ? new TyUnion(tys) : new TyInst(nm, tys);
+                return nm.isTuple() ? new TyTuple(tys) : nm.isUnion() ? new TyUnion(tys) : new TyInst(nm, tys);
             }
         }
 
@@ -118,7 +111,7 @@ class Parser {
     record BoundVar(ParsedType name, ParsedType lower, ParsedType upper) implements ParsedType {
 
         static TypeInst fresh() {
-            var nm = NameUtils.fresh();
+            var nm = NameUtils.varAsTypeName(NameUtils.fresh());
             return new TypeInst(nm, null);
         }
 
@@ -161,7 +154,7 @@ class Parser {
                 p = p.sliceMatchedDelims("(", ")");
                 if (p.isEmpty()) {
                     // This is a special case the whole type was '()' which apparently is an empty Tuple.
-                    return new TypeInst("Tuple", new ArrayList<>());
+                    return new TypeInst(GenDB.types.names.getShort("Tuple"), new ArrayList<>());
                 }
             }
             var type = TypeInst.parse(p);
@@ -196,7 +189,7 @@ class Parser {
         }
     }
 
-    record TypeDeclaration(String modifiers, String nm, List<ParsedType> ps, ParsedType parent, String src) {
+    record TypeDeclaration(String modifiers, TypeName nm, List<ParsedType> ps, ParsedType parent, String src) {
 
         static String parseModifiers(Parser p) {
             var str = "";
@@ -210,6 +203,7 @@ class Parser {
             NameUtils.reset();
             var modifiers = parseModifiers(p);
             var name = ParsedType.parseTypeName(p);
+            name.seenDeclaration(); // update this type name to recall that it has a declaration
             var src = p.last.getLine();
             var ps = new ArrayList<ParsedType>();
             var q = p.sliceMatchedDelims("{", "}");
@@ -938,7 +932,7 @@ class Parser {
  */
 interface Ty {
 
-    final static Ty Any = new TyInst("Any", List.of());
+    final static Ty Any = new TyInst(GenDB.types.names.getShort("Any"), List.of());
     final static Ty None = new TyUnion(List.of());
 
     /**
@@ -980,7 +974,7 @@ interface Ty {
 
 }
 
-record TyInst(String nm, List<Ty> tys) implements Ty, Serializable {
+record TyInst(TypeName nm, List<Ty> tys) implements Ty, Serializable {
 
     @Override
     public String toString() {
@@ -998,8 +992,7 @@ record TyInst(String nm, List<Ty> tys) implements Ty, Serializable {
             if (tys.isEmpty()) return varOrNull.get();
             throw new RuntimeException("Type " + nm() + " is a variable used as a type.");
         }
-        if (nm.contains("(") || nm.contains("\"")) return new TyCon(nm);
-        GenDB.types.patchIfNeeeded(nm);
+        if (nm.likelyConstant()) return new TyCon(nm.toString());
         var args = new ArrayList<Ty>();
         var vars = new ArrayList<TyVar>();
         var newBounds = new ArrayList<TyVar>(bounds);
@@ -1032,8 +1025,7 @@ record TyInst(String nm, List<Ty> tys) implements Ty, Serializable {
      */
     @Override
     public Type toType(List<Bound> env) {
-        var name = GenDB.types.names.normalize(nm());
-        return new Inst(name, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
+        return new Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
     }
 
 }
@@ -1152,7 +1144,7 @@ record TyExist(Ty v, Ty ty) implements Ty, Serializable {
             newBound.add(tv);
             return new TyExist(tv, body.fixUp(newBound));
         } else if (maybeVar instanceof TyInst inst) {
-            var tv = new TyVar(inst.nm(), Ty.none(), Ty.any());
+            var tv = new TyVar(inst.nm().toString(), Ty.none(), Ty.any());
             var newBound = new ArrayList<>(bound);
             newBound.add(tv);
             return new TyExist(tv, body.fixUp(newBound));
@@ -1175,7 +1167,7 @@ record TyExist(Ty v, Ty ty) implements Ty, Serializable {
         } else { // Given that we have alreadty performed fixup, this should not occur. Or? 
             var inst = (TyInst) v();
             if (!inst.tys().isEmpty()) throw new RuntimeException("Should be a TyVar but is a type: " + ty);
-            name = inst.nm();
+            name = inst.nm().toString();
             low = GenDB.none;
             up = GenDB.any;
         }
@@ -1191,7 +1183,7 @@ record TyExist(Ty v, Ty ty) implements Ty, Serializable {
  * A type declaration has modifiers, a name, type expression and a parent type.
  * We also keep the source text for debugging purposes.
  */
-record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) implements Serializable {
+record TyDecl(String mod, TypeName nm, Ty ty, Ty parent, String src) implements Serializable {
 
     @Override
     public String toString() {
@@ -1220,7 +1212,7 @@ record TyDecl(String mod, String nm, Ty ty, Ty parent, String src) implements Se
             case TyVar tv -> fixedArgs.add((TyVar) tv.fixUp(fixedArgs));
             case TyInst ti -> {
                 if (!ti.tys().isEmpty()) throw new RuntimeException("Should be TyVar but is: " + targ);
-                fixedArgs.add(new TyVar(ti.nm(), Ty.none(), Ty.any()));
+                fixedArgs.add(new TyVar(ti.nm().toString(), Ty.none(), Ty.any()));
             }
             default -> throw new RuntimeException("Should be TyVar or TyInst with no arguments: " + targ);
             }

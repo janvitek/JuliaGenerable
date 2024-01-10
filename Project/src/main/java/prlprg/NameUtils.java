@@ -3,9 +3,29 @@ package prlprg;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.regex.Pattern;
 
 /**
- * A utility class to deal with names. This is used to shorten names, deal with
+ * A utility class to deal with names.
+ * 
+ * Type names are tricky because of imports and 'soft' imports. For example,
+ * 
+ * <prea> Base.Ptr Ptr SomeOtherPackage.Ptr </ptr>
+ * 
+ * are all equivalent. On the other hand if we see
+ * 
+ * <preA> abstract type SomeOhterPackage.Ptr{T} end
+ * </pre>
+ * 
+ * then this defines a new type. Sigh.
+ * 
+ * Then, when we deal with code_warntype, it will capitalize types that are not
+ * concrete. So we need to undo that as well.
+ * 
+ * A previous implementation tried to find cannonical representations for types,
+ * but that was tricky and messy.
+ * 
+ * This implementation will redefine the meaning of equality for type names.
  * upper case names from code_warntype and to generate fresh names for type
  * variables.
  * 
@@ -14,9 +34,126 @@ import java.util.HashSet;
  */
 class NameUtils implements Serializable {
 
-    private final HashMap<String, String> upperToLowerNames = new HashMap<>();
+    static class TypeName implements Serializable {
+        String pkg;
+        String nm;
+        boolean basic;
+        boolean soft;
 
-    private final HashMap<String, String> namesFromBase = new HashMap<>();
+        protected TypeName(String pkg, String nm) {
+            this.pkg = pkg;
+            this.nm = nm;
+            var plow = pkg.toLowerCase();
+            this.basic = plow.startsWith("base.") || plow.startsWith("core.") || plow.startsWith("pkg.") || plow.equals("");
+            this.soft = true;
+        }
+
+        void seenDeclaration() {
+            soft = false;
+        }
+
+        // number with optional exponent
+        static Pattern pattern = Pattern.compile("[-+]?\\d*\\.?\\d+([eE][-+]?\\d+)?");
+
+        boolean likelyConstant() {
+            if (nm.equals("true") || nm.equals("false") || nm.startsWith(":") || nm.startsWith("\"") || nm.startsWith("\'")) return true;
+            if (nm.equals("nothing") || nm.equals("missing")) return true;
+            if (nm.startsWith("typeof(") || pattern.matcher(nm).matches() || nm.contains("(")) return true;
+            return false;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (o instanceof TypeName t) {
+                return pkg.equals(t.pkg) && nm.equals(t.nm);
+            } else
+                return false;
+        }
+
+        @Override
+        public int hashCode() {
+            return pkg.hashCode() + nm.hashCode();
+        }
+
+        boolean juliaEq(TypeName t) {
+            if (!nm.equals(t.nm)) return false;
+            if (soft && t.basic) return true;
+            if (t.soft && basic) return true;
+            return pkg.equals(t.pkg);
+        }
+
+        boolean isAny() {
+            return nm.equals("Any");
+        }
+
+        boolean isNothing() {
+            return nm.equals("Nothing");
+        }
+
+        boolean isTuple() {
+            return nm.equals("Tuple") || nm.equals("TUPLE");
+        }
+
+        boolean isUnion() {
+            return nm.equals("Union") || nm.equals("UNION");
+        }
+
+        @Override
+        public String toString() {
+            return pkg.equals("") ? nm : pkg + "." + nm;
+        }
+    }
+
+    class FuncName {
+        String pkg;
+        String nm;
+
+        FuncName() {
+        }
+
+        FuncName(String pkg, String nm) {
+            this.pkg = pkg;
+            this.nm = nm;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (o instanceof FuncName t) {
+                return pkg.equals(t.pkg) && nm.equals(t.nm);
+            } else
+                return false;
+        }
+
+        @Override
+        public String toString() {
+            return pkg.equals("") ? nm : pkg + "." + nm;
+        }
+    }
+
+    TypeName type(String exp) {
+        // the parser can see weird names like typeof(t)
+        var suf = suffix(exp);
+        var pre = prefix(exp);
+        pre = pre == null ? "" : pre;
+        var tn = new TypeName(pre, suf);
+        if (tn.likelyConstant()) return tn;
+        if (names.containsKey(tn)) return names.get(tn);
+        names.put(tn, tn);
+        if (!pre.equals("")) packages.add(pre);
+        GenDB.types.addMissing(tn); // register the type if not there already
+        return tn;
+    }
+
+    TypeName getShort(String nm) {
+        var tn = new TypeName("", nm);
+        if (names.containsKey(tn)) return names.get(tn);
+        names.put(tn, tn);
+        return tn;
+    }
+
+    private final HashMap<TypeName, TypeName> names = new HashMap<>();
+
+    private final HashMap<String, String> upperToLowerNames = new HashMap<>();
 
     final HashSet<String> packages = new HashSet<>();
 
@@ -34,35 +171,6 @@ class NameUtils implements Serializable {
     String toLower(String s) {
         if (upperToLowerNames.containsKey(s)) {
             return upperToLowerNames.get(s);
-        } else {
-            return s;
-        }
-    }
-
-    /**
-     * Normalize a name. This is used to shorten names. This method will strip the
-     * names that start with Base.* and Core.* from their prefix. And also will
-     * strip names that end with a suffix that occurs in Base.* and Core.* of their
-     * prefix.
-     * 
-     * <pre>
-     *    Base.Any => Any    
-     *    Foo.Any => Any
-     * </pre>
-     * 
-     * The first is stripped because it starts with Base, the second because it also
-     * occura in Base.
-     */
-    String normalize(String s) {
-        addToUpper(s);
-        registerPackage(s);
-        var suffix = suffix(s);
-        addToUpper(suffix);
-        if (s.toLowerCase().startsWith("base.") || s.toLowerCase().startsWith("core.")) {
-            namesFromBase.put(suffix, s);
-            return s;
-        } else if (namesFromBase.containsKey(suffix)) {
-            return namesFromBase.get(suffix);
         } else {
             return s;
         }
@@ -117,5 +225,9 @@ class NameUtils implements Serializable {
         var nm = varNames[off] + (mult == 0 ? "" : ap.repeat(mult));
         gen++;
         return nm;
+    }
+
+    static TypeName varAsTypeName(String nm) {
+        return new TypeName("", nm);
     }
 }

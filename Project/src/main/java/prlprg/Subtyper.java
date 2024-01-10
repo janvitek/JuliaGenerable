@@ -1,5 +1,6 @@
 package prlprg;
 
+import prlprg.NameUtils.TypeName;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -222,7 +223,7 @@ class Subtyper {
     class InstGen extends TypeGen {
 
         final List<Type> inst_arg_tys; // reference, should not be modified
-        final List<String> kids; // copy of the kids array, updated
+        final List<TypeName> kids; // copy of the kids array, updated
         TypeGen tg = null; // current generator
 
         InstGen(Inst inst, Fuel f) {

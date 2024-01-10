@@ -1,5 +1,7 @@
 package prlprg;
 
+import prlprg.NameUtils.TypeName;
+
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
@@ -29,7 +31,7 @@ class GenDB {
     static class Types implements Serializable {
 
         final NameUtils names = new NameUtils();
-        final private HashMap<String, Info> db = new HashMap<>(); // all types
+        final private HashMap<String, List<Info>> db = new HashMap<>(); // all types hashed by suffix
 
         /**
          * This class holds all information on a type including various stages of
@@ -48,14 +50,14 @@ class GenDB {
          */
         class Info implements Serializable {
 
-            String nm; //name of the type
+            TypeName nm; //name of the type
             boolean defMissing; // was this patched because it was missing ?
             TyDecl pre_patched; // the type declaration before patching
             TyDecl patched; // the type declaration after patching
             Decl decl; // the final form of the type declaration, this is used for subtype generation
-            List<String> subtypes = List.of(); // names of direct subtypes
+            List<TypeName> subtypes = List.of(); // names of direct subtypes
             Info parent = null; // the parent of this type
-            String parentName; // the name of the parent
+            TypeName parentName; // the name of the parent
             List<Info> children = new ArrayList<>(); // nodes of direct children in the type hierarchy
             List<Type> level_1_kids = new ArrayList<>(); // the Fuel==1 children of this type
 
@@ -63,7 +65,7 @@ class GenDB {
              * Create a type info from a parsed type declaration
              */
             Info(TypeDeclaration ty) {
-                this.nm = names.normalize(ty.nm());
+                this.nm = ty.nm();
                 this.pre_patched = ty.toTy();
                 this.patched = pre_patched; // default, good for simple types
                 this.defMissing = false;
@@ -72,14 +74,22 @@ class GenDB {
             /**
              * Create a type info for a missing type
              */
-            Info(String missingType) {
-                this.nm = names.normalize(missingType);
-                this.decl = isAny() ? new Decl("abstract type", "Any", any, any, null, "") : new Decl("missing type", nm, new Inst(nm, new ArrayList<>()), any, null, "NA");
+            Info(TypeName missingType) {
+                this.nm = missingType;
+                this.decl = isAny() ? new Decl("abstract type", names.getShort("Any"), any, any, null, "") : new Decl("missing type", nm, new Inst(nm, new ArrayList<>()), any, null, "NA");
                 this.defMissing = true;
             }
 
+            void replaceWith(Info i) {
+                if (!defMissing) App.warn("Replacing a non-missing type");
+                this.nm = i.nm;
+                this.pre_patched = i.pre_patched;
+                this.patched = i.patched;
+                this.defMissing = i.defMissing;
+            }
+
             final boolean isAny() {
-                return nm.equals("Any");
+                return nm.isAny();
             }
 
             /**
@@ -109,7 +119,7 @@ class GenDB {
                     parent = this;
                     return;
                 }
-                parentName = defMissing ? "Any" : ((TyInst) patched.parent()).nm();
+                parentName = defMissing ? names.getShort("Any") : ((TyInst) patched.parent()).nm();
                 parent = get(parentName);
                 parent.children.add(this);
             }
@@ -148,21 +158,9 @@ class GenDB {
             }
         } /// End of Info //////////////////////////////////////////////////////////////////////
 
-        /**
-         * Check if this type name exists in the GenDB, if not then create one and mark
-         * it as missing, report a warning that the type had to be 'patched'. This can
-         * come about because of builtin types. Any other reason is fishy.
-         */
-        void patchIfNeeeded(String nm) {
-            if (get(nm) == null) {
-                App.warn("Type " + nm + " not found, patching");
-                db.put(nm, new Info(nm));
-            }
-        }
-
         // Transform all types to Decls, this is done after all types have been patched.
         void toDeclAll() {
-            types.get("Any").toDecl();
+            types.get(names.getShort("Any")).toDecl();
         }
 
         /**
@@ -177,14 +175,20 @@ class GenDB {
          * Return all types in the DB.
          */
         List<Info> all() {
-            return new ArrayList<>(db.values());
+            return new ArrayList<>(db.values()).stream().flatMap(List::stream).collect(Collectors.toList());
         }
 
         /**
          * Return the type info for a type name. Null if not found.
          */
-        Info get(String nm) {
-            return db.get(nm);
+        Info get(TypeName tn) {
+            var infos = db.get(tn.nm);
+            if (infos == null) return null;
+            var eqs = new ArrayList<Info>();
+            for (var i : infos)
+                if (i.nm.juliaEq(tn)) eqs.add(i); //semantic equality not syntactic.            
+            System.err.println("Found " + eqs.size() + " matches for " + tn);
+            return eqs.size() == 1 ? eqs.get(0) : null;
         }
 
         /**
@@ -192,7 +196,7 @@ class GenDB {
          * for Any: Tuple and Union. Generally, Tuple and Union are treated specially,
          * and we do not generate them from scratch.
          */
-        List<String> getSubtypes(String nm) {
+        List<TypeName> getSubtypes(TypeName nm) {
             var info = get(nm);
             return info == null ? null : info.subtypes;
         }
@@ -201,7 +205,24 @@ class GenDB {
          * Add a freshly parsed type declaration to the DB. Called from the parser.
          */
         void addParsed(TypeDeclaration ty) {
-            db.put(ty.nm(), new Info(ty));
+            var tn = ty.nm();
+            var infos = db.get(tn.nm);
+            if (infos == null) db.put(tn.nm, infos = new ArrayList<>());
+            Info it = null;
+            for (var i : infos)
+                if (i.nm.equals(tn)) it = i;
+            if (it == null)
+                infos.add(new Info(ty));
+            else {
+                it.replaceWith(new Info(ty));
+            }
+        }
+
+        void addMissing(TypeName nm) {
+            if (get(nm) != null) return; // got it already
+            var infos = db.get(nm.nm);
+            if (infos == null) db.put(nm.nm, infos = new ArrayList<>());
+            infos.add(new Info(nm));
         }
 
         /**
@@ -213,7 +234,7 @@ class GenDB {
          * 
          * Then <tt>S</tt> is not concrete, but <tt>S{Int}</tt> is.
          */
-        boolean isConcrete(String nm, int passedArgs) {
+        boolean isConcrete(TypeName nm, int passedArgs) {
             var i = get(nm);
             return i != null && // i is null if the type is not in the db
                     i.decl != null && !i.decl.isAbstract() && i.decl.argCount() == passedArgs;
@@ -226,7 +247,7 @@ class GenDB {
 
             @Override
             public int compare(Info n1, Info n2) {
-                return n1.nm.compareTo(n2.nm);
+                return n1.nm.toString().compareTo(n2.nm.toString());
             }
         }
 
@@ -236,7 +257,7 @@ class GenDB {
         void printHierarchy() {
             if (App.PRINT_HIERARCHY) {
                 App.output("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
-                printHierarchy(get("Any"), 0);
+                printHierarchy(get(types.names.getShort("Any")), 0);
             }
         }
 
@@ -244,7 +265,7 @@ class GenDB {
          * Helper method for printing the type hierarchy
          */
         private void printHierarchy(Info n, int pos) {
-            var str = n.decl == null || n.decl.isAbstract() ? CodeColors.abstractType(n.nm) : n.nm;
+            var str = n.decl == null || n.decl.isAbstract() ? CodeColors.abstractType(n.nm.toString()) : n.nm.toString();
             str = n.decl.mod().contains("missing") ? ("? " + CodeColors.abstractType(str)) : str;
             App.output(CodeColors.comment(".").repeat(pos) + str);
             n.children.sort(new NameOrder());
@@ -287,7 +308,6 @@ class GenDB {
          * @return a list (never null)
          */
         List<Info> get(String nm) {
-            nm = types.names.normalize(nm);
             var res = db.get(nm);
             if (res == null) db.put(nm, res = new ArrayList<>());
             return res;
@@ -328,9 +348,6 @@ class GenDB {
          */
         void fixUpAll() {
             // make sure that upperNames have all types
-            types.names.normalize("Any");
-            types.names.normalize("Union");
-            types.names.normalize("Tuple");
             for (var name : allNames()) {
                 for (var sig : get(name))
                     sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
@@ -357,7 +374,7 @@ class GenDB {
 
     static Types types = new Types();
     static Signatures sigs = new Signatures();
-    static Inst any = new Inst("Any", List.of());
+    static Inst any = new Inst(GenDB.types.names.getShort("Any"), List.of());
     static Union none = new Union(List.of());
 
     /**
@@ -484,7 +501,7 @@ interface Type {
  * type declaration can have a mix of instance and variables (bound on LHS of
  * <:). On its own, an instance should not have free variables.
  */
-record Inst(String nm, List<Type> tys) implements Type, Serializable {
+record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
 
     @Override
     public String toString() {
@@ -518,7 +535,7 @@ record Inst(String nm, List<Type> tys) implements Type, Serializable {
 
     @Override
     public boolean isAny() {
-        return nm.equals("Any");
+        return nm.isAny();
     }
 
     @Override
@@ -537,7 +554,7 @@ record Inst(String nm, List<Type> tys) implements Type, Serializable {
      */
     List<Decl> subtypeDecls() {
         var res = new ArrayList<Decl>();
-        var wl = new ArrayList<String>();
+        var wl = new ArrayList<TypeName>();
         wl.add(nm);
         while (!wl.isEmpty())
             for (var subnm : GenDB.types.getSubtypes(wl.removeFirst())) {
@@ -846,11 +863,11 @@ record Tuple(List<Type> tys) implements Type, Serializable {
  * "V{Int} <: AbsV{Int}"), `parent` is the parent's declaration and `src` is the
  * source code of the declaration.
  */
-record Decl(String mod, String nm, Type ty, Inst parInst, Decl parent, String src) implements Serializable {
+record Decl(String mod, TypeName nm, Type ty, Inst parInst, Decl parent, String src) implements Serializable {
 
     @Override
     public String toString() {
-        var ignore = nm.equals("Any") || this.parent.nm.equals("Any"); // parent is null for Any
+        var ignore = nm.isAny() || this.parent.nm.isAny(); // parent is null for Any
         return CodeColors.comment(nm + " ≡ ") + mod + " " + ty + (ignore ? "" : CodeColors.comment(" <: ") + parInst);
     }
 
@@ -981,18 +998,18 @@ class Method implements Serializable {
                     tys.add(env.get(arg));
                 } else {
                     if (arg.charAt(0) == '\"') {
-                        tys.add(new Inst("String", List.of()));
+                        tys.add(new Inst(GenDB.types.names.getShort("String"), List.of()));
                     } else if (arg.charAt(0) == ':') {
-                        tys.add(new Inst("Symbol", List.of()));
+                        tys.add(new Inst(GenDB.types.names.getShort("Symbol"), List.of()));
                     } else if (arg.charAt(0) >= '0' && arg.charAt(0) <= '9') {
-                        tys.add(new Inst("Int64", List.of()));
+                        tys.add(new Inst(GenDB.types.names.getShort("Int64"), List.of()));
                     } else if (arg.equals("false") || arg.equals("true")) {
-                        tys.add(new Inst("Bool", List.of()));
+                        tys.add(new Inst(GenDB.types.names.getShort("Bool"), List.of()));
                     } else if (arg.equals("nothing")) {
-                        tys.add(new Inst("Nothing", List.of()));
+                        tys.add(new Inst(GenDB.types.names.getShort("Nothing"), List.of()));
                     } else {
                         System.err.println("Missing type for " + arg);
-                        tys.add(GenDB.types.get("Any").decl.ty());
+                        tys.add(GenDB.types.get(GenDB.types.names.getShort("Any")).decl.ty());
                     }
                 }
             }
