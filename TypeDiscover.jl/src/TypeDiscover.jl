@@ -34,8 +34,9 @@ struct TypeDiscovery <: Discovery
 end
 
 tagof(f::Function)::Tag = begin
-    f isa Core.Builtin && return Builtin
+    # intrinsics are also builtin...
     f isa Core.IntrinsicFunction && return Intrinsic
+    f isa Core.Builtin && return Builtin
     mt = typeof(f).name.mt
     name = mt.name
     hasname = isdefined(mt.module, name) && typeof(getfield(mt.module, name)) <: Function
@@ -209,8 +210,6 @@ K(a, b, c) = K(a + b + c)
 
 end
 
-
-
 function BaseArgDeclPartsCustom(env, m::Method, html=false)
     tv = Any[]
     sig = m.sig
@@ -230,24 +229,25 @@ function BaseArgDeclPartsCustom(env, m::Method, html=false)
             show_env = Base.ImmutableDict(show_env, :unionall_env => t)
         end
         decls = Tuple{String,String}[Base.argtype_decl(show_env, argnames[i], sig, i, m.nargs, m.isva)
-                    for i = 1:m.nargs]
+                                     for i = 1:m.nargs]
         decls[1] = ("", sprint(Base.show_signature_function, Base.unwrapva(sig.parameters[1]), false, decls[1][1], html,
                                context = show_env))
     else
-        decls = Tuple{String,String}[("", "") for i = 1:length(sig.parameters::SimpleVector)]
+        decls = Tuple{String,String}[("", "") for i = 1:length(sig.parameters::Core.SimpleVector)]
     end
     return tv, decls, file, line
 end
 
-baseShowMethodCustom(io::IO, m::Method, kind::String) = begin
+baseShowMethodCustom(io::IO, m::Method, f::Function, tag::Tag) = begin
+    kind = lowercase(string(tag))
     tv, decls, file, line = BaseArgDeclPartsCustom(io.dict, m)
     sig = Base.unwrap_unionall(m.sig)
     if sig === Tuple
         # Builtin
-        print(io, m.module, ".", m.name, "(...)  [", kind, "]")
+        print(io, m.module, ".", (tag == Intrinsic ? nameof(f) : m.name), "(...)  [", kind, "]")
         return
     end
-    print(io, m.module, ".", decls[1][2], "(")
+    print(io, sig.parameters[1].name.module, ".", decls[1][2], "(")
     join(
         io,
         String[isempty(d[2]) ? d[1] : string(d[1], "::", d[2]) for d in decls[2:end]],
@@ -284,8 +284,7 @@ end
 Base.show(io::IO, d::FunctionDiscovery) = begin
     @assert Macro <= d.tag <= Generic
     print(io, "function ")
-    kind = lowercase(string(d.tag))
-    baseShowMethodCustom(io, d.meth, kind)
+    baseShowMethodCustom(io, d.meth, d.fun, d.tag)
 end
 
 Base.show(io::IO, d::TypeDiscovery) = begin
