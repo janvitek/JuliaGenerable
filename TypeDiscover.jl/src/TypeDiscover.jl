@@ -150,11 +150,13 @@ discover(report::Function, modules::Vector{Module}) = begin
                 end
             end
 
-            if val isa Module && ismodulenested(val, root) && val !== mod
+            if val isa Module && val !== mod
                 if isalias(mod, sym, val)
                     report(AliasDiscovery(ModuleAlias, mod, sym, val, issoftimport(mod, sym)))
                 end
-                discoveraux(val, root)
+                if ismodulenested(val, root)
+                    discoveraux(val, root)
+                end
             end
         end
     end
