@@ -166,21 +166,39 @@ class Orchestrator {
     void createGroundTests(Context ctxt) {
         try {
             try (var w = new BufferedWriter(new FileWriter(ctxt.tests.toString()))) {
-                w.write("include(\"imports.jl\")\nusing InteractiveUtils\n");
-                w.write("InteractiveUtils.highlighting[:warntype] = false\n\n");
+                w.write("""
+                    include("imports.jl")
+                    using InteractiveUtils
+                    InteractiveUtils.highlighting[:warntype] = false
+                    """);
+                w.write("\n");
                 int cnt = 0;
                 for (var s : it.sigs.allSigs()) {
                     if (s.isGround()) {
                         var nm = "t" + cnt++ + ".tst";
                         ctxt.testFiles.add(nm);
-                        w.write("buffer=IOBuffer()\ntry\n");
-                        w.write("code_warntype(IOContext(buffer, :color=>true), ");
-                        w.write(juliaName(s));
-                        w.write(", [");
-                        w.write(((Tuple) s.ty()).tys().stream().map(Type::toJulia).collect(Collectors.joining(", ")));
-                        w.write("])\n");
-                        w.write("catch e\ntry\nprintln(buffer, \"Exception occurred: \", e)\ncatch e\nend\nend\n");
-                        w.write("open(\"" + nm + "\", \"w\") do file\nwrite(file, String(take!(buffer)))\nend\n");
+                        w.write("""
+                            buffer = IOBuffer()
+                            try
+                              code_warntype(IOContext(buffer, :color => true), %s, [%s])
+                            catch e
+                              try
+                                println(buffer, "Exception occurred: ", e)
+                              catch e
+                              end
+                            end
+                            open("%s", "w") do file
+                              write(file, String(take!(buffer)))
+                            end
+                            """.formatted(
+                                    juliaName(s),
+                                    ((Tuple) s.ty())
+                                        .tys()
+                                        .stream()
+                                        .map(Type::toJulia)
+                                        .collect(Collectors.joining(", ")),
+                                    nm));
+                        w.write("\n");
                     }
                 }
                 ctxt.count = cnt;
