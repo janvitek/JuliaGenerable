@@ -59,7 +59,7 @@ class NameUtils implements Serializable {
             this.pkg = pkg;
             this.nm = nm;
             var plow = pkg.toLowerCase();
-            this.basic = plow.equals("base") || plow.equals("core") || plow.equals("");
+            this.basic = plow.equals("base") || plow.startsWith("base.") || plow.equals("core") || plow.startsWith("core.") || plow.equals("");
             this.soft = true;
         }
 

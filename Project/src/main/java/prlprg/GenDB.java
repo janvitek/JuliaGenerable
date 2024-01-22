@@ -517,7 +517,7 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
     @Override
     public boolean structuralEquals(Type t) {
         if (t instanceof Inst i) {
-            if (!nm.equals(i.nm) || tys.size() != i.tys.size()) return false;
+            if (!nm.juliaEq(i.nm) || tys.size() != i.tys.size()) return false;
 
             for (int j = 0; j < tys.size(); j++) {
                 if (!tys.get(j).structuralEquals(i.tys.get(j))) return false;
