@@ -94,7 +94,7 @@ class Orchestrator {
          * @param path
          *                 to the directory to delete
          */
-        void delete(Path p) {
+        final void delete(Path p) {
             try {
                 // Recursively delete the contents of the directory
                 Files.walkFileTree(p, new SimpleFileVisitor<Path>() {
@@ -167,10 +167,10 @@ class Orchestrator {
         try {
             try (var w = new BufferedWriter(new FileWriter(ctxt.tests.toString()))) {
                 w.write("""
-                    include("imports.jl")
-                    using InteractiveUtils
-                    InteractiveUtils.highlighting[:warntype] = false
-                    """);
+                        include("imports.jl")
+                        using InteractiveUtils
+                        InteractiveUtils.highlighting[:warntype] = false
+                        """);
                 w.write("\n");
                 int cnt = 0;
                 for (var s : it.sigs.allSigs()) {
@@ -178,26 +178,19 @@ class Orchestrator {
                         var nm = "t" + cnt++ + ".tst";
                         ctxt.testFiles.add(nm);
                         w.write("""
-                            buffer = IOBuffer()
-                            try
-                              code_warntype(IOContext(buffer, :color => true), %s, [%s])
-                            catch e
-                              try
-                                println(buffer, "Exception occurred: ", e)
-                              catch e
-                              end
-                            end
-                            open("%s", "w") do file
-                              write(file, String(take!(buffer)))
-                            end
-                            """.formatted(
-                                    juliaName(s),
-                                    ((Tuple) s.ty())
-                                        .tys()
-                                        .stream()
-                                        .map(Type::toJulia)
-                                        .collect(Collectors.joining(", ")),
-                                    nm));
+                                buffer = IOBuffer()
+                                try
+                                  code_warntype(IOContext(buffer, :color => true), %s, [%s])
+                                catch e
+                                  try
+                                    println(buffer, "Exception occurred: ", e)
+                                  catch e
+                                  end
+                                end
+                                open("%s", "w") do file
+                                  write(file, String(take!(buffer)))
+                                end
+                                """.formatted(juliaName(s), ((Tuple) s.ty()).tys().stream().map(Type::toJulia).collect(Collectors.joining(", ")), nm));
                         w.write("\n");
                     }
                 }

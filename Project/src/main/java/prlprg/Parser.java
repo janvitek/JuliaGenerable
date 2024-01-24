@@ -56,7 +56,6 @@ class Parser {
             if (str.isEmpty()) p.failAt("Missing function name", p.peek());
             return GenDB.it.names.function(str);
         }
-
     }
 
     /**

@@ -248,7 +248,7 @@ class NameUtils implements Serializable {
         upperToLowerNames.put(upper, low);
     }
 
-    String toLower(String s) {
+    private String toLower(String s) {
         if (upperToLowerNames.containsKey(s)) {
             return upperToLowerNames.get(s);
         } else {
@@ -256,7 +256,7 @@ class NameUtils implements Serializable {
         }
     }
 
-    String prefix(String s) {
+    private String prefix(String s) {
         var i = s.lastIndexOf(".");
         return i == -1 ? null : s.substring(0, i);
     }
@@ -267,11 +267,6 @@ class NameUtils implements Serializable {
     String suffix(String s) {
         var i = s.lastIndexOf(".");
         return i == -1 ? s : s.substring(i + 1);
-    }
-
-    void registerPackage(String p) {
-        var prefix = prefix(p);
-        if (prefix != null) packages.add(prefix);
     }
 
     // The goal is to generate name for type variables that are distinct from user generated
@@ -307,7 +302,4 @@ class NameUtils implements Serializable {
         return nm;
     }
 
-    static TypeName varAsTypeName(String nm) {
-        return new TypeName("", nm);
-    }
 }
