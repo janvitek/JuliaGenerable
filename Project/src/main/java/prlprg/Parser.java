@@ -102,13 +102,9 @@ class Parser {
 
         /**
          * When we see a TypeInst in a parent position we make the type is in the DB.
-         * TODO: Check if this is robust wrt
          */
         void addMissing() {
             if (!nm.likelyConstant()) GenDB.it.types.addMissing(nm);
-            if (ps == null) return;
-            for (var p : ps)
-                if (p instanceof TypeInst t) t.addMissing();
         }
 
     }

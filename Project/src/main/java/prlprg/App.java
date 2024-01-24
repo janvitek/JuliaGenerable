@@ -9,10 +9,10 @@ public class App {
     public static boolean debug, PRINT_HIERARCHY = true, verbose;
     static String dir, types, functions;
     static String[] defaultArgs = { "-d=FALSE", // run micro tests
-            "-c=NONE", // color the output : DARK, LIGHT, NONE
+            "-c=DARK", // color the output : DARK, LIGHT, NONE
             "-r=../Inputs/", // root directory with input files
-            "-f=stdf2.jlg", // file with function signatures
-            "-t=stdt2.jlg", // file with type declarations
+            "-f=stdf.jlg", // file with function signatures
+            "-t=stdt.jlg", // file with type declarations
             "-h=TRUE", // print hierarchy
             "-v=FALSE", // verbose
     };

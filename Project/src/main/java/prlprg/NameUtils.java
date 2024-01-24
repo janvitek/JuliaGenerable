@@ -118,9 +118,8 @@ class NameUtils implements Serializable {
          */
         boolean juliaEq(TypeName t) {
             if (!nm.equals(t.nm)) return false;
-            if (soft && t.basic) return true;
-            if (t.soft && basic) return true;
-            return pkg.equals(t.pkg);
+            if (pkg.equals(t.pkg)) return true;
+            return (soft && t.basic) || (t.soft && basic);
         }
 
         boolean isAny() {
