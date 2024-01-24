@@ -1046,11 +1046,11 @@ record TyInst(TypeName nm, List<Ty> tys) implements Ty, Serializable {
     }
 
     /**
-     * After this call we have a valide TyInst or TyVar, or a TyCon or a Ty.None.
+     * After this call we have a valid TyInst or TyVar, or a TyCon or a Ty.None.
      */
     @Override
     public Ty fixUp(List<TyVar> bounds) {
-        var varOrNull = bounds.stream().filter(v -> v.nm().equals(nm())).findFirst();
+        var varOrNull = bounds.stream().filter(v -> v.nm().equals(nm().toString())).findFirst();
         if (varOrNull.isPresent()) {
             if (tys.isEmpty()) return varOrNull.get();
             throw new RuntimeException("Type " + nm() + " is a variable used as a type.");
