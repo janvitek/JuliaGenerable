@@ -254,10 +254,9 @@ class GenDB implements Serializable {
          * Print the type hierarchy. This is a top down traversal of the type hierarchy.
          */
         void printHierarchy() {
-            if (App.PRINT_HIERARCHY) {
-                App.output("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
-                printHierarchy(get(names.getShort("Any")), 0);
-            }
+            App.output("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
+            printHierarchy(get(names.getShort("Any")), 0);
+
         }
 
         /**
