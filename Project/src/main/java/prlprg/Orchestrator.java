@@ -170,6 +170,24 @@ class Orchestrator {
                         include("imports.jl")
                         using InteractiveUtils
                         InteractiveUtils.highlighting[:warntype] = false
+
+                        macro WARNTYPE(e1, e2, f)
+                            quote
+                                buffer = IOBuffer()
+                        	try
+                        	        code_warntype(IOContext(buffer, :color => true), $(esc(e1)), $(esc(e2)))
+                                catch e
+                                  try
+                                      println(buffer, "Exception occurred: ", e)
+                                   catch e
+                                   end
+                              	end
+                        	open($(esc(f)), "w") do file
+                                    write(file, String(take!(buffer)))
+                        	end
+                            end
+                        end
+
                         """);
                 w.write("\n");
                 int cnt = 0;
@@ -178,20 +196,8 @@ class Orchestrator {
                         var nm = "t" + cnt++ + ".tst";
                         ctxt.testFiles.add(nm);
                         w.write("""
-                                buffer = IOBuffer()
-                                try
-                                  code_warntype(IOContext(buffer, :color => true), %s, [%s])
-                                catch e
-                                  try
-                                    println(buffer, "Exception occurred: ", e)
-                                  catch e
-                                  end
-                                end
-                                open("%s", "w") do file
-                                  write(file, String(take!(buffer)))
-                                end
+                                  @WARNTYPE  %s  [%s] "%s"
                                 """.formatted(juliaName(s), ((Tuple) s.ty()).tys().stream().map(Type::toJulia).collect(Collectors.joining(", ")), nm));
-                        w.write("\n");
                     }
                 }
                 ctxt.count = cnt;
