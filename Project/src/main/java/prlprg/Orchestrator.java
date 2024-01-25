@@ -20,6 +20,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import prlprg.App.Timer;
 import prlprg.Parser.MethodInformation;
 
 /**
@@ -151,11 +152,17 @@ class Orchestrator {
      */
     void gen() {
         var ctxt = new Context();
-        // populate Input...
+        Timer t = new Timer().start();
         createPkgs(ctxt);
         createGroundTests(ctxt);
+        App.print("Created " + ctxt.count + " tests in " + t.stop());
+        App.printSeparator();
+        t = new Timer().start();
         exec(ctxt);
+        App.print("Executed " + ctxt.count + " tests in " + t.stop());
+        t = new Timer().start();
         readResults(ctxt);
+        App.print("Read " + ctxt.count + " results in " + t.stop());
         System.exit(0);
     }
 
@@ -215,11 +222,11 @@ class Orchestrator {
         FilenameFilter filter = (file, name) -> name.endsWith(".tst");
         File[] files = dir.listFiles(filter);
         if (files == null) {
-            System.err.println("The directory does not exist.");
+            App.print("The directory does not exist.");
             return;
         }
         if (files.length != ctxt.count) {
-            System.err.println("Expected " + ctxt.count + " files, found " + files.length);
+            App.print("Expected " + ctxt.count + " files, found " + files.length);
         }
         int count = 0;
         for (File file : files) {
@@ -235,18 +242,18 @@ class Orchestrator {
                     var siginfo = it.sigs.get(nm.operationName());
 
                     if (siginfo == null) {
-                        App.warn(nm + " not found !!!!!!");
+                        App.print(nm + " not found !!!!!!");
                     }
                     var nms = it.sigs.allNames();
 
-                    System.err.println(m);
+                    App.output(m);
                 }
             } catch (Throwable e) {
-                System.err.println("Error parsing file " + file.toString() + ": " + e.getMessage());
+                App.print("Error parsing file " + file.toString() + ": " + e.getMessage());
             }
         }
         if (count != ctxt.count) {
-            System.err.println("Expected " + ctxt.count + " methods, found " + count);
+            App.print("Expected " + ctxt.count + " methods, found " + count);
         }
     }
 

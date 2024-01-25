@@ -1,7 +1,5 @@
 package prlprg;
 
-import java.io.File;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.file.Files;
@@ -9,7 +7,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
-
+import prlprg.App.Timer;
 import static prlprg.CodeColors.color;
 import prlprg.NameUtils.FuncName;
 import prlprg.NameUtils.TypeName;
@@ -483,17 +481,17 @@ class Parser {
             try {
                 this.arguments = parseArguments(p);
             } catch (Exception e) {
-                App.warn("Error parsing arguments: " + e.getMessage());
+                App.print("Error parsing arguments: " + e.getMessage());
             }
             try {
                 this.locals = parseLocals(p);
             } catch (Exception e) {
-                App.warn("Error parsing locals: " + e.getMessage());
+                App.print("Error parsing locals: " + e.getMessage());
             }
             try {
                 this.returnType = parseReturnType(p);
             } catch (Exception e) {
-                App.warn("Error parsing return type: " + e.getMessage());
+                App.print("Error parsing return type: " + e.getMessage());
             }
         }
 
@@ -532,7 +530,7 @@ class Parser {
                     }
                     ops.add(parseOp(q));
                 } catch (Throwable e) {
-                    App.warn("Error parsing op: " + last.getLine());
+                    App.print("Error parsing op: " + last.getLine());
                 }
             }
         }
@@ -606,6 +604,7 @@ class Parser {
         try {
             List<String> ls = Files.readAllLines(Path.of(path));
             toks = new Lex(ls.toArray(new String[0])).tokenize();
+            stats.lines = ls.size();
             return this;
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -630,8 +629,16 @@ class Parser {
      *                to limit the number of signatures to process.
      */
     void parseSigs(int max) {
+        stats.linesOfSigs = stats.lines;
+        stats.sigs.start();
+
         while (!isEmpty() && max-- > 0)
             GenDB.it.addSig(Function.parse(sliceLine()).toTy());
+
+        stats.sigs.stop();
+        stats.sigsFound = GenDB.it.sigs.allSigs().size();
+        stats.funsFound = GenDB.it.sigs.allNames().size();
+        App.print("Processed " + stats.linesOfSigs + " lines of input, found " + stats.sigsFound + " sigs for " + stats.funsFound + " generic functions in " + stats.sigs);
     }
 
     /**
@@ -639,37 +646,28 @@ class Parser {
      * parse every declaration and add it to the DB.
      */
     void parseTypes() {
-        while (!isEmpty()) {
-            var p = sliceLine();
-            if (p.has("const")) continue; // TODO parse aliases
-            GenDB.it.types.addParsed(TypeDeclaration.parse(p));
-        }
+        stats.linesOfTypes = stats.lines;
+        stats.types.start();
+
+        while (!isEmpty())
+            GenDB.it.types.addParsed(TypeDeclaration.parse(sliceLine()));
+
+        stats.types.stop();
+        stats.typesFound = GenDB.it.types.all().size();
+        App.print("Processed " + stats.linesOfTypes + " lines of input, found " + stats.typesFound + " types in " + stats.types);
     }
 
-    /**
-     * Method used for testing. Here we are reading files coming from code_warntype
-     */
+    final Stats stats = new Stats();
 
-    public static void main(String[] args) {
-        File dir = new File("/tmp/jl_162626/out.0/");
-        FilenameFilter filter = (file, name) -> name.endsWith(".tst");
-        File[] files = dir.listFiles(filter);
-        if (files != null) {
-            for (File file : files) {
-                try {
-                    var p = new Parser().withFile(file.toString());
-                    System.err.println(file.toString() + " ...\n");
-                    var ms = MethodInformation.parse(p, file.toString());
-                    for (var m : ms) {
-                        System.err.println(m);
-                    }
-                } catch (Throwable e) {
-                    System.err.println("Error parsing file " + file.toString() + ": " + e.getMessage());
-                }
-            }
-        } else {
-            System.err.println("The directory is empty or does not exist.");
-        }
+    class Stats {
+        int lines;
+        int linesOfSigs;
+        int sigsFound;
+        int funsFound;
+        int linesOfTypes;
+        int typesFound;
+        Timer sigs = new Timer();
+        Timer types = new Timer();
     }
 
     enum Kind {

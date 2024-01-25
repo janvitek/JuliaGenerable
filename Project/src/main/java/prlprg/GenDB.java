@@ -79,7 +79,7 @@ class GenDB implements Serializable {
 
             void replaceWith(Info i) {
                 if (!defMissing) {
-                    App.warn("Replacing a non-missing type");
+                    App.print("Replacing a non-missing type");
                 }
                 this.nm = i.nm;
 
@@ -111,7 +111,7 @@ class GenDB implements Serializable {
                     try {
                         patched = pre_patched.fixUp();
                     } catch (Exception e) {
-                        App.warn("Error: " + nm + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + pre_patched.src()));
+                        App.print("Error: " + nm + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + pre_patched.src()));
                     }
                 }
                 if (isAny()) {
@@ -363,7 +363,7 @@ class GenDB implements Serializable {
                     try {
                         s.sig = new Sig(s.patched.nm(), n.ty().toType(new ArrayList<>()), n.src());
                     } catch (Exception e) {
-                        App.warn("Error: " + n.nm() + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + n.src()));
+                        App.print("Error: " + n.nm() + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + n.src()));
                     }
                 }
             }
@@ -389,7 +389,7 @@ class GenDB implements Serializable {
             out.writeObject(it);
             out.close();
             file.close();
-            App.info("Saved DB to file");
+            App.print("Saved DB to file");
         } catch (IOException e) {
             throw new RuntimeException("Failed to save DB: " + e.getMessage());
         }
@@ -406,10 +406,10 @@ class GenDB implements Serializable {
             it = (GenDB) in.readObject();
             in.close();
             file.close();
-            App.info("Read DB from file");
+            App.print("Read DB from file");
             return true;
         } catch (Exception e) {
-            App.warn("Failed to read DB: " + e.getMessage());
+            App.print("Failed to read DB: " + e.getMessage());
             return false;
         }
     }
@@ -1007,7 +1007,7 @@ class Method implements Serializable {
                     } else if (arg.equals("nothing")) {
                         tys.add(new Inst(GenDB.it.names.getShort("Nothing"), List.of()));
                     } else {
-                        System.err.println("Missing type for " + arg);
+                        App.print("Missing type for " + arg);
                         tys.add(GenDB.it.types.get(GenDB.it.names.getShort("Any")).decl.ty());
                     }
                 }
