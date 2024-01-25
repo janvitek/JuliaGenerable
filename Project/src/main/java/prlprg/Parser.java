@@ -623,10 +623,14 @@ class Parser {
 
     /**
      * Assumes that we are parsing a file that has one method signature per line,
-     * parse every signature and add it to the DB.
+     * parse signature up to `max` and add them to the DB.
+     * 
+     * @param max
+     *                the maximum number of signatures to rea. Used in development
+     *                to limit the number of signatures to process.
      */
-    void parseSigs() {
-        while (!isEmpty())
+    void parseSigs(int max) {
+        while (!isEmpty() && max-- > 0)
             GenDB.it.addSig(Function.parse(sliceLine()).toTy());
     }
 

@@ -1,12 +1,12 @@
 package prlprg;
 
 import java.util.ArrayList;
-
 import prlprg.Subtyper.Fuel;
 
 public class App {
 
     public static boolean debug, PRINT_HIERARCHY = true, verbose;
+    private static int MAX_SIGS_TO_READ = 100;
     static String dir, types, functions;
     static String[] defaultArgs = { "-d=FALSE", // run micro tests
             "-c=DARK", // color the output : DARK, LIGHT, NONE
@@ -15,6 +15,7 @@ public class App {
             "-t=stdt.jlg", // file with type declarations
             "-h=TRUE", // print hierarchy
             "-v=FALSE", // verbose
+            "-m=50", // max number of sigs to read (0 = all)
     };
 
     static int FUEL = 1;
@@ -28,7 +29,7 @@ public class App {
             var p = debug ? new Parser().withString(tstr) : new Parser().withFile(dir + types);
             p.parseTypes();
             p = debug ? new Parser().withString(str) : new Parser().withFile(dir + functions);
-            p.parseSigs();
+            p.parseSigs(MAX_SIGS_TO_READ);
             warn("Preparing type and signature database...");
             GenDB.it.cleanUp();
             var sigs = GenDB.it.sigs.allSigs();
@@ -141,10 +142,8 @@ public class App {
         for (var arg : args) {
             if (arg.startsWith("-d")) { // debug
                 debug = arg.substring(3).strip().equals("TRUE");
-            } else if (arg.startsWith("-h")) { // debug
+            } else if (arg.startsWith("-h")) { // should I print types?
                 PRINT_HIERARCHY = arg.substring(3).strip().equals("TRUE");
-            } else if (arg.startsWith("-d")) { // debug
-                debug = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-v")) {
                 verbose = arg.substring(3).strip().equals("TRUE");
             } else if (arg.startsWith("-r")) { // root directory
@@ -153,6 +152,9 @@ public class App {
                 types = arg.substring(3).strip();
             } else if (arg.startsWith("-f")) {
                 functions = arg.substring(3).strip();
+            } else if (arg.startsWith("-m")) { // max number of sigs to read
+                var s = arg.substring(3).strip();
+                MAX_SIGS_TO_READ = s.equals("0") ? Integer.MAX_VALUE : Integer.parseInt(s);
             } else if (arg.startsWith("-c")) { // Color mode
                 CodeColors.mode = switch (arg.substring(3).strip()) {
                 case "DARK" -> CodeColors.Mode.DARK;
