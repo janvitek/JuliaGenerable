@@ -481,17 +481,17 @@ class Parser {
             try {
                 this.arguments = parseArguments(p);
             } catch (Exception e) {
-                App.print("Error parsing arguments: " + e.getMessage());
+                App.output("Error parsing arguments: " + e.getMessage());
             }
             try {
                 this.locals = parseLocals(p);
             } catch (Exception e) {
-                App.print("Error parsing locals: " + e.getMessage());
+                App.output("Error parsing locals: " + e.getMessage());
             }
             try {
                 this.returnType = parseReturnType(p);
             } catch (Exception e) {
-                App.print("Error parsing return type: " + e.getMessage());
+                App.output("Error parsing return type: " + e.getMessage());
             }
         }
 
@@ -530,7 +530,7 @@ class Parser {
                     }
                     ops.add(parseOp(q));
                 } catch (Throwable e) {
-                    App.print("Error parsing op: " + last.getLine());
+                    App.output("Error parsing op: " + last.getLine());
                 }
             }
         }
@@ -609,15 +609,6 @@ class Parser {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    /**
-     * For testing purposes, initialize the parser from a string with embedded
-     * newlines.
-     */
-    Parser withString(String s) {
-        toks = new Lex(s.split("\n")).tokenize();
-        return this;
     }
 
     /**

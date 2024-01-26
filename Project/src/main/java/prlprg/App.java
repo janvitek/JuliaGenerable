@@ -6,9 +6,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 
-import javax.imageio.IIOException;
-import javax.management.RuntimeErrorException;
-
 import prlprg.Subtyper.Fuel;
 
 public class App {
@@ -19,7 +16,7 @@ public class App {
             "-r=../Inputs/", // root directory with input files
             "-f=stdf.jlg", // file with function signatures
             "-t=stdt.jlg", // file with type declarations
-            "-m=50000", // max number of sigs to read (0 = all)
+            "-m=500", // max number of sigs to read (0 = all)
     };
 
     static int FUEL = 1;
@@ -60,7 +57,7 @@ public class App {
         printSeparator();
         print("Starting orchestrator...");
         Orchestrator gen = new Orchestrator();
-        gen.gen();
+        gen.orchestrate();
         // for now the above exit();
         // What follows will be moved to orchestrator  or GenDB.
         var sub = new Subtyper();

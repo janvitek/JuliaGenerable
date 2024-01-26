@@ -1,6 +1,7 @@
 package prlprg;
 
 import prlprg.NameUtils.FuncName;
+
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -12,6 +13,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.HashSet;
 
 import prlprg.NameUtils.TypeName;
 import prlprg.Parser.MethodInformation;
@@ -288,7 +290,7 @@ class GenDB implements Serializable {
          * Represents a method.
          */
         class Info implements Serializable {
-            FuncName nm; // full name
+            FuncName nm;
             TySig pre_patched;
             TySig patched;
             Sig sig;
@@ -377,6 +379,7 @@ class GenDB implements Serializable {
     Signatures sigs = new Signatures();
     Inst any = new Inst(names.getShort("Any"), List.of());
     Union none = new Union(List.of());
+    HashSet<String> seenMissing = new HashSet<>();
 
     /**
      * Save both the Types and Sigs to a file. Currently in the temp directory. This
@@ -384,12 +387,14 @@ class GenDB implements Serializable {
      */
     static final void saveDB() {
         try {
-            var file = new FileOutputStream("/tmp/db.ser");
-            var out = new ObjectOutputStream(file);
-            out.writeObject(it);
-            out.close();
-            file.close();
-            App.print("Saved DB to file");
+            try (var file = new FileOutputStream("/tmp/db.ser")) {
+                try (var out = new ObjectOutputStream(file)) {
+                    out.writeObject(it);
+                    out.close();
+                    file.close();
+                    App.print("Saved DB to file");
+                }
+            }
         } catch (IOException e) {
             throw new RuntimeException("Failed to save DB: " + e.getMessage());
         }
@@ -401,13 +406,15 @@ class GenDB implements Serializable {
      */
     static final boolean readDB() {
         try {
-            var file = new FileInputStream("/tmp/db.ser");
-            var in = new ObjectInputStream(file);
-            it = (GenDB) in.readObject();
-            in.close();
-            file.close();
-            App.print("Read DB from file");
-            return true;
+            try (var file = new FileInputStream("/tmp/db.ser")) {
+                try (var in = new ObjectInputStream(file)) {
+                    it = (GenDB) in.readObject();
+                    in.close();
+                    file.close();
+                    App.print("Read DB from file");
+                    return true;
+                }
+            }
         } catch (Exception e) {
             App.print("Failed to read DB: " + e.getMessage());
             return false;
@@ -1007,7 +1014,10 @@ class Method implements Serializable {
                     } else if (arg.equals("nothing")) {
                         tys.add(new Inst(GenDB.it.names.getShort("Nothing"), List.of()));
                     } else {
-                        App.print("Missing type for " + arg);
+                        if (!GenDB.it.seenMissing.contains(arg)) {
+                            GenDB.it.seenMissing.add(arg);
+                            App.print("Missing type for " + arg);
+                        }
                         tys.add(GenDB.it.types.get(GenDB.it.names.getShort("Any")).decl.ty());
                     }
                 }

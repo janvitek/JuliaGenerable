@@ -50,6 +50,30 @@ class Orchestrator {
     }
 
     /**
+     * Generate the tests and run them.
+     */
+    void orchestrate() {
+        var ctxt = new Context();
+
+        Timer t = new Timer().start();
+        createPkgs(ctxt);
+        //        createGroundTests(ctxt, testsForGroundSigs());
+        createGroundTests(ctxt, testsForAllFuns());
+        App.print("Created " + ctxt.count + " tests in " + t.stop());
+
+        t = new Timer().start();
+        exec(ctxt);
+        App.printSeparator();
+        App.print("Executed " + ctxt.count + " tests in " + t.stop());
+
+        t = new Timer().start();
+        readResults(ctxt);
+        App.print("Read " + ctxt.count + " results in " + t.stop());
+
+        System.exit(0);
+    }
+
+    /**
      * A context remembers where this generator is writing to. We assume there will
      * be multiple instances working concurrently (at some point).
      *
@@ -63,7 +87,6 @@ class Orchestrator {
         Path root; // for all data procduced by this JVM
         Path tmp; // path to the temp directory that holds the Julia results e.g. /tmp/t0
         Path imports; // complete path for the file that has all the inmport statements
-        Path pkgs; // complete path for the file that has the list of packages used
         Path tests; // complete path for the file that holds the code to run the tests
         List<String> testFiles = new ArrayList<>(); // the name of the test files created
         int count = 0; // how many fles we actually see in the /tmp/t0 dir after Julia has run
@@ -85,7 +108,6 @@ class Orchestrator {
                 throw new Error(e); // deletion shouold not fail... without a valid context there is not much we can do
             }
             imports = root.resolve("imports.jl");
-            pkgs = root.resolve("pkgs.txt");
             tests = root.resolve("tests.jl");
         }
 
@@ -131,11 +153,6 @@ class Orchestrator {
             pkgs.add(prefix);
         }
         try {
-            try (var pkgsf = new BufferedWriter(new FileWriter(ctxt.pkgs.toString()))) {
-                for (var p : pkgs) {
-                    pkgsf.write(p + "\n");
-                }
-            }
             try (var importsf = new BufferedWriter(new FileWriter(ctxt.imports.toString()))) {
                 importsf.write("using Pkg\n");
                 for (var p : pkgs) {
@@ -147,71 +164,122 @@ class Orchestrator {
         }
     }
 
-    /**
-     * Generate the tests and run them.
-     */
-    void gen() {
-        var ctxt = new Context();
-        Timer t = new Timer().start();
-        createPkgs(ctxt);
-        createGroundTests(ctxt);
-        App.print("Created " + ctxt.count + " tests in " + t.stop());
-        App.printSeparator();
-        t = new Timer().start();
-        exec(ctxt);
-        App.print("Executed " + ctxt.count + " tests in " + t.stop());
-        t = new Timer().start();
-        readResults(ctxt);
-        App.print("Read " + ctxt.count + " results in " + t.stop());
-        System.exit(0);
-    }
+    private static final String HEADER = """
+            include("imports.jl")
+            using InteractiveUtils
+            InteractiveUtils.highlighting[:warntype] = false
+
+            macro WARNTYPE(e1, e2, f)
+              quote
+                buffer = IOBuffer()
+                try
+                    code_warntype(IOContext(buffer, :color => true), $(esc(e1)), $(esc(e2)))
+                catch e
+                    try
+                      println(buffer, "Exception occurred: ", e)
+                    catch e
+                    end
+               	end
+               	open($(esc(f)), "w") do file
+                    write(file, String(take!(buffer)))
+               	end
+              end
+            end
+
+            """;
 
     /**
-     * Create test for methods that have all concerete arguments. A different
-     * approach will be needed for other methods.
+     * Create stability tests for a list of requests. This generates a Julia program
+     * that starts by importing all packages that are referenced in the DB, and then
+     * defines the testing macro. The list of Test request is used to generate one
+     * stability test per line.
+     * 
+     * The context remmebers the name of the files that will hold the results of
+     * each stability test and the overall count of files. This is to check that all
+     * the requested tests succeeded. (They could fail if there is a bug in our code
+     * and that results in a Julia error.)
      */
-    void createGroundTests(Context ctxt) {
+    void createGroundTests(Context ctxt, List<Test> tests) {
         try {
             try (var w = new BufferedWriter(new FileWriter(ctxt.tests.toString()))) {
-                w.write("""
-                        include("imports.jl")
-                        using InteractiveUtils
-                        InteractiveUtils.highlighting[:warntype] = false
-
-                        macro WARNTYPE(e1, e2, f)
-                            quote
-                                buffer = IOBuffer()
-                        	try
-                        	        code_warntype(IOContext(buffer, :color => true), $(esc(e1)), $(esc(e2)))
-                                catch e
-                                  try
-                                      println(buffer, "Exception occurred: ", e)
-                                   catch e
-                                   end
-                              	end
-                        	open($(esc(f)), "w") do file
-                                    write(file, String(take!(buffer)))
-                        	end
-                            end
-                        end
-
-                        """);
-                w.write("\n");
+                w.write(HEADER);
                 int cnt = 0;
-                for (var s : it.sigs.allSigs()) {
-                    if (s.isGround()) {
-                        var nm = "t" + cnt++ + ".tst";
-                        ctxt.testFiles.add(nm);
-                        w.write("""
-                                  @WARNTYPE  %s  [%s] "%s"
-                                """.formatted(juliaName(s), ((Tuple) s.ty()).tys().stream().map(Type::toJulia).collect(Collectors.joining(", ")), nm));
-                    }
+                for (var t : tests) {
+                    ctxt.testFiles.add(t.file);
+                    cnt++;
+                    w.write(t.toTest());
                 }
                 ctxt.count = cnt;
             }
         } catch (IOException e) {
             throw new Error(e);
         }
+    }
+
+    /**
+     * Test hold information to generate one stability test: the name of the
+     * function, the tuple of argument types, and the file in which to store the
+     * results of code_warntype.
+     */
+    record Test(String name, String args, String file) {
+        /**
+         * Generate the Julia code for the stability test using the @WARNTYPE macro.
+         * This consists of the name of the method, the arguments, and the string
+         * containing the file name in which this will be outpput.
+         */
+        String toTest() {
+            return """
+                        @WARNTYPE  %s  [%s] "%s"
+                    """.formatted(name, args, file);
+        }
+    }
+
+    /**
+     * Generate the requests for testing all the functions that have all concrete
+     * argument types.
+     */
+    List<Test> testsForGroundSigs() {
+        int cnt = 0;
+        var tests = new ArrayList<Test>();
+        for (var s : it.sigs.allSigs()) {
+            if (s.isGround()) {
+                var nm = "t" + cnt++ + ".tst";
+                var t = ((Tuple) s.ty()).tys().stream().map(Type::toJulia).collect(Collectors.joining(", "));
+                tests.add(new Test(juliaName(s), t, nm));
+            }
+        }
+        return tests;
+    }
+
+    /**
+     * Generate the requests for testing all the functions with arguments set to
+     * Any. This will result in code_warntype returning all possible methods for the
+     * requested function names.
+     * 
+     * This will be a good starting point, as we believe that functions that are
+     * stable under Any are stable under more specific types.
+     * 
+     * Furthermore, we can use the internal type information (local variables and
+     * called methods) as hints for future tests.
+     */
+    List<Test> testsForAllFuns() {
+        int cnt = 0;
+        var tests = new ArrayList<Test>();
+        var seen = new HashSet<String>();
+        for (var s : it.sigs.allSigs()) {
+            var signameArity = s.nm().toString() + s.arity();
+            if (seen.contains(signameArity)) {
+                continue;
+            }
+            seen.add(signameArity);
+            var nm = "t" + cnt++ + ".tst";
+            var anys = new ArrayList<Type>();
+            for (var i = 0; i < s.arity(); i++)
+                anys.add(it.any);
+            var t = anys.stream().map(Type::toJulia).collect(Collectors.joining(", "));
+            tests.add(new Test(juliaName(s), t, nm));
+        }
+        return tests;
     }
 
     /**
@@ -222,7 +290,7 @@ class Orchestrator {
         FilenameFilter filter = (file, name) -> name.endsWith(".tst");
         File[] files = dir.listFiles(filter);
         if (files == null) {
-            App.print("The directory does not exist.");
+            App.print("Directory does not exist.");
             return;
         }
         if (files.length != ctxt.count) {
@@ -242,14 +310,14 @@ class Orchestrator {
                     var siginfo = it.sigs.get(nm.operationName());
 
                     if (siginfo == null) {
-                        App.print(nm + " not found !!!!!!");
+                        App.print(nm + " not found !");
                     }
                     var nms = it.sigs.allNames();
 
                     App.output(m);
                 }
             } catch (Throwable e) {
-                App.print("Error parsing file " + file.toString() + ": " + e.getMessage());
+                App.output("Error parsing " + file.toString() + ": " + e.getMessage());
             }
         }
         if (count != ctxt.count) {
@@ -272,15 +340,15 @@ class Orchestrator {
      */
     void exec(Context ctxt) {
         try {
-            ProcessBuilder processBuilder = new ProcessBuilder("julia", ctxt.tests.toString());
-            processBuilder.directory(ctxt.tmp.toFile());
-            Process process = processBuilder.start();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            var pb = new ProcessBuilder("julia", ctxt.tests.toString());
+            pb.directory(ctxt.tmp.toFile());
+            var process = pb.start();
+            var reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
             while (reader.readLine() != null) {
             }
             process.waitFor();
         } catch (IOException | InterruptedException e) {
-            throw new Error(e);
+            throw new RuntimeException(e);
         }
     }
 }
