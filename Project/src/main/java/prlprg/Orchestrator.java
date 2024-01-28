@@ -1,5 +1,6 @@
 package prlprg;
 
+import java.applet.Applet;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -90,6 +91,7 @@ class Orchestrator {
         Path tests; // complete path for the file that holds the code to run the tests
         List<String> testFiles = new ArrayList<>(); // the name of the test files created
         int count = 0; // how many fles we actually see in the /tmp/t0 dir after Julia has run
+        ArrayList<String> failures = new ArrayList<>();
 
         /**
          * Create a context with a temporary directory.
@@ -173,7 +175,7 @@ class Orchestrator {
               quote
                 buffer = IOBuffer()
                 try
-                    code_warntype(IOContext(buffer, :color => true), $(esc(e1)), $(esc(e2)))
+                    code_warntype(IOContext(buffer, :color => false), $(esc(e1)), $(esc(e2)))
                 catch e
                     try
                       println(buffer, "Exception occurred: ", e)
@@ -268,9 +270,7 @@ class Orchestrator {
         var seen = new HashSet<String>();
         for (var s : it.sigs.allSigs()) {
             var signameArity = s.nm().toString() + s.arity();
-            if (seen.contains(signameArity)) {
-                continue;
-            }
+            if (seen.contains(signameArity)) continue;
             seen.add(signameArity);
             var nm = "t" + cnt++ + ".tst";
             var anys = new ArrayList<Type>();
@@ -293,35 +293,48 @@ class Orchestrator {
             App.print("Directory does not exist.");
             return;
         }
-        if (files.length != ctxt.count) {
-            App.print("Expected " + ctxt.count + " files, found " + files.length);
-        }
+        if (files.length != ctxt.count) App.print("Expected " + ctxt.count + " files, found " + files.length);
         int count = 0;
         for (File file : files) {
-            try {
-                var p = new Parser().withFile(file.toString());
-                var ms = MethodInformation.parse(p, file.toString());
-                if (!ms.isEmpty()) {
-                    count++;
-                }
-                for (var m : ms) {
-                    var nm = m.sig.nm();
-
-                    var siginfo = it.sigs.get(nm.operationName());
-
-                    if (siginfo == null) {
-                        App.print(nm + " not found !");
-                    }
-                    var nms = it.sigs.allNames();
-
-                    App.output(m);
-                }
-            } catch (Throwable e) {
-                App.output("Error parsing " + file.toString() + ": " + e.getMessage());
-            }
+            var gotResult = readFile(file);
+            count += gotResult;
+            if (gotResult == 0) ctxt.failures.add(file.toString());
         }
-        if (count != ctxt.count) {
-            App.print("Expected " + ctxt.count + " methods, found " + count);
+        if (count != ctxt.count) App.print("Expected " + ctxt.count + " methods, found " + count);
+        if (!ctxt.failures.isEmpty()) {
+            App.print("The following " + ctxt.failures.size() + " files contain failed requests");
+            for (var f : ctxt.failures)
+                App.print("  " + f);
+        }
+    }
+
+    /**
+     * Given a file produced by code_warntype, it may contain results for zero, one
+     * or more methods. Zero means code_warntype failed, one is the usual case, and
+     * more than one if the types passed applied to multiple methods.
+     * 
+     * This method will parse the results, and attempt to attribute them to
+     * signatures that are stored in the DB.
+     * 
+     * Each result should have a signature in the DB. If not: then our method
+     * discovery missed something.
+     */
+    private int readFile(File file) {
+        var p = new Parser();
+        try {
+            var ms = MethodInformation.parse(p.withFile(file), file.toString());
+            if (ms.isEmpty()) return 0;
+            for (var m : ms) {
+                var nm = m.sig.nm();
+                var siginfo = it.sigs.get(nm.operationName());
+                if (siginfo == null) App.print(nm + " not found !");
+                var nms = it.sigs.allNames();
+                //                    App.output(m);
+            }
+            return 1;
+        } catch (Exception e) {
+            App.output("Error parsing " + file.toString() + ": " + e.getMessage());
+            return 0;
         }
     }
 
@@ -334,9 +347,6 @@ class Orchestrator {
 
     /**
      * Execute a Julia script.
-     *
-     * @param dir
-     *                the directory to execute in
      */
     void exec(Context ctxt) {
         try {

@@ -409,26 +409,35 @@ class Parser {
                     + (locals.isEmpty() ? "" : "locals: " + locals + "\n") + "returnType: " + returnType + "\n" + "src: " + src + "\n" + ops.stream().map(Object::toString).collect(Collectors.joining("\n"));
         }
 
-        Sig parseFun(Parser p) {
+        private Sig parseFun(Parser p) {
             var d = Function.parse(p).toTy();
             d = d.fixUp(new ArrayList<>());
             return new Sig(d.nm(), d.ty().toType(new ArrayList<>()), d.src());
         }
 
-        void parseMethodInfoHeader(Parser p) {
+        private void parseMethodInfoHeader(Parser p) {
             p.take("MethodInstance").take("for");
             var q = p.sliceLine();
             this.decl = parseFun(q);
             q = p.sliceLine().take("from");
-            this.originDecl = parseFun(q);
-            q.take("@");
+            var r = q.sliceUpToLast("@");
+            this.originDecl = parseFun(r);
             this.src = "";
             while (!q.isEmpty())
                 src += q.take().toString() + " ";
             src = src.trim();
         }
 
-        List<Type> parseStaticArguments(Parser p) {
+        /**
+         * This section starts with "Static Parameters" and then introduces one type
+         * variable per line.
+         * 
+         * To return a List of Type object is slightly awkward because bound variables
+         * are not types.
+         * 
+         * We can encode them into an empty existential type -- this is a hack.
+         */
+        private List<Type> parseStaticArguments(Parser p) {
             var bs = new ArrayList<Type>();
             if (p.has("Static")) {
                 p.take("Static").take("Parameters");
@@ -436,13 +445,14 @@ class Parser {
                     var q = p.sliceLine();
                     var pty = BoundVar.parse(q);
                     var ty = pty.toTy().fixUp(new ArrayList<>());
-                    bs.add(ty.toType(new ArrayList<>()));
+                    var encoding = new TyExist(ty, Ty.any());
+                    bs.add(encoding.toType(new ArrayList<>()));
                 }
             }
             return bs;
         }
 
-        List<Param> parseArguments(Parser p) {
+        private List<Param> parseArguments(Parser p) {
             var ps = new ArrayList<Param>();
             if (p.has("Arguments")) {
                 p.take("Arguments");
@@ -454,7 +464,7 @@ class Parser {
             return ps;
         }
 
-        List<Param> parseLocals(Parser p) {
+        private List<Param> parseLocals(Parser p) {
             var ps = new ArrayList<Param>();
             if (p.has("Locals")) {
                 p.take("Locals");
@@ -466,7 +476,7 @@ class Parser {
             return ps;
         }
 
-        Type parseReturnType(Parser p) {
+        private Type parseReturnType(Parser p) {
             if (!p.has("Body")) return null;
 
             p.take("Body").take("::");
@@ -475,7 +485,7 @@ class Parser {
             return ty.toType(new ArrayList<>());
         }
 
-        void parseHeader(Parser p) {
+        private void parseHeader(Parser p) {
             parseMethodInfoHeader(p);
             this.staticArguments = parseStaticArguments(p);
             try {
@@ -505,7 +515,7 @@ class Parser {
             }
         }
 
-        void parseBody(Parser p) {
+        private void parseBody(Parser p) {
             while (!p.isEmpty()) {
                 if (p.has("MethodInstance")) return; // there can be more than one MethodInstance per file
                 // this happens when code_warntype is given arguments such as Any that may cover
@@ -520,7 +530,7 @@ class Parser {
                     } else if (q.peek().toString().startsWith("└")) {
                         q.drop();
                     } else {
-                        throw new Error("Weird");
+                        throw new RuntimeException("Weird");
                     }
                     q.failIfEmpty("Expected more...", last);
                     var tok = q.peek();
@@ -535,7 +545,7 @@ class Parser {
             }
         }
 
-        Op parseOp(Parser p) {
+        private Op parseOp(Parser p) {
             if (p.has("(")) {
                 var q = p.sliceMatchedDelims("(", ")");
                 var nm = q.take().toString();
@@ -556,7 +566,7 @@ class Parser {
             }
         }
 
-        Op inlineCall(Parser p) {
+        private Op inlineCall(Parser p) {
             var q = p.sliceMatchedDelims("(", ")");
             var lhs = q.take();
             var op = q.take();
@@ -565,7 +575,7 @@ class Parser {
             return new Op(lhs.toString(), GenDB.it.names.function(op.toString()), List.of(lhs.toString(), rhs.toString()), r);
         }
 
-        Op normalCall(Parser p) {
+        private Op normalCall(Parser p) {
             var nm = ParsedType.parseFunctionName(p);
             var q = p.sliceMatchedDelims("(", ")");
             var args = new ArrayList<String>();
@@ -577,7 +587,7 @@ class Parser {
             return new Op(null, nm, args, r);
         }
 
-        Op parseCall(Parser p) {
+        private Op parseCall(Parser p) {
             return p.has("(") ? inlineCall(p) : normalCall(p);
         }
 
@@ -600,7 +610,8 @@ class Parser {
     /**
      * Initialiszes the parser with data held in a file.
      */
-    Parser withFile(String path) {
+    Parser withFile(Object pathobj) {
+        var path = pathobj.toString();
         try {
             List<String> ls = Files.readAllLines(Path.of(path));
             toks = new Lex(ls.toArray(new String[0])).tokenize();
@@ -665,7 +676,7 @@ class Parser {
         DELIMITER, IDENTIFIER, STRING, EOF;
     }
 
-    class Lex {
+    private class Lex {
 
         String[] lns;
         int pos, off;
@@ -706,6 +717,7 @@ class Parser {
         // tokens to form the right one. This is a bit of a hack, but it works.
         List<Tok> combineTokens(List<Tok> toks) {
             var smashed = false;
+
             for (int i = 1; i < toks.size(); i++) {
                 var prv = toks.get(i - 1);
                 var cur = toks.get(i);
@@ -730,7 +742,21 @@ class Parser {
                     smashed = true;
                 }
             }
-            return smashed ? toks.stream().filter(t -> t != null).collect(Collectors.toList()) : toks;
+            toks = smashed ? toks.stream().filter(t -> t != null).collect(Collectors.toList()) : toks;
+            for (int i = toks.size() - 1; i > 0; i--) {
+                var prv = toks.get(i - 1);
+                var cur = toks.get(i);
+                var adj = prv.end == cur.start;
+                var lte = prv.is("<:");
+                if (!adj || !lte) continue;
+                if (!cur.startsWith(":")) continue;
+                // Miss parse of :  "<::Function"  as "<:" and ":Function"
+                // whereas it should be "<" "::" "Function"
+                toks.set(i - 1, new Tok(this, Kind.DELIMITER, prv.ln, prv.start, prv.start + 1));
+                toks.set(i, new Tok(this, Kind.DELIMITER, prv.ln, cur.start + 1, cur.end));
+                toks.add(i, new Tok(this, Kind.DELIMITER, prv.ln, prv.start + 1, prv.start + 3));
+            }
+            return toks;
         }
 
         boolean smashIdentString(Tok prv, Tok cur) {
@@ -783,6 +809,15 @@ class Parser {
             // Check that this token is the given string.
             boolean is(final String s) {
                 if (length() != s.length()) { // have to be of the same length
+                    return false;
+                }
+                for (int i = 0; i < s.length(); i++)
+                    if (charAt(i + start) != s.charAt(i)) return false;
+                return true;
+            }
+
+            boolean startsWith(String s) {
+                if (length() < s.length()) { // have to be of the same length
                     return false;
                 }
                 for (int i = 0; i < s.length(); i++)
@@ -880,8 +915,26 @@ class Parser {
         }
     }
 
-    // Yields a new parser for the slice of tokens between s and its matching e.
-    // Used for "(" and ")" and "{" and "}".
+    /**
+     * Splits the current parser in two, the prefix goes to the new parser and the
+     * tail is left in the old parser. Consider
+     * 
+     * <pre>
+     *   "("  "x"  ","  "y" ")" "::" "Int"
+     * </pre>
+     * 
+     * If we request to slice from "(" up to ")" the new parser will contain
+     * 
+     * <pre>
+     *  "x" , "y" 
+     * <pre>
+     * and the current parser will be left with 
+     * <pre>
+     *   "::" "Int"
+     * </pre>
+     * 
+     * The matching delims are elided. This is smart enough to deal with nesting.
+     */
     Parser sliceMatchedDelims(String s, String e) {
         var p = new Parser();
         if (!has(s)) return p; // empty slice
@@ -903,6 +956,14 @@ class Parser {
         return p; // leading s and trailing e not included
     }
 
+    /**
+     * Splits the current parser in two. The new parser has everything up to the
+     * next `,` or `;`. The current parser retains everything after. The delimiter
+     * is dropped.
+     * 
+     * THis makes sense after one has sliced the "(" and ")" around an argument
+     * list.
+     */
     Parser sliceNextCommaOrSemi() {
         var p = new Parser();
         var count = 0;
@@ -923,6 +984,19 @@ class Parser {
         return p;
     }
 
+    /**
+     * Splits the current parser in two, the new parser returned by the method has
+     * all the tokens that have the current line number. The old parser has the
+     * rest.
+     * 
+     * This method is useful because a lot of our input works on a line by line
+     * basis.
+     * 
+     * The benefits os calling sliceLine() is that if parsing goes wrong, we will
+     * limit the damages to the current line and we will get an error quicker.
+     * 
+     * It is also nicer to debug a parse that has few tokens.
+     */
     Parser sliceLine() {
         var p = new Parser();
         if (isEmpty()) return p;
@@ -932,41 +1006,98 @@ class Parser {
         return p;
     }
 
+    /**
+     * Splits this parser in two. Everything up to the last occurrence of `s` in the
+     * new parser, everything after in the old one.
+     * 
+     * For example, if we know that a line is terminated by `@ followed by some
+     * tokens.
+     * 
+     * Fail if there is no occurence of `s`
+     */
+    Parser sliceUpToLast(String s) {
+        var p = new Parser();
+        if (isEmpty()) return p;
+        int pos = lastIndexOf(s);
+        if (pos == -1) throw new RuntimeException("Failed to slice " + s + " not found");
+        while (pos-- > 0)
+            p.add(take());
+        take(s);
+        return p;
+    }
+
+    /**
+     * The index of the last occurence of `s` in the tokens, or -1
+     */
+    private int lastIndexOf(String s) {
+        int i = toks.size() - 1;
+        while (i >= 0)
+            if (toks.get(i).is(s))
+                return i;
+            else
+                i--;
+        return -1;
+    }
+
+    /**
+     * Returns true if there are no more tokens in this parser.
+     */
     boolean isEmpty() {
         return toks.isEmpty();
     }
 
+    /**
+     * Is the string `s` the current value in the parser.
+     */
     boolean has(String s) {
         return peek().is(s);
     }
 
+    /**
+     * Return the end of file token.
+     */
     Lex.Tok eof() {
         return new Lex.Tok(null, Kind.EOF, 0, 0, 0);
     }
 
+    /**
+     * Return the current token without consuming it.
+     */
     Lex.Tok peek() {
         var tok = !toks.isEmpty() ? toks.get(0) : eof();
         if (!tok.isEOF()) last = tok;
         return tok;
     }
 
+    /**
+     * Consume a token, return the current parser.
+     */
     Parser drop() {
         toks.remove(0);
         return this;
     }
 
+    /**
+     * Return the current token and consume it. Return EOF if empty.
+     */
     Lex.Tok take() {
         return !toks.isEmpty() ? toks.remove(0) : eof();
     }
 
+    /**
+     * Consume the current token, and fail if either empty or the token is not `s`.
+     */
     Parser take(String s) {
-        if (isEmpty()) throw new Error("Expected " + s + " but got nothing");
+        if (isEmpty()) throw new RuntimeException("Expected " + s + " but got nothing");
         var t = take();
-        if (!t.is(s)) throw new Error("Expected " + s + " but got " + t);
+        if (!t.is(s)) throw new RuntimeException("Expected " + s + " but got " + t);
         return this;
     }
 
-    Parser add(Lex.Tok t) {
+    /**
+     * Add a token at the end.
+     */
+    private Parser add(Lex.Tok t) {
         toks.addLast(t);
         return this;
     }
@@ -977,6 +1108,13 @@ class Parser {
 
     void failIfEmpty(String msg, Lex.Tok last) {
         if (isEmpty()) failAt(msg, last);
+    }
+
+    public static void main(String[] args) {
+        // GenDB.readDB();
+        var p = new Parser();
+        var file = "/tmp/jl_104341/out.0/t999.tst";
+        var ms = MethodInformation.parse(p.withFile(file), file.toString());
     }
 }
 
@@ -1017,7 +1155,7 @@ interface Ty {
      * The parser does not know what identifiers represent variables and what
      * represent types. The fix up method constructs a list of variables in scope
      * and replaces TyInst by TyVar when appropriate. Fixup also takes care of
-     * `typedf` which is turned into a constant (TyCon). If fixup encounters an
+     * `typed` which is turned into a constant (TyCon). If fixup encounters an
      * identifier that is not a varaiable and that does not occur in the GendDB, it
      * will assume that this is a missing type and add it.
      *

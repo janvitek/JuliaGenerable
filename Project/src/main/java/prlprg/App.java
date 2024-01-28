@@ -16,7 +16,7 @@ public class App {
             "-r=../Inputs/", // root directory with input files
             "-f=stdf.jlg", // file with function signatures
             "-t=stdt.jlg", // file with type declarations
-            "-m=500", // max number of sigs to read (0 = all)
+            "-m=5000", // max number of sigs to read (0 = all)
     };
 
     static int FUEL = 1;

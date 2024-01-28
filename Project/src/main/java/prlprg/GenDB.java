@@ -386,6 +386,7 @@ class GenDB implements Serializable {
      * assumes we have only one generator running at a time.
      */
     static final void saveDB() {
+        if (true) return;
         try {
             try (var file = new FileOutputStream("/tmp/db.ser")) {
                 try (var out = new ObjectOutputStream(file)) {
@@ -1016,7 +1017,7 @@ class Method implements Serializable {
                     } else {
                         if (!GenDB.it.seenMissing.contains(arg)) {
                             GenDB.it.seenMissing.add(arg);
-                            App.print("Missing type for " + arg);
+                            App.output("Missing type for " + arg);
                         }
                         tys.add(GenDB.it.types.get(GenDB.it.names.getShort("Any")).decl.ty());
                     }
