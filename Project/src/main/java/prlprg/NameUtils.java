@@ -148,14 +148,23 @@ class NameUtils implements Serializable {
         }
     }
 
+    /**
+     * A Julia function name that has a package and function name as suffix.
+     */
     class FuncName implements Serializable {
         private final String pkg;
         private final String nm;
 
+        /**
+         * Return the package name or an empty string if there is no package.
+         */
         String packageName() {
             return pkg;
         }
 
+        /**
+         * Return the function name without the package prefix. Never empty.
+         */
         String operationName() {
             return nm;
         }
@@ -167,10 +176,8 @@ class NameUtils implements Serializable {
 
         @Override
         public boolean equals(Object o) {
-            if (o instanceof FuncName t) {
-                return pkg.equals(t.pkg) && nm.equals(t.nm);
-            } else
-                return false;
+            if (o instanceof FuncName t) return pkg.equals(t.pkg) && nm.equals(t.nm);
+            return false;
         }
 
         @Override
@@ -183,6 +190,12 @@ class NameUtils implements Serializable {
             return pkg.equals("") ? nm : pkg + "." + nm;
         }
 
+        /**
+         * Returns this function name as it could appear in Julia source code. There are
+         * two things to do: add quotes for names that were constructed out of
+         * conncatenated identifier and string. The second is for names that are symbols
+         * such as < surround them with a ":(<)".
+         */
         String toJulia() {
             // FileWatching.|
             // Pkg.Artifacts.var#verify_artifact#1

@@ -1,6 +1,5 @@
 package prlprg;
 
-import java.applet.Applet;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -22,6 +21,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import prlprg.App.Timer;
+import prlprg.GenDB.Signatures.Info;
 import prlprg.Parser.MethodInformation;
 
 /**
@@ -71,6 +71,52 @@ class Orchestrator {
         readResults(ctxt);
         App.print("Read " + ctxt.count + " results in " + t.stop());
 
+        App.printSeparator();
+        var count = 0;
+        var tot = 0;
+        var empty = 0;
+        var weird = 0;
+        var concrete = 0;
+        var nothings = 0;
+        var concretes = new HashSet<String>();
+        var abstracts = new HashSet<String>();
+
+        for (var inf : it.sigs.allInfos()) {
+            tot++;
+            if (!inf.results.isEmpty()) {
+                count++;
+                if (inf.results.size() > 1)
+                    weird++;
+                else if (inf.results.size() == 1) {
+                    var rty = inf.results.get(0).retTy();
+                    if (rty.isNone()) {
+                        nothings++;
+                    } else if (rty.isConcrete()) {
+                        concrete++;
+                        concretes.add(rty.toString());
+                    } else {
+                        abstracts.add(rty.toString());
+                    }
+                }
+            } else {
+                empty++;
+            }
+        }
+
+        var s = "Found " + tot + " methods, out of which " + count + " methods had results (" + empty + " empties)";
+        s = weird > 0 ? s + " and " + weird + " methods had more than one result" : s;
+        App.print(s);
+        App.print("Of the " + concrete + " concrete methods, " + concretes.size() + " had unique return types");
+        App.print("Of the " + (count - concrete) + " abstract methods, " + abstracts.size() + " had unique return types");
+        App.print(nothings + " methods that returned nothing");
+        App.printSeparator();
+        App.print("Abstract types:");
+        for (var a : abstracts)
+            App.print("  " + a);
+        App.printSeparator();
+        App.print("Concrete types:");
+        for (var a : concretes)
+            App.print("  " + a);
         System.exit(0);
     }
 
@@ -290,15 +336,16 @@ class Orchestrator {
         FilenameFilter filter = (file, name) -> name.endsWith(".tst");
         File[] files = dir.listFiles(filter);
         if (files == null) {
-            App.print("Directory does not exist.");
+            App.print("Directory does not exist. Something is wrong.");
             return;
         }
         if (files.length != ctxt.count) App.print("Expected " + ctxt.count + " files, found " + files.length);
         int count = 0;
         for (File file : files) {
-            var gotResult = readFile(file);
-            count += gotResult;
-            if (gotResult == 0) ctxt.failures.add(file.toString());
+            if (readFile(file))
+                count++;
+            else
+                ctxt.failures.add(file.toString());
         }
         if (count != ctxt.count) App.print("Expected " + ctxt.count + " methods, found " + count);
         if (!ctxt.failures.isEmpty()) {
@@ -318,23 +365,53 @@ class Orchestrator {
      * 
      * Each result should have a signature in the DB. If not: then our method
      * discovery missed something.
+     * 
+     * Returns true if the file yielded results.
      */
-    private int readFile(File file) {
+    private boolean readFile(File file) {
         var p = new Parser();
         try {
             var ms = MethodInformation.parse(p.withFile(file), file.toString());
-            if (ms.isEmpty()) return 0;
+            if (ms.isEmpty()) return false;
             for (var m : ms) {
                 var nm = m.sig.nm();
                 var siginfo = it.sigs.get(nm.operationName());
-                if (siginfo == null) App.print(nm + " not found !");
-                var nms = it.sigs.allNames();
-                //                    App.output(m);
+                if (siginfo == null) {
+                    App.print("Function " + nm + " not found, that is odd. How could we have generated a test for it");
+                    continue;
+                }
+                readOneSigResult(m, siginfo);
             }
-            return 1;
+            return true;
         } catch (Exception e) {
             App.output("Error parsing " + file.toString() + ": " + e.getMessage());
-            return 0;
+            return false;
+        }
+    }
+
+    /**
+     * Given the signatures, siginfo, stored for one operationName in the DB, try to
+     * see if there is a match with the Method, m, that we parsed out of the results
+     * of code_warntype.
+     */
+    private void readOneSigResult(Method m, List<Info> siginfo) {
+        var found = 0;
+        Info foundSig = null;
+        for (var sig : siginfo) {
+            if (sig.sig.arity() == m.originSig.arity()) {
+                // Perhaps a match. We need to check the types.
+                if (sig.sig.structuralEquals(m.originSig)) {
+                    // We found a match. We can now add the result to the DB.
+                    found++;
+                    foundSig = sig;
+                }
+            }
+        }
+        if (found == 0) App.print("No match for " + m.sig + ". This can happen if processing a susbeet of methods.");
+        if (found > 1) App.print("Found " + found + " matches for " + m.sig + ". This sounds like a bug.");
+        if (found == 1) {
+            if (foundSig == null) throw new Error("Can't happen");
+            foundSig.addResult(m.sig.ty(), m.returnType);
         }
     }
 

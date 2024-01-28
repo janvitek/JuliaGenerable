@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -286,17 +287,36 @@ class GenDB implements Serializable {
      */
     static class Signatures implements Serializable {
 
+        record Result(Type argTy, Type retTy) implements Serializable {
+            @Override
+            public String toString() {
+                return argTy + " -> " + retTy;
+            }
+        }
+
         /**
-         * Represents a method.
+         * Represents a method. The name is the full method name, the pre_patched and
+         * patched are intermediary states coming from the Parser, and the sig is the
+         * final form.
          */
         class Info implements Serializable {
             FuncName nm;
             TySig pre_patched;
             TySig patched;
             Sig sig;
+            ArrayList<Result> results = new ArrayList<>();
 
             Info(FuncName fn) {
                 this.nm = fn;
+            }
+
+            @Override
+            public String toString() {
+                return nm + " " + (sig == null ? "missing" : "defined");
+            }
+
+            void addResult(Type argTy, Type retTy) {
+                results.add(new Result(argTy, retTy));
             }
         }
 
@@ -340,6 +360,13 @@ class GenDB implements Serializable {
          */
         List<Sig> allSigs() {
             return db.entrySet().stream().flatMap(e -> e.getValue().stream()).map(i -> i.sig).collect(Collectors.toList());
+        }
+
+        /**
+         * Return all info objects in the DB.
+         */
+        List<Info> allInfos() {
+            return db.entrySet().stream().flatMap(e -> e.getValue().stream()).collect(Collectors.toList());
         }
 
         /**
@@ -547,7 +574,7 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
 
     @Override
     public boolean isNone() {
-        return false;
+        return nm().nm.equals("Nothing"); // THIS IS AN ALIAS... Todo we should deal with aliasses properly
     }
 
     @Override
@@ -644,6 +671,9 @@ record Bound(String nm, Type low, Type up) implements Serializable {
      * This is a weak form of equallity as it does not account for equivalences such
      * as reording the elements of a union. Semantic equality is tricky due to
      * distributivity of unions over tuples and existentials.
+     * 
+     * This implementation requires names to be the same. That is too strict. We
+     * could implement it up to alpha conversion.
      */
     public boolean structuralEquals(Bound b) {
         return nm.equals(b.nm) && low.structuralEquals(b.low) && up.structuralEquals(b.up);
@@ -938,6 +968,16 @@ record Sig(FuncName nm, Type ty, String src) implements Serializable {
         while (t instanceof Exist e)
             t = e.ty();
         return t instanceof Tuple tup ? tup.tys().size() : 0;
+    }
+
+    /**
+     * Structural equality means two signatures have the same syntactic structure
+     * and the same operation names. (We ignore package names as they may be
+     * abbreviated)
+     */
+    boolean structuralEquals(Sig other) {
+        if (!nm.operationName().equals(other.nm().operationName())) return false;
+        return ty.structuralEquals(other.ty());
     }
 }
 
