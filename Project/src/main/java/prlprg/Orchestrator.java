@@ -93,9 +93,9 @@ class Orchestrator {
                         nothings++;
                     } else if (rty.isConcrete()) {
                         concrete++;
-                        concretes.add(rty.toString());
+                        concretes.add(rty.toJulia());
                     } else {
-                        abstracts.add(rty.toString());
+                        abstracts.add(rty.toJulia());
                     }
                 }
             } else {
@@ -106,9 +106,9 @@ class Orchestrator {
         var s = "Found " + tot + " methods, out of which " + count + " methods had results (" + empty + " empties)";
         s = weird > 0 ? s + " and " + weird + " methods had more than one result" : s;
         App.print(s);
-        App.print("Of the " + concrete + " concrete methods, " + concretes.size() + " had unique return types");
-        App.print("Of the " + (count - concrete) + " abstract methods, " + abstracts.size() + " had unique return types");
-        App.print(nothings + " methods that returned nothing");
+        App.print("Of the " + concrete + " stable methods, " + concretes.size() + " had unique return types");
+        App.print("Of the " + (count - concrete) + " unstable methods, " + abstracts.size() + " had unique return types");
+        App.print(nothings + " methods that returned Nothing");
         App.printSeparator();
         App.print("Abstract types:");
         for (var a : abstracts)
@@ -117,6 +117,15 @@ class Orchestrator {
         App.print("Concrete types:");
         for (var a : concretes)
             App.print("  " + a);
+
+        App.printSeparator();
+        App.print("Abstract types:");
+        for (var a : abstracts)
+            App.print("  isconcretetpy(" + a + ")");
+        App.printSeparator();
+        App.print("Concrete types:");
+        for (var a : concretes)
+            App.print("  isconcretetype(" + a + ")");
         System.exit(0);
     }
 

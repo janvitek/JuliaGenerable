@@ -882,13 +882,13 @@ record Tuple(List<Type> tys) implements Type, Serializable {
         return false;
     }
 
+    /**
+     * A tuple is concrete if all of its elements are concrete. An empty tuple is
+     * concrete. The type `Tuple` without any parameters is not concrete.
+     */
     @Override
     public boolean isConcrete() {
-        return true;
-    }
-
-    boolean elementsConcrete() {
-        return tys.stream().allMatch(Type::isConcrete);
+        return tys.isEmpty() || tys.stream().allMatch(Type::isConcrete);
     }
 
 }
@@ -938,7 +938,7 @@ record Sig(FuncName nm, Type ty, String src) implements Serializable {
 
     // we say a method signature is "ground" if all of its arguments are concrete
     boolean isGround() {
-        return ty instanceof Tuple tup ? tup.elementsConcrete() : false;
+        return ty instanceof Tuple tup ? tup.isConcrete() : false;
     }
 
     @Override
