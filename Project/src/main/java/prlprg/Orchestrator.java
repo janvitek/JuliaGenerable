@@ -74,7 +74,6 @@ class Orchestrator {
         App.printSeparator();
         var count = 0;
         var tot = 0;
-        var empty = 0;
         var weird = 0;
         var concrete = 0;
         var nothings = 0;
@@ -98,34 +97,35 @@ class Orchestrator {
                         abstracts.add(rty.toJulia());
                     }
                 }
-            } else {
-                empty++;
             }
         }
 
-        var s = "Found " + tot + " methods, out of which " + count + " methods had results (" + empty + " empties)";
+        var s = "Got " + tot + " methods. " + count + " methods have results";
         s = weird > 0 ? s + " and " + weird + " methods had more than one result" : s;
         App.print(s);
-        App.print("Of the " + concrete + " stable methods, " + concretes.size() + " had unique return types");
-        App.print("Of the " + (count - concrete) + " unstable methods, " + abstracts.size() + " had unique return types");
-        App.print(nothings + " methods that returned Nothing");
-        App.printSeparator();
-        App.print("Abstract types:");
-        for (var a : abstracts)
-            App.print("  " + a);
-        App.printSeparator();
-        App.print("Concrete types:");
-        for (var a : concretes)
-            App.print("  " + a);
+        App.print("Found " + concrete + " stable methods, with " + concretes.size() + " unique return types");
+        App.print("Found " + (count - concrete) + " un-stable methods with " + abstracts.size() + " unique return types. " + nothings + " methods that returned Union{}.");
 
         App.printSeparator();
-        App.print("Abstract types:");
-        for (var a : abstracts)
-            App.print("  isconcretetpy(" + a + ")");
+        App.print("Abstract types: (printing the first few on terminal, remaining in the log file)");
+        var max = 10;
+        for (var a : abstracts) {
+            if (max-- > 0)
+                App.print("  " + a);
+            else
+                App.output("  " + a);
+        }
+        App.print("Note: Vector{Int} should be concrete, it shows up as abstract because we do not handle aliases");
+
+        max = 10;
         App.printSeparator();
-        App.print("Concrete types:");
+        App.print("Concrete types: (printing the first few on terminal, remaining in the log file)");
         for (var a : concretes)
-            App.print("  isconcretetype(" + a + ")");
+            if (max-- > 0)
+                App.print("  " + a);
+            else
+                App.output("  " + a);
+        App.print("Note: Tuple should show as abstract, it is a weird case.");
         System.exit(0);
     }
 
@@ -417,7 +417,16 @@ class Orchestrator {
             }
         }
         if (found == 0) App.print("No match for " + m.sig + ". This can happen if processing a susbeet of methods.");
-        if (found > 1) App.print("Found " + found + " matches for " + m.sig + ". This sounds like a bug.");
+        if (found > 1) {
+            App.print("Found " + found + " matches for " + m.sig + ". This sounds like a bug.");
+            for (var sig : siginfo) {
+                if (sig.sig.arity() == m.originSig.arity()) {
+                    if (sig.sig.structuralEquals(m.originSig)) {
+                        App.print("  - " + sig.sig);
+                    }
+                }
+            }
+        }
         if (found == 1) {
             if (foundSig == null) throw new Error("Can't happen");
             foundSig.addResult(m.sig.ty(), m.returnType);

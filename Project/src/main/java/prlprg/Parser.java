@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+
 import prlprg.App.Timer;
 import static prlprg.CodeColors.color;
 import prlprg.NameUtils.FuncName;
@@ -306,11 +307,30 @@ class Parser {
                 type = UnionAllInst.parse(p.drop());
                 varargs = p.has("...") ? p.take().is("...") : false;
             }
+
+            // TODO fix: this is a hack somethign is wrong with the parser
+            if (nm.endsWith("...")) {
+                nm = nm.substring(0, nm.length() - 3);
+                varargs = true;
+            }
             return new Param(nm, type, varargs);
         }
 
+        /**
+         * Wrap the type in a vararg if needed.
+         */
         Ty toTy() {
-            return ty == null ? Ty.any() : ty.toTy();
+            var t = ty == null ? Ty.any() : ty.toTy();
+            return varargs ? makeVarArg(t) : t;
+        }
+
+        /**
+         * Create a vararg type.
+         */
+        Ty makeVarArg(Ty t) {
+            List<Ty> tt = new ArrayList<>();
+            tt.add(t);
+            return new TyInst(new TypeName("Core", "Vararg"), tt);
         }
 
         @Override
@@ -325,8 +345,11 @@ class Parser {
      * <pre>
      * function foo(x::T, y::T) where {T <: Int}
      * </pre>
+     * 
+     * The field kwPos says where the first keyword argument is, if any. -1 means
+     * none.
      */
-    record Function(FuncName nm, List<Param> ps, List<ParsedType> wheres, String src) {
+    record Function(FuncName nm, List<Param> ps, List<ParsedType> wheres, int kwPos, String src) {
 
         static List<ParsedType> parseWhere(Parser p) {
             var wheres = new ArrayList<ParsedType>();
@@ -354,26 +377,31 @@ class Parser {
             var source = p.last.getLine();
             var q = p.sliceMatchedDelims("(", ")");
             var params = new ArrayList<Param>();
+            var semiOrNull = q.getSemi();
+            var firstKeyword = -1;
             while (!q.isEmpty()) {
                 var r = q.sliceNextCommaOrSemi();
                 if (r.isEmpty()) break;
-
+                var tok = r.peek();
+                if (semiOrNull != null && tok.isBefore(semiOrNull) && firstKeyword == -1) {
+                    firstKeyword = params.size();
+                }
                 params.add(Param.parse(r));
             }
             var wheres = parseWhere(p);
             if (p.has("[")) p.sliceMatchedDelims("[", "]"); // drops it
 
-            return new Function(name, params, wheres, source);
+            return new Function(name, params, wheres, firstKeyword, source);
         }
 
         TySig toTy() {
             List<Ty> tys = ps.stream().map(Param::toTy).collect(Collectors.toList());
+            List<String> names = ps.stream().map(Param::nm).collect(Collectors.toList());
             var reverse = wheres.reversed();
             Ty nty = new TyTuple(tys);
             for (var where : reverse)
                 nty = new TyExist(where.toTy(), nty);
-
-            return new TySig(nm, nty, src);
+            return new TySig(nm, nty, names, kwPos, src);
         }
 
         @Override
@@ -412,7 +440,7 @@ class Parser {
         private Sig parseFun(Parser p) {
             var d = Function.parse(p).toTy();
             d = d.fixUp(new ArrayList<>());
-            return new Sig(d.nm(), d.ty().toType(new ArrayList<>()), d.src());
+            return new Sig(d.nm(), d.ty().toType(new ArrayList<>()), d.argnms(), d.kwPos(), d.src());
         }
 
         private void parseMethodInfoHeader(Parser p) {
@@ -620,6 +648,16 @@ class Parser {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Return a copy of this parser.
+     */
+    Parser copy() {
+        var p = new Parser();
+        p.toks = new ArrayList<>(toks);
+        p.last = last;
+        return p;
     }
 
     /**
@@ -841,6 +879,15 @@ class Parser {
                 return dots == 0 || (dots == 1 && length() > 1);
             }
 
+            /**
+             * Return true if this token occurs before the other in the source file. Throws
+             * if either is EOF.
+             */
+            boolean isBefore(Tok other) {
+                if (other.isEOF() || isEOF()) throw new RuntimeException("EOF do not have a position");
+                return ln < other.ln || (ln == other.ln && start < other.start);
+            }
+
             boolean isEOF() {
                 return k == Kind.EOF;
             }
@@ -982,6 +1029,27 @@ class Parser {
         if (has(",") || has(";")) drop(); // don't drop if empty
         if (count != 0) failAt("Bracketing went wrong while looking for  , or ;", last);
         return p;
+    }
+
+    /**
+     * Return the next semi colon, found at the same syntactic level. Return null if
+     * none there.
+     */
+    Lex.Tok getSemi() {
+        var p = copy();
+        var count = 0;
+        while (!p.isEmpty()) {
+            var tok = p.take();
+            if (tok.is("(") || tok.is("{")) {
+                count++;
+            } else if (tok.is(")") || tok.is("}")) {
+                count--;
+            }
+            if (count == 0 && has(";")) {
+                return tok;
+            }
+        }
+        return null;
     }
 
     /**
@@ -1425,8 +1493,12 @@ record TyDecl(String mod, TypeName nm, Ty ty, Ty parent, String src) implements 
  * The representation of a method with a name and type signature (a tuple
  * possibly wrapped in existentials). The source information is retained for
  * debugging purposes.
+ * 
+ * argnms hold the argument names, handy for keword arguments
+ * 
+ * kwpos holds the position of the first keywork argument, or -1 if none.
  */
-record TySig(FuncName nm, Ty ty, String src) implements Serializable {
+record TySig(FuncName nm, Ty ty, List<String> argnms, int kwPos, String src) implements Serializable {
 
     @Override
     public String toString() {
@@ -1437,6 +1509,6 @@ record TySig(FuncName nm, Ty ty, String src) implements Serializable {
      * Fixes up the signatures of the method.
      */
     TySig fixUp(List<TyVar> bounds) {
-        return new TySig(nm, ty.fixUp(bounds), src);
+        return new TySig(nm, ty.fixUp(bounds), argnms, kwPos, src);
     }
 }

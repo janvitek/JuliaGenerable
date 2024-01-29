@@ -5,6 +5,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.List;
 
 import prlprg.Subtyper.Fuel;
 
@@ -83,7 +84,7 @@ public class App {
                 var tg = sub.make(tup, new Fuel(FUEL));
                 while (tg.hasNext()) {
                     var t = tg.next();
-                    var newm = new Sig(m.nm(), t, m.src());
+                    var newm = new Sig(m.nm(), t, List.of(), -1, m.src());
                     App.output(newm.toString());
                 }
             }

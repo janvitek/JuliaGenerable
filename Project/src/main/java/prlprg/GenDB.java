@@ -390,7 +390,7 @@ class GenDB implements Serializable {
                 for (var s : get(nm)) {
                     var n = s.patched;
                     try {
-                        s.sig = new Sig(s.patched.nm(), n.ty().toType(new ArrayList<>()), n.src());
+                        s.sig = new Sig(s.patched.nm(), n.ty().toType(new ArrayList<>()), n.argnms(), n.kwPos(), n.src());
                     } catch (Exception e) {
                         App.print("Error: " + n.nm() + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + n.src()));
                     }
@@ -934,7 +934,7 @@ record Decl(String mod, TypeName nm, Type ty, Inst parInst, Decl parent, String 
  * function name, T is a type variable, x and y are arguments and T is a type
  * bound.
  */
-record Sig(FuncName nm, Type ty, String src) implements Serializable {
+record Sig(FuncName nm, Type ty, List<String> argnms, int kwPos, String src) implements Serializable {
 
     // we say a method signature is "ground" if all of its arguments are concrete
     boolean isGround() {
@@ -943,7 +943,7 @@ record Sig(FuncName nm, Type ty, String src) implements Serializable {
 
     @Override
     public String toString() {
-        return nm + "" + ty;
+        return nm + " " + ty;
     }
 
     String toJulia() {
@@ -1063,7 +1063,7 @@ class Method implements Serializable {
                     }
                 }
             }
-            var s = new Sig(op.op(), new Tuple(tys), "none");
+            var s = new Sig(op.op(), new Tuple(tys), List.of(), -1, "none");
             var args = new ArrayList<String>();
             for (var arg : op.args())
                 if (env.containsKey(arg)) args.add(arg);
