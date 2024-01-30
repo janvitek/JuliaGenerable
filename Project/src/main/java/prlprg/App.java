@@ -13,12 +13,13 @@ public class App {
 
     private static int MAX_SIGS_TO_READ = 100;
     static String dir, types, functions, aliases;
-    static String[] defaultArgs = { "-c=DARK", // color the output : DARK, LIGHT, NONE
-            "-r=../Inputs/", // root directory with input files
-            "-f=stdf.jlg", // file with function signatures
-            "-t=stdt.jlg", // file with type declarations
-            "-a=stda.jlg", // file with alias declarations
-            "-m=50", // max number of sigs to read (0 = all)
+    static String[] defaultArgs = {
+        "-c=DARK", // color the output : DARK, LIGHT, NONE
+        "-r=../Inputs/", // root directory with input files
+        "-f=stdf.jlg", // file with function signatures
+        "-t=stdt.jlg", // file with type declarations
+        "-a=stda.jlg", // file with alias declarations
+        "-m=50", // max number of sigs to read (0 = all)
     };
 
     static int FUEL = 1;
@@ -94,6 +95,8 @@ public class App {
                 }
             }
         }
+
+        quit(0);
     }
 
     static void parseArgs(String[] args) {
@@ -131,13 +134,17 @@ public class App {
 
     static void die(String s) {
         print(s);
+        quit(1);
+    }
+
+    static void quit(int status) {
         try {
             logger.flush();
             logger.close();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        System.exit(1);
+        System.exit(status);
     }
 
     static class Timer {
@@ -167,11 +174,11 @@ public class App {
             }
             long d = end - start;
             long duration = TimeUnit.NANOSECONDS.toSeconds(d);
-            if (duration > 0) return " in " + duration + " secs";
+            if (duration > 0) return duration + " secs";
             duration = TimeUnit.NANOSECONDS.toMillis(d);
-            if (duration > 0) return " in " + duration + " msecs";
+            if (duration > 0) return duration + " msecs";
             duration = TimeUnit.NANOSECONDS.toMicros(d);
-            return " in " + duration + " usecs";
+            return duration + " usecs";
         }
     }
 

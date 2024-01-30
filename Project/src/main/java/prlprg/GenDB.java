@@ -29,7 +29,7 @@ import prlprg.Parser.TypeDeclaration;
 class GenDB implements Serializable {
     class Aliases implements Serializable {
         final private HashMap<TypeName, Alias> db = new HashMap<>();
-        final private HashMap<String, List<Alias>> shortNames = new HashMap();
+        final private HashMap<String, List<Alias>> shortNames = new HashMap<>();
 
         class Alias implements Serializable {
             TypeName nm;
