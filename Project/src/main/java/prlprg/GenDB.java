@@ -397,6 +397,20 @@ class GenDB implements Serializable {
                 }
             }
         }
+
+        /**
+         * Find a matching Info or return null. This method can be called before the
+         * fully formed Sig objects are built. So we compare the pre_patched ones as
+         * they are sure to be there and non-null. Furthermore we compare the src()
+         * fields which contain the file and line number of the definition of that sig.
+         */
+        Info find(TySig sig) {
+            var infos = db.get(sig.nm().operationName());
+            if (infos != null) for (var info : infos)
+                if (sig.src().equals(info.pre_patched.src())) return info;
+            return null;
+
+        }
     }
 
     static GenDB it = new GenDB();
@@ -408,12 +422,19 @@ class GenDB implements Serializable {
     Union none = new Union(List.of());
     HashSet<String> seenMissing = new HashSet<>();
 
+    static boolean SAVE = false; // Should we serialize/deserialize 
+    // Originally it seemed like a good idea to save some of the startup costs
+    // but they are less and less relevant. It may be a good idea again
+    // to save intermediate states so that one can restart search.
+    // But we are not doing it right now. If we ever do, we will have 
+    // to make sure that all the state is Serializable.
+
     /**
      * Save both the Types and Sigs to a file. Currently in the temp directory. This
      * assumes we have only one generator running at a time.
      */
     static final void saveDB() {
-        if (true) return;
+        if (SAVE) return;
         try {
             try (var file = new FileOutputStream("/tmp/db.ser")) {
                 try (var out = new ObjectOutputStream(file)) {
@@ -433,27 +454,36 @@ class GenDB implements Serializable {
      * have only one generator running at a time.
      */
     static final boolean readDB() {
-        try {
-            try (var file = new FileInputStream("/tmp/db.ser")) {
-                try (var in = new ObjectInputStream(file)) {
-                    it = (GenDB) in.readObject();
-                    in.close();
-                    file.close();
-                    App.print("Read DB from file");
-                    return true;
+        if (SAVE)
+            try {
+                try (var file = new FileInputStream("/tmp/db.ser")) {
+                    try (var in = new ObjectInputStream(file)) {
+                        it = (GenDB) in.readObject();
+                        in.close();
+                        file.close();
+                        App.print("Read DB from file");
+                        return true;
+                    }
                 }
+            } catch (Exception e) {
+                App.print("Failed to read DB: " + e.getMessage());
+                return false;
             }
-        } catch (Exception e) {
-            App.print("Failed to read DB: " + e.getMessage());
+        else
             return false;
-        }
     }
 
     /**
-     * Add a mehotd declaration to the DB. Called from the parser.
+     * Add a mehotd declaration to the DB. Called from the parser. It turns out that
+     * signatures have duplicates due to the way files are included. The idea is to
+     * merge all those duplicates as they are not going to be more informative.
+     * 
+     * The difference in the duplicates is the package name of the function. Right
+     * now, we do not use the package name, so perhaps we can just ignore it. Keep
+     * the first package name we found.
      */
     final void addSig(TySig sig) {
-        sigs.make(sig.nm()).pre_patched = sig;
+        if (sigs.find(sig) == null) sigs.make(sig.nm()).pre_patched = sig;
     }
 
     /**
