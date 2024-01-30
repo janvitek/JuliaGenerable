@@ -4,8 +4,8 @@ import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.concurrent.TimeUnit;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import prlprg.Subtyper.Fuel;
 
@@ -29,7 +29,7 @@ public class App {
         print("JuGen starting...");
         print("Log file is /tmp/jl_log.txt");
 
-        if (true || !GenDB.readDB()) {
+        if (!GenDB.readDB()) { // If we did not find a DB, do god's work...
 
             printSeparator();
             print("Reading types from " + dir + types);
@@ -52,7 +52,7 @@ public class App {
             }
             t.stop();
             print("We found " + sigsC + " sigs of which " + groundC + " are ground in " + t);
-            GenDB.saveDB();
+            GenDB.saveDB(); // save state just in case...
         }
 
         printSeparator();

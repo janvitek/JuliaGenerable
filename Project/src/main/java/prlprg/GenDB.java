@@ -481,8 +481,17 @@ class GenDB implements Serializable {
      * The difference in the duplicates is the package name of the function. Right
      * now, we do not use the package name, so perhaps we can just ignore it. Keep
      * the first package name we found.
+     * 
+     * Function "kwcall" is part of the translation of keyword arguments and is
+     * ignored.
+     * 
+     * Functions withe keyword arguments are compiled to an equivalent function
+     * without any, we ignore the keyword version.
      */
     final void addSig(TySig sig) {
+        var nm = sig.nm().operationName();
+        if (nm.equals("kwcall")) return;
+        if (sig.kwPos() >= 0) return;
         if (sigs.find(sig) == null) sigs.make(sig.nm()).pre_patched = sig;
     }
 
