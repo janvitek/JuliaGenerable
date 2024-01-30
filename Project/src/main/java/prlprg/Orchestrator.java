@@ -230,15 +230,15 @@ class Orchestrator {
               quote
                 buffer = IOBuffer()
                 try
-                    code_warntype(IOContext(buffer, :color => false), $(esc(e1)), $(esc(e2)))
+                  code_warntype(IOContext(buffer, :color => false, :module => nothing), $(esc(e1)), $(esc(e2)))
                 catch e
-                    try
-                      println(buffer, "Exception occurred: ", e)
-                    catch e
-                    end
+                  try
+                    println(buffer, "Exception occurred: ", e)
+                  catch e
+                  end
                	end
                	open($(esc(f)), "w") do file
-                    write(file, String(take!(buffer)))
+                  write(file, String(take!(buffer)))
                	end
               end
             end
@@ -286,8 +286,8 @@ class Orchestrator {
          */
         String toTest() {
             return """
-                        @WARNTYPE  %s  [%s] "%s"
-                    """.formatted(name, args, file);
+                   @WARNTYPE %s [%s] "%s"
+                   """.formatted(name, args, file);
         }
     }
 
@@ -423,6 +423,21 @@ class Orchestrator {
                 if (sig.sig.arity() == m.originSig.arity()) {
                     if (sig.sig.structuralEquals(m.originSig)) {
                         App.print("  - " + sig.sig);
+                    }
+
+                    boolean matched = false;
+                    for (var si : siginfo) {
+                        if (si.sig.ty().structuralEquals(m.sig.ty())) {
+                            matched = true;
+                            break;
+                        }
+                    }
+                    if (!matched) {
+                        App.print("=== No matching signature for `" + m.sig + "'");
+                        for (var si : siginfo) {
+                            App.print(">>> " + si.sig.toString());
+                        }
+                        App.die("no matching signature");
                     }
                 }
             }
