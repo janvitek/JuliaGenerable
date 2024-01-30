@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -28,6 +27,48 @@ import prlprg.Parser.TypeDeclaration;
  * be revisited. I don't recall why that was.
  */
 class GenDB implements Serializable {
+    class Aliases implements Serializable {
+        final private HashMap<TypeName, Alias> db = new HashMap<>();
+        final private HashMap<String, List<Alias>> shortNames = new HashMap();
+
+        class Alias implements Serializable {
+            TypeName nm;
+            Ty pre_patched;
+            Ty patched;
+            Type sig;
+
+            Alias(TypeName tn) {
+                nm = tn;
+            }
+
+            @Override
+            public String toString() {
+                return "alias " + nm + " = " + sig == null ? pre_patched.toString() : sig.toString();
+            }
+
+            void fixUp() {
+                try {
+                    patched = pre_patched.fixUp();
+                } catch (Exception e) {
+                    App.print("Error: " + nm + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + pre_patched.src()));
+                }
+            }
+        }
+
+        void addParsed(TypeName tn, Ty sig) {
+            if (db.get(tn) != null) throw new RuntimeException("Alias already defined");
+            var alias = new Alias(tn);
+            alias.pre_patched = sig;
+            db.put(tn, alias);
+            var names = shortNames.getOrDefault(tn.nm, new ArrayList<>());
+            names.add(alias);
+        }
+
+        @Override
+        public String toString() {
+            return "GenDB.Aliases( " + db.size() + " )";
+        }
+    }
 
     class Types implements Serializable {
 
@@ -416,6 +457,7 @@ class GenDB implements Serializable {
     static GenDB it = new GenDB();
 
     NameUtils names = new NameUtils();
+    Aliases aliases = new Aliases();
     Types types = new Types();
     Signatures sigs = new Signatures();
     Inst any = new Inst(names.getShort("Any"), List.of());

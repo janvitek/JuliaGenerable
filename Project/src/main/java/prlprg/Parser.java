@@ -410,6 +410,25 @@ class Parser {
         }
     }
 
+    record TypeAlias(TypeName tn, Ty sig) {
+
+        static TypeAlias parseAlias(Parser p) {
+            NameUtils.reset();
+            try {
+                p.take("const");
+                var name = ParsedType.parseTypeName(p);
+                p.take("=");
+                Ty t = null;
+                var uai = UnionAllInst.parse(p);
+                t = uai.toTy();
+                p.take("[");
+                return p.has("typealias") ? new TypeAlias(name, t) : null;
+            } catch (Exception e) {
+                return null;
+            }
+        }
+    }
+
     /**
      * Holds the information obtained from code_warntype, this is slightly more raw
      * than needed, we then build the Method class from this.
@@ -697,6 +716,25 @@ class Parser {
         App.print("Processed " + stats.linesOfTypes + " lines of input, found " + stats.typesFound + " types in " + stats.types);
     }
 
+    /**
+     * Assumes that we are parsing a file that has one type declaration per line,
+     * parse every declaration and add it to the DB.
+     */
+    void parseAliases() {
+        stats.linesOfAliases = stats.lines;
+        stats.aliases.start();
+        var aliases = GenDB.it.aliases;
+
+        while (!isEmpty()) {
+            var a = TypeAlias.parseAlias(sliceLine());
+            if (a != null) aliases.addParsed(a.tn(), a.sig());
+        }
+
+        stats.aliases.stop();
+        stats.aliasesFound = GenDB.it.types.all().size();
+        App.print("Processed " + stats.linesOfAliases + " lines of input, found " + stats.aliasesFound + " types in " + stats.aliases);
+    }
+
     final Stats stats = new Stats();
 
     class Stats {
@@ -706,6 +744,9 @@ class Parser {
         int funsFound;
         int linesOfTypes;
         int typesFound;
+        int aliasesFound;
+        int linesOfAliases;
+        Timer aliases = new Timer();
         Timer sigs = new Timer();
         Timer types = new Timer();
     }
@@ -1176,6 +1217,16 @@ class Parser {
 
     void failIfEmpty(String msg, Lex.Tok last) {
         if (isEmpty()) failAt(msg, last);
+    }
+
+    @Override
+    public String toString() {
+        var head = isEmpty() ? "EOF" : toks.getFirst().toString();
+        var rest = "";
+        for (int i = 1; i < toks.size() && i < 5; i++) {
+            rest += toks.get(i).toString();
+        }
+        return head + " (" + toks.size() + ") " + rest;
     }
 
     public static void main(String[] args) {

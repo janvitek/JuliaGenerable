@@ -12,12 +12,13 @@ import prlprg.Subtyper.Fuel;
 public class App {
 
     private static int MAX_SIGS_TO_READ = 100;
-    static String dir, types, functions;
+    static String dir, types, functions, aliases;
     static String[] defaultArgs = { "-c=DARK", // color the output : DARK, LIGHT, NONE
             "-r=../Inputs/", // root directory with input files
             "-f=stdf.jlg", // file with function signatures
             "-t=stdt.jlg", // file with type declarations
-            "-m=5000", // max number of sigs to read (0 = all)
+            "-a=stda.jlg", // file with alias declarations
+            "-m=50", // max number of sigs to read (0 = all)
     };
 
     static int FUEL = 1;
@@ -30,6 +31,10 @@ public class App {
         print("Log file is /tmp/jl_log.txt");
 
         if (!GenDB.readDB()) { // If we did not find a DB, do god's work...
+
+            printSeparator();
+            print("Reading aliases from " + dir + aliases);
+            new Parser().withFile(dir + aliases).parseAliases();
 
             printSeparator();
             print("Reading types from " + dir + types);
@@ -97,6 +102,8 @@ public class App {
                 dir = arg.substring(3).strip();
             } else if (arg.startsWith("-t")) {
                 types = arg.substring(3).strip();
+            } else if (arg.startsWith("-a")) {
+                aliases = arg.substring(3).strip();
             } else if (arg.startsWith("-f")) {
                 functions = arg.substring(3).strip();
             } else if (arg.startsWith("-m")) { // max number of sigs to read
