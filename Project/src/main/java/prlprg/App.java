@@ -3,6 +3,9 @@ package prlprg;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -11,14 +14,29 @@ import prlprg.Subtyper.Fuel;
 
 public class App {
 
-    private static int MAX_SIGS_TO_READ = 100;
-    static String dir, types, functions, aliases;
-    static String[] defaultArgs = { "-c=NONE", // color the output : DARK, LIGHT, NONE
-            "-r=../Inputs/", // root directory with input files
-            "-f=stdf.jlg", // file with function signatures
-            "-t=stdt.jlg", // file with type declarations
-            "-a=stda.jlg", // file with alias declarations
-            "-m=1000", // max number of sigs to read (0 = all)
+    public static class Options {
+        static int MAX_SIGS_TO_READ = 100;
+        static String root;
+        static String types, functions, aliases;
+        static String juliaBin, juliaDepot;
+        static boolean regen;
+        static final String inputs = "Inputs";
+        static final String typeDiscover = "TypeDiscover.jl";
+        static Path aliasesPath;
+        static Path typesPath;
+        static Path functionsPath;
+    }
+
+    static String[] defaultArgs = {
+        "-c=NONE", // color the output : DARK, LIGHT, NONE
+        "-r=..", // root directory of the project
+        "-f=stdf.jlg", // file with function signatures
+        "-t=stdt.jlg", // file with type declarations
+        "-a=stda.jlg", // file with alias declarations
+        "-m=1000", // max number of sigs to read (0 = all)
+        "-julia=julia", // path to the julia binary to use
+        "-depot=/tmp/JuliaGenerableDepot", // what depot to run julia with
+        "-regen=FALSE", // should regenerate input files even if they exist?
     };
 
     static int FUEL = 1;
@@ -26,6 +44,19 @@ public class App {
     public static void main(String[] args) {
         parseArgs(defaultArgs); // set default values
         parseArgs(args); // override them with command line arguments
+
+        Options.aliasesPath = Paths.get(Options.root).resolve(Options.inputs).resolve(Options.aliases);
+        Options.typesPath = Paths.get(Options.root).resolve(Options.inputs).resolve(Options.types);
+        Options.functionsPath = Paths.get(Options.root).resolve(Options.inputs).resolve(Options.functions);
+
+        printSeparator();
+        print("Setting up Julia");
+        JuliaUtils.setup();
+        if (Options.regen || Files.notExists(Options.aliasesPath) || Files.notExists(Options.typesPath) || Files.notExists(Options.functionsPath)) {
+            print("Discovering types and signatures");
+            JuliaUtils.runTypeDiscovery();
+        }
+
         printSeparator();
         print("JuGen starting...");
         print("Log file is /tmp/jl_log.txt");
@@ -33,18 +64,18 @@ public class App {
         if (!GenDB.readDB()) { // If we did not find a DB, do god's work...
 
             printSeparator();
-            print("Reading aliases from " + dir + aliases);
-            new Parser().withFile(dir + aliases).parseAliases();
+            print("Reading aliases from " + Options.aliasesPath);
+            new Parser().withFile(Options.aliasesPath).parseAliases();
 
             printSeparator();
-            print("Reading types from " + dir + types);
-            new Parser().withFile(dir + types).parseTypes();
+            print("Reading types from " + Options.typesPath);
+            new Parser().withFile(Options.typesPath).parseTypes();
 
             NameUtils.TypeName.freeze();
 
             printSeparator();
-            print("Reading sigs from " + dir + functions);
-            new Parser().withFile(dir + functions).parseSigs(MAX_SIGS_TO_READ);
+            print("Reading sigs from " + Options.functionsPath);
+            new Parser().withFile(Options.functionsPath).parseSigs(Options.MAX_SIGS_TO_READ);
 
             printSeparator();
             print("Building DB...");
@@ -67,6 +98,7 @@ public class App {
         Orchestrator gen = new Orchestrator();
         gen.orchestrate();
         // for now the above exit();
+
         // What follows will be moved to orchestrator  or GenDB.
         var sub = new Subtyper();
         var cnt = 0;
@@ -102,17 +134,27 @@ public class App {
 
     static void parseArgs(String[] args) {
         for (var arg : args) {
-            if (arg.startsWith("-r")) { // root directory
-                dir = arg.substring(3).strip();
+            if (arg.startsWith("-julia")) {
+                Options.juliaBin = arg.substring(7).strip();
+            } else if (arg.startsWith("-depot")) {
+                Options.juliaDepot = arg.substring(7).strip();
+            } else if (arg.startsWith("-regen")) {
+                Options.regen = switch (arg.substring(7).strip()) {
+                case "TRUE" -> true;
+                case "FALSE" -> false;
+                default -> false;
+                };
+            } else if (arg.startsWith("-r")) { // root directory
+                Options.root = arg.substring(3).strip();
             } else if (arg.startsWith("-t")) {
-                types = arg.substring(3).strip();
+                Options.types = arg.substring(3).strip();
             } else if (arg.startsWith("-a")) {
-                aliases = arg.substring(3).strip();
+                Options.aliases = arg.substring(3).strip();
             } else if (arg.startsWith("-f")) {
-                functions = arg.substring(3).strip();
+                Options.functions = arg.substring(3).strip();
             } else if (arg.startsWith("-m")) { // max number of sigs to read
                 var s = arg.substring(3).strip();
-                MAX_SIGS_TO_READ = s.equals("0") ? Integer.MAX_VALUE : Integer.parseInt(s);
+                Options.MAX_SIGS_TO_READ = s.equals("0") ? Integer.MAX_VALUE : Integer.parseInt(s);
             } else if (arg.startsWith("-c")) { // Color mode
                 CodeColors.mode = switch (arg.substring(3).strip()) {
                 case "DARK" -> CodeColors.Mode.DARK;
@@ -193,6 +235,7 @@ public class App {
             }
             logger.write(s);
             logger.write("\n");
+            logger.flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

@@ -1,12 +1,10 @@
 package prlprg;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.FilenameFilter;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -63,7 +61,7 @@ class Orchestrator {
         App.print("Created " + ctxt.count + " tests in " + t.stop());
 
         t = new Timer().start();
-        exec(ctxt);
+        JuliaUtils.runTests(ctxt.tests, ctxt.tmp);
         App.printSeparator();
         App.print("Executed " + ctxt.count + " tests in " + t.stop());
 
@@ -463,22 +461,5 @@ class Orchestrator {
      */
     String juliaName(Sig s) {
         return s.nm().toJulia();
-    }
-
-    /**
-     * Execute a Julia script.
-     */
-    void exec(Context ctxt) {
-        try {
-            var pb = new ProcessBuilder("julia", ctxt.tests.toString());
-            pb.directory(ctxt.tmp.toFile());
-            var process = pb.start();
-            var reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            while (reader.readLine() != null) {
-            }
-            process.waitFor();
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException(e);
-        }
     }
 }

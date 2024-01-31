@@ -329,7 +329,7 @@ class NameUtils implements Serializable {
     }
 
     /**
-     * From a string mae a type name.
+     * From a string make a type name.
      */
     TypeName type(String exp) {
         // the parser can see weird names like typeof(t)
