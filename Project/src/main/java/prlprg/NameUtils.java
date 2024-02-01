@@ -1,8 +1,10 @@
 package prlprg;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -24,51 +26,103 @@ import java.util.regex.Pattern;
  *
  * then this defines a new type that is not the same as Base.Ptr.
  *
- * Furthermore, some type definitions are built-in and will not be observed.
- *
  * Furthermore, the parser creates TypeNames before it can tell if a name refers
  * to a type or a type variable in an existential.
  *
  * Finally, some expression that occur where a type can be found are program
  * variables that are converted to type constants.
- *
- * And also, when we deal with code_warntype, it will capitalize types that are
- * not concrete. So we need to undo that as well.
- *
- * A previous implementation tried to find cannonical representations for types,
- * but that was tricky and messy. This implementation redefines the meaning of
- * equality for type names. So that we can distinguish between soft imports and
- * defined names. Type variables are handled after parsing. Type constants are
- * heuristically caught.
- *
  */
 class NameUtils implements Serializable {
 
     static class TypeName implements Serializable {
         final String pkg; // package name can be ""
         final String nm; // suffix name never ""
-        final boolean basic; // does this type come from Base or Core
-        boolean soft; // could this be a soft import a of a base type.
+
+        static final HashSet<TypeName> allNames = new HashSet<>();
+        static final HashMap<TypeName, TypeName> toDefined = new HashMap<>();
+        static final HashMap<TypeName, List<TypeName>> toLong = new HashMap<>();
+        static final HashSet<TypeName> aliases = new HashSet<>();
+        static final HashSet<TypeName> types = new HashSet<>();
+        static boolean frozen = false;
+
+        static TypeName mk(String pk, String nm) {
+            if (nm.equals("")) throw new RuntimeException("Empty name");
+            var tn = new TypeName(pk, nm);
+            if (allNames.contains(tn)) return tn;
+            allNames.add(tn);
+            if (!tn.isShort()) {
+                var snm = new TypeName("", nm);
+                var list = new ArrayList<TypeName>();
+                list.add(tn);
+                toLong.put(snm, list);
+            }
+            if (frozen) {
+                findDefinition(tn);
+            }
+            return tn;
+        }
+
+        static TypeName mk(String nm) {
+            return mk("", nm);
+        }
+
+        static void freeze() {
+            var seen = new HashSet<TypeName>();
+            for (var a : GenDB.it.aliases.all()) {
+                toDefined.put(a.nm, a.nm);
+                seen.add(a.nm);
+                aliases.add(a.nm);
+            }
+            for (var i : GenDB.it.types.all()) {
+                toDefined.put(i.nm, i.nm);
+                seen.add(i.nm);
+                types.add(i.nm);
+            }
+            // All the names that don't have a definition
+            for (var tnm : allNames) {
+                if (seen.contains(tnm)) continue; // already handled                
+                findDefinition(tnm);
+            }
+            frozen = true;
+        }
+
+        private static void findDefinition(TypeName tnm) {
+            // What is the meaning of this name? It does not have a definition
+            // in the DB, it is either a soft import or a short names.
+
+            // Let's shorten it...
+            var tn = tnm.isShort() ? tnm : new TypeName("", tnm.nm);
+
+            // Let's get all the names that share the same suffix
+            var nms = toLong.get(tn);
+            if (nms == null || nms.isEmpty()) {
+                App.output(tn + " not in toLong, is it really a type? If yes, then it is a bug. The parser somtime generates noise names.");
+                return;
+            }
+            if (nms.size() == 1) {
+                var nm = nms.get(0);
+                if (!aliases.contains(nm) && !types.contains(nm)) App.print(nm + " lacks a definition, we are missing a type. Oh well.");
+                toDefined.put(tn, nm);
+            } else {
+                var found = false;
+                for (var nm : nms)
+                    if (nm.isBasic()) {
+                        if (found) throw new RuntimeException("Multiple definitions for " + tn);
+                        found = true;
+                        toDefined.put(tn, nm);
+                    }
+                if (!found) throw new RuntimeException("Missing definition for " + tn);
+            }
+        }
 
         /**
          * Create a type name from a package name and a suffix name. The basic property
          * holds only for names that are defined in Base or Core and not for names of
          * subpakages.
          */
-        protected TypeName(String pkg, String nm) {
+        private TypeName(String pkg, String nm) {
             this.pkg = pkg;
             this.nm = nm;
-            var plow = pkg.toLowerCase();
-            this.basic = plow.equals("base") || plow.startsWith("base.") || plow.equals("core") || plow.startsWith("core.") || plow.equals("");
-            this.soft = true;
-        }
-
-        /**
-         * This type name has an associated declaration in the DB. A side effect is that
-         * we know that the name cannot be a soft import.
-         */
-        void seenDeclaration() {
-            soft = false;
         }
 
         // number with optional exponent
@@ -77,16 +131,16 @@ class NameUtils implements Serializable {
         boolean likelyConstant() {
             if (nm.equals("true") || nm.equals("false") || nm.startsWith(":") || nm.startsWith("\"") || nm.startsWith("\'")) return true;
             if (nm.equals("nothing") || nm.equals("missing")) return true;
+            if (nm.startsWith("Const(")) return true;
+            if (nm.startsWith("Core.Const(")) return true;
+            if (nm.contains(")")) return true;
             return nm.startsWith("typeof(") || pattern.matcher(nm).matches() || nm.contains("(");
         }
 
         /** Syntacic equality */
         @Override
         public boolean equals(Object o) {
-            if (o instanceof TypeName t) {
-                return pkg.equals(t.pkg) && nm.equals(t.nm);
-            } else
-                return false;
+            return o instanceof TypeName t ? pkg.equals(t.pkg) && nm.equals(t.nm) : false;
         }
 
         /** Traditional hash */
@@ -117,13 +171,30 @@ class NameUtils implements Serializable {
          * Case 4 is true because Bar.Ptr is a soft import of Base.Ptrp
          */
         boolean juliaEq(TypeName t) {
-            if (!nm.equals(t.nm)) return false;
-            if (pkg.equals(t.pkg)) return true;
-            return (soft && t.basic) || (t.soft && basic);
+            if (equals(t)) return true;
+            if (!frozen) throw new RuntimeException("Not frozen -- call freeze() first");
+            var def = toDefined.get(this);
+            if (def != null && def.equals(t)) return true;
+            def = toDefined.get(t);
+            if (def != null && def.equals(this)) return true;
+            return false;
         }
 
         boolean isAny() {
             return nm.equals("Any");
+        }
+
+        boolean isShort() {
+            return pkg.equals("");
+        }
+
+        boolean isBasic() {
+            if (isShort()) return false;
+            if (pkg.startsWith("Base.")) return true;
+            if (pkg.startsWith("Core.")) return true;
+            if (pkg.equals("Base")) return true;
+            if (pkg.equals("Core")) return true;
+            return false;
         }
 
         /**
@@ -131,7 +202,7 @@ class NameUtils implements Serializable {
          * break if users choose to define either of these names for themselves.
          */
         boolean isTuple() {
-            return nm.equals("Tuple") || nm.equals("TUPLE");
+            return nm.equals("Tuple");
         }
 
         /**
@@ -139,7 +210,7 @@ class NameUtils implements Serializable {
          * break if users choose to define either of these names for themselves.
          */
         boolean isUnion() {
-            return nm.equals("Union") || nm.equals("UNION");
+            return nm.equals("Union");
         }
 
         @Override
@@ -208,6 +279,7 @@ class NameUtils implements Serializable {
             }
             return pkg.equals("") ? name : pkg + "." + name;
         }
+
     }
 
     /**
@@ -216,14 +288,14 @@ class NameUtils implements Serializable {
     TypeName type(String exp) {
         // the parser can see weird names like typeof(t)
         if (exp.startsWith("typeof(")) {
-            return new TypeName("", exp);
+            return TypeName.mk(exp);
         } else if (exp.startsWith("Symbol(")) {
-            return new TypeName("", exp);
+            return TypeName.mk(exp);
         }
         var suf = suffix(exp);
         var pre = prefix(exp);
         pre = pre == null ? "" : pre;
-        var tn = new TypeName(pre, suf);
+        var tn = TypeName.mk(pre, suf);
         if (tn.likelyConstant()) return tn;
         if (names.containsKey(tn)) return names.get(tn);
         names.put(tn, tn);
@@ -248,29 +320,7 @@ class NameUtils implements Serializable {
     }
 
     private final HashMap<TypeName, TypeName> names = new HashMap<>();
-
-    private final HashMap<String, String> upperToLowerNames = new HashMap<>();
-
     final HashSet<String> packages = new HashSet<>();
-
-    /**
-     * Add the upper cased version of a name to our database. This is used to deal
-     * with the results of code_warntype that force names to be upper case when they
-     * are not concrete.
-     */
-    private void addToUpper(String low) {
-        var upper = low.toUpperCase();
-        if (upper.equals(low)) return;
-        upperToLowerNames.put(upper, low);
-    }
-
-    private String toLower(String s) {
-        if (upperToLowerNames.containsKey(s)) {
-            return upperToLowerNames.get(s);
-        } else {
-            return s;
-        }
-    }
 
     private String prefix(String s) {
         var i = s.lastIndexOf(".");

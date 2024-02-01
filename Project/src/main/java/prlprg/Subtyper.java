@@ -309,14 +309,15 @@ class Subtyper {
     //
     // Where some of the exps are variables and others are instances
     Type unifyDeclToInstance(Decl d, Tuple t) {
-        if (!(d.ty() instanceof Exist)) {
-            return (Inst) d.ty(); // nothing to do, it is an instance, the cast is just sanity checking
+        var thisTy = d.thisTy();
+        if (!(thisTy instanceof Exist)) {
+            return (Inst) thisTy; // nothing to do, it is an instance, the cast is just sanity checking
         }
-        var lhs = (Exist) d.ty();
-        var rhsargs = d.parInst().tys();
+        var lhs = (Exist) thisTy;
+        var rhsargs = ((Inst) d.parentTy()).tys();
         var upargs = t.tys();
         if (upargs.isEmpty()) {
-            return d.ty(); // nothing to do, we are called with no arguments
+            return thisTy; // nothing to do, we are called with no arguments
         }
         // sanity checking
         failIf(rhsargs.size() < upargs.size()); // upargs can have fewer arguments

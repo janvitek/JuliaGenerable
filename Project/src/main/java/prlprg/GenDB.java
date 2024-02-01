@@ -1,7 +1,5 @@
 package prlprg;
 
-import prlprg.NameUtils.FuncName;
-
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -11,10 +9,11 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
-import java.util.HashSet;
 
+import prlprg.NameUtils.FuncName;
 import prlprg.NameUtils.TypeName;
 import prlprg.Parser.MethodInformation;
 import prlprg.Parser.TypeDeclaration;
@@ -28,14 +27,14 @@ import prlprg.Parser.TypeDeclaration;
  */
 class GenDB implements Serializable {
     class Aliases implements Serializable {
-        final private HashMap<TypeName, Alias> db = new HashMap<>();
-        final private HashMap<String, List<Alias>> shortNames = new HashMap<>();
+        final private HashMap<TypeName, Alias> db = new HashMap<>(); // maps package.type name to alias
+        final private HashMap<String, List<Alias>> shortNames = new HashMap<>(); // maps type without prefix to alias
 
         class Alias implements Serializable {
             TypeName nm;
             Ty pre_patched;
             Ty patched;
-            Type sig;
+            Type ty;
 
             Alias(TypeName tn) {
                 nm = tn;
@@ -43,16 +42,28 @@ class GenDB implements Serializable {
 
             @Override
             public String toString() {
-                return "alias " + nm + " = " + sig == null ? pre_patched.toString() : sig.toString();
+                return "alias " + nm + " = " + ty == null ? pre_patched.toString() : ty.toString();
             }
 
             void fixUp() {
                 try {
-                    patched = pre_patched.fixUp();
+                    patched = pre_patched.fixUp(new ArrayList<>());
                 } catch (Exception e) {
-                    App.print("Error: " + nm + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + pre_patched.src()));
+                    App.print("Error: " + nm + " " + e.getMessage());
                 }
+                ty = patched.toType(new ArrayList<>());
             }
+        }
+
+        Alias get(TypeName tn) {
+            var alias = db.get(tn);
+            if (alias != null) return alias;
+            var aliases = shortNames.get(tn.nm);
+            if (aliases == null) return null;
+            for (var a : aliases) {
+                if (tn.juliaEq(a.nm)) return a;
+            }
+            return null;
         }
 
         void addParsed(TypeName tn, Ty sig) {
@@ -60,7 +71,8 @@ class GenDB implements Serializable {
             var alias = new Alias(tn);
             alias.pre_patched = sig;
             db.put(tn, alias);
-            var names = shortNames.getOrDefault(tn.nm, new ArrayList<>());
+            var names = shortNames.get(tn.nm);
+            if (names == null) shortNames.put(tn.nm, names = new ArrayList<>());
             names.add(alias);
         }
 
@@ -68,6 +80,11 @@ class GenDB implements Serializable {
         public String toString() {
             return "GenDB.Aliases( " + db.size() + " )";
         }
+
+        List<Alias> all() {
+            return new ArrayList<>(db.values());
+        }
+
     }
 
     class Types implements Serializable {
@@ -92,8 +109,6 @@ class GenDB implements Serializable {
         class Info implements Serializable {
 
             TypeName nm; //name of the type
-            boolean defMissing; // was this patched because it was missing ?
-            TyDecl pre_patched; // the type declaration before patching
             TyDecl patched; // the type declaration after patching
             Decl decl; // the final form of the type declaration, this is used for subtype generation
             List<TypeName> subtypes = List.of(); // names of direct subtypes
@@ -106,30 +121,14 @@ class GenDB implements Serializable {
              * Create a type info from a parsed type declaration
              */
             Info(TypeDeclaration ty) {
-                this.nm = ty.nm();
-                this.pre_patched = ty.toTy();
-                this.patched = pre_patched; // default, good for simple types
-                this.defMissing = false;
-            }
-
-            /**
-             * Create a type info for a missing type
-             */
-            Info(TypeName missingType) {
-                this.nm = missingType;
-                this.decl = isAny() ? new Decl("abstract type", names.getShort("Any"), any, any, null, "") : new Decl("missing type", nm, new Inst(nm, new ArrayList<>()), any, null, "NA");
-                this.defMissing = true;
-            }
-
-            void replaceWith(Info i) {
-                if (!defMissing) {
-                    App.print("Replacing a non-missing type");
+                nm = ty.nm();
+                patched = ty.toTy().fixUp();
+                if (isAny()) {
+                    parentName = nm;
+                    parent = this;
+                    var tany = new Tuple(List.of(any, any));
+                    decl = new Decl("abstract type", names.getShort("Any"), tany, null, "");
                 }
-                this.nm = i.nm;
-
-                this.pre_patched = i.pre_patched;
-                this.patched = i.patched;
-                this.defMissing = i.defMissing;
             }
 
             final boolean isAny() {
@@ -151,69 +150,33 @@ class GenDB implements Serializable {
              * is itself.
              */
             void fixUpParent() {
-                if (!defMissing) {
-                    try {
-                        patched = pre_patched.fixUp();
-                    } catch (Exception e) {
-                        App.print("Error: " + nm + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + pre_patched.src()));
-                    }
-                }
-                if (isAny()) {
-                    parentName = nm;
-                    parent = this;
-                    return;
-                }
-                parentName = defMissing ? names.getShort("Any") : ((TyInst) patched.parent()).nm();
+                if (isAny()) return;
+                var env = new ArrayList<Bound>();
+                var t = patched.ty().toType(env);
+                var bounds = t.getBounds(env);
+                var parinst = patched.parent().toType(bounds);
+                while (t instanceof Exist e)
+                    t = e.ty();
+                t = new Tuple(List.of(t, parinst));
+                while (!bounds.isEmpty())
+                    t = new Exist(bounds.removeLast(), t);
+                decl = new Decl(patched.mod(), nm, t, null, patched.src()).expandAliases();
+                parentName = decl.parentTy().nm();
                 parent = get(parentName);
                 parent.children.add(this);
             }
 
-            // Final transformatoin to a Decl by a top down traversal of the hierarchy.
-            // Info nodes that are missing are provided with a default Decl on creation.
             void toDecl() {
-                if (!defMissing) {
-                    var env = new ArrayList<Bound>();
-                    var t = patched.ty().toType(env);
-                    var inst = patched.parent().toType(getBounds(t, env));
-                    decl = new Decl(patched.mod(), nm, t, (Inst) inst, parent.decl, patched.src());
-                }
+                decl = new Decl(decl.mod(), decl.nm(), decl.ty(), parent.decl, decl.src());
                 subtypes = children.stream().map(c -> c.nm).collect(Collectors.toList());
                 children.forEach(c -> c.toDecl());
             }
 
-            /**
-             * Unwrap the existentials in the type, and return the bounds in the order they
-             * appear. Called with a type declaration, so there should only be instances and
-             * existentials.
-             */
-            private List<Bound> getBounds(Type t, List<Bound> env) {
-                if (t instanceof Inst) {
-                    return env;
-                } else if (t instanceof Exist ty) {
-                    env.addLast(ty.b());
-                    return getBounds(ty.ty(), env);
-                }
-                throw new RuntimeException("Unknown type: " + t);
-            }
-
             @Override
             public String toString() {
-                return nm + " " + (defMissing ? "missing" : "defined") + " " + parentName;
+                return nm + " <: " + parentName;
             }
         } /// End of Info //////////////////////////////////////////////////////////////////////
-
-        // Transform all types to Decls, this is done after all types have been patched.
-        void toDeclAll() {
-            types.get(names.getShort("Any")).toDecl();
-        }
-
-        /**
-         * Fix up the type hierarchy starting at Any. This method also prints the types
-         * we saw mulitple definitions for.
-         */
-        void fixUpAll() {
-            all().forEach(i -> i.fixUpParent());
-        }
 
         /**
          * Return all types in the DB.
@@ -253,19 +216,9 @@ class GenDB implements Serializable {
             if (infos == null) db.put(tn.nm, infos = new ArrayList<>());
             Info it = null;
             for (var i : infos) // Infos holds all types withe same trailing name (e.g "Any") 
-                if (i.nm.juliaEq(tn)) it = i; // assume we are adding Core.Any and "".Any  is in ...
-            if (it == null)
-                infos.add(new Info(ty));
-            else {
-                it.replaceWith(new Info(ty));
-            }
-        }
-
-        void addMissing(TypeName nm) {
-            if (get(nm) != null) return; // got it already
-            var infos = db.get(nm.nm);
-            if (infos == null) db.put(nm.nm, infos = new ArrayList<>());
-            infos.add(new Info(nm));
+                if (i.nm.equals(tn)) it = i;
+            if (it != null) throw new RuntimeException("Type already defined: " + tn);
+            infos.add(new Info(ty));
         }
 
         /**
@@ -298,9 +251,8 @@ class GenDB implements Serializable {
          * Print the type hierarchy. This is a top down traversal of the type hierarchy.
          */
         void printHierarchy() {
-            App.output("\nPrinting type hierarchy (in LIGHT color mode, RED means missing declaration, GREEN means abstract )");
+            App.output("\nType hierarchy (Green is abstract )");
             printHierarchy(get(names.getShort("Any")), 0);
-
         }
 
         /**
@@ -316,7 +268,7 @@ class GenDB implements Serializable {
 
         @Override
         public String toString() {
-            return "Type db with " + db.size() + " entries";
+            return "GenDB ( " + db.size() + " )";
         }
 
     }
@@ -411,18 +363,6 @@ class GenDB implements Serializable {
         }
 
         /**
-         * Fix up all signatures. Call this to patch the databases after the types have
-         * been patched.
-         */
-        void fixUpAll() {
-            // make sure that upperNames have all types
-            for (var name : allNames()) {
-                for (var sig : get(name))
-                    sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
-            }
-        }
-
-        /**
          * Transform all signatures to Sigs. This is done after all types have been
          * patched.
          */
@@ -432,6 +372,7 @@ class GenDB implements Serializable {
                     var n = s.patched;
                     try {
                         s.sig = new Sig(s.patched.nm(), n.ty().toType(new ArrayList<>()), n.argnms(), n.kwPos(), n.src());
+                        s.sig = s.sig.expandAliases();
                     } catch (Exception e) {
                         App.print("Error: " + n.nm() + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + n.src()));
                     }
@@ -455,7 +396,6 @@ class GenDB implements Serializable {
     }
 
     static GenDB it = new GenDB();
-
     NameUtils names = new NameUtils();
     Aliases aliases = new Aliases();
     Types types = new Types();
@@ -542,9 +482,15 @@ class GenDB implements Serializable {
      * genreation.
      */
     public void cleanUp() {
-        sigs.fixUpAll();
-        types.fixUpAll();
-        types.toDeclAll();
+        aliases.db.values().forEach(a -> a.fixUp());
+        for (var name : sigs.allNames())
+            for (var sig : sigs.get(name))
+                sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
+
+        types.all().forEach(i -> i.fixUpParent());
+        types.get(names.getShort("Any")).toDecl();
+        for (var i : types.all())
+            i.decl = i.decl.expandAliases();
         types.printHierarchy();
         sigs.toSigAll();
     }
@@ -592,16 +538,47 @@ interface Type {
      * A type is equal to None if it is a Union with no elements. NOTE: `Union` and
      * `Union{}` are not the same thing.
      */
-    boolean isNone();
+    boolean isEmpty();
 
     /**
      * @return true if this type is a struct with all parameters bound or if it is a
      *         union with a single concrete element. Missing types are not
      *         considered concrete. Currently does not deal correctly with aliases.
      *         The type Vector{Int} is is an alias for Array{Int,1} and is not
-     *         considered concrete but should be. TODO revisit treatemnt of aliases.
+     *         considered concrete but should be.
      */
     boolean isConcrete();
+
+    /**
+     * Find aliases and replaces them by their definition. Returns a strucuturally
+     * equal object if no expension was made.
+     * 
+     * The argument is the map of bounds to their expanded versions.
+     */
+    Type expandAliases(HashMap<Bound, Bound> bounds);
+
+    /**
+     * Given a list of type arguments, attempts to replace existentials with the
+     * value of the first type argument. Proceed until all arguments and existential
+     * are exhausted.
+     */
+    Type reduce(List<Type> args, HashMap<Bound, Type> replacements, HashMap<Bound, Bound> bounds);
+
+    /**
+     * If this type consists of a number of nested existentials, return the bounds
+     * of each of them.
+     */
+    List<Bound> getBounds(List<Bound> env);
+
+    static Type expandAliasesFixpoint(Type t) {
+        var newty = t.expandAliases(new HashMap<>());
+        var oldty = t;
+        while (!newty.structuralEquals(oldty)) {
+            oldty = newty;
+            newty = newty.expandAliases(new HashMap<>());
+        }
+        return newty;
+    }
 
 }
 
@@ -654,8 +631,8 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
     }
 
     @Override
-    public boolean isNone() {
-        return nm().nm.equals("Nothing"); // THIS IS AN ALIAS... Todo we should deal with aliasses properly
+    public boolean isEmpty() {
+        return false;
     }
 
     @Override
@@ -678,6 +655,39 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
             }
         return res;
     }
+
+    /**
+     * Check if this type is an alias, if it is, replace it by its definition.
+     * 
+     * <pre>
+     *   Vector{Int} =>  (E T.Array{T,1}){Int} => Array{Int,1}
+     * </pre>
+     */
+    @Override
+    public Type expandAliases(HashMap<Bound, Bound> bs) {
+        var a = GenDB.it.aliases.get(nm);
+        var ntys = tys.stream().map(t -> t.expandAliases(bs)).collect(Collectors.toList());
+        if (a == null) return new Inst(nm, ntys);
+        var body = a.ty;
+        return body.reduce(ntys, new HashMap<>(), bs);
+    }
+
+    @Override
+    public Type reduce(List<Type> args, HashMap<Bound, Type> replacements, HashMap<Bound, Bound> bounds) {
+        var ntys = tys.stream().map(t -> t.reduce(List.of(), replacements, bounds)).collect(Collectors.toList());
+        var nntys = new ArrayList<Type>();
+        nntys.addAll(args);
+        nntys.addAll(ntys);
+        return new Inst(nm, nntys);
+    }
+
+    /**
+     * No bounds to add.
+     */
+    @Override
+    public List<Bound> getBounds(List<Bound> bs) {
+        return bs;
+    }
 }
 
 /**
@@ -686,6 +696,11 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
  *
  */
 record Var(Bound b) implements Type, Serializable {
+
+    Var(Bound b) {
+        if (b == null) throw new RuntimeException("bound is null");
+        this.b = b;
+    }
 
     @Override
     public String toString() {
@@ -713,7 +728,7 @@ record Var(Bound b) implements Type, Serializable {
     }
 
     @Override
-    public boolean isNone() {
+    public boolean isEmpty() {
         return false;
     }
 
@@ -722,6 +737,22 @@ record Var(Bound b) implements Type, Serializable {
         return false;
     }
 
+    @Override
+    public Type expandAliases(HashMap<Bound, Bound> bs) {
+        return new Var(bs.get(b));
+    }
+
+    @Override
+    public Type reduce(List<Type> args, HashMap<Bound, Type> replacements, HashMap<Bound, Bound> bounds) {
+        var bd = replacements.get(b);
+        if (bd != null) return bd;
+        return new Var(bounds.get(b));
+    }
+
+    @Override
+    public List<Bound> getBounds(List<Bound> bs) {
+        return bs;
+    }
 }
 
 /**
@@ -734,7 +765,7 @@ record Bound(String nm, Type low, Type up) implements Serializable {
 
     @Override
     public String toString() {
-        return (!low.isNone() ? low + "<:" : "") + CodeColors.variable(nm) + (!up.isAny() ? "<:" + up : "");
+        return (!low.isEmpty() ? low + "<:" : "") + CodeColors.variable(nm) + (!up.isAny() ? "<:" + up : "");
     }
 
     /**
@@ -765,9 +796,16 @@ record Bound(String nm, Type low, Type up) implements Serializable {
      * transformation only.
      */
     public String toJulia() {
-        return (!low.isNone() ? low.toJulia() + "<:" : "") + nm + (!up.isAny() ? "<:" + up.toJulia() : "");
+        return (!low.isEmpty() ? low.toJulia() + "<:" : "") + nm + (!up.isAny() ? "<:" + up.toJulia() : "");
     }
 
+    Bound expandAliases(HashMap<Bound, Bound> bs) {
+        return new Bound(nm, low.expandAliases(bs), up.expandAliases(bs));
+    }
+
+    Bound reduce(List<Type> args, HashMap<Bound, Type> replacements, HashMap<Bound, Bound> bounds) {
+        return new Bound(nm, low.reduce(args, replacements, bounds), up.reduce(args, replacements, bounds));
+    }
 }
 
 /**
@@ -803,7 +841,7 @@ record Con(String nm) implements Type, Serializable {
     }
 
     @Override
-    public boolean isNone() {
+    public boolean isEmpty() {
         return false;
     }
 
@@ -812,6 +850,21 @@ record Con(String nm) implements Type, Serializable {
         return true;
     }
 
+    @Override
+    public Type expandAliases(HashMap<Bound, Bound> bs) {
+        return this;
+    }
+
+    @Override
+    public Type reduce(List<Type> args, HashMap<Bound, Type> replacements, HashMap<Bound, Bound> bounds) {
+        if (args.isEmpty()) return this;
+        throw new RuntimeException("Cannot reduce a constant");
+    }
+
+    @Override
+    public List<Bound> getBounds(List<Bound> bs) {
+        return bs;
+    }
 }
 
 /**
@@ -847,8 +900,8 @@ record Exist(Bound b, Type ty) implements Type, Serializable {
     }
 
     @Override
-    public boolean isNone() {
-        return false;
+    public boolean isEmpty() {
+        return false; // That is not true. \E T. Union{} is empty. And unlikely.
     }
 
     @Override
@@ -856,6 +909,34 @@ record Exist(Bound b, Type ty) implements Type, Serializable {
         return false;
     }
 
+    @Override
+    public Type expandAliases(HashMap<Bound, Bound> bs) {
+        var newb = b.expandAliases(bs);
+        var newbs = new HashMap<Bound, Bound>(bs);
+        newbs.put(b, newb);
+        return new Exist(newb, ty.expandAliases(newbs));
+    }
+
+    @Override
+    public Type reduce(List<Type> args, HashMap<Bound, Type> replacements, HashMap<Bound, Bound> bounds) {
+        if (!args.isEmpty()) {
+            var head = args.removeFirst();
+            var newrepls = new HashMap<Bound, Type>(replacements);
+            newrepls.put(b, head);
+            return ty.reduce(args, newrepls, bounds);
+        } else {
+            var newb = b.reduce(List.of(), replacements, bounds);
+            var newbs = new HashMap<Bound, Bound>(bounds);
+            newbs.put(b, newb);
+            return new Exist(newb, ty.reduce(List.of(), replacements, newbs));
+        }
+    }
+
+    @Override
+    public List<Bound> getBounds(List<Bound> bs) {
+        bs.addLast(b);
+        return ty.getBounds(bs);
+    }
 }
 
 /**
@@ -879,10 +960,8 @@ record Union(List<Type> tys) implements Type, Serializable {
     public boolean structuralEquals(Type t) {
         if (t instanceof Union u) {
             if (tys.size() != u.tys.size()) return false;
-
-            for (int i = 0; i < tys.size(); i++) {
+            for (int i = 0; i < tys.size(); i++)
                 if (!tys.get(i).structuralEquals(u.tys.get(i))) return false;
-            }
             return true;
         }
         return false;
@@ -900,7 +979,7 @@ record Union(List<Type> tys) implements Type, Serializable {
     }
 
     @Override
-    public boolean isNone() {
+    public boolean isEmpty() {
         return tys.isEmpty();
     }
 
@@ -915,6 +994,21 @@ record Union(List<Type> tys) implements Type, Serializable {
     public boolean isConcrete() {
         return //tys.isEmpty() ||
         (tys.size() == 1 && tys.get(0).isConcrete());
+    }
+
+    @Override
+    public Type expandAliases(HashMap<Bound, Bound> bs) {
+        return new Union(tys.stream().map(t -> t.expandAliases(bs)).collect(Collectors.toList()));
+    }
+
+    @Override
+    public Type reduce(List<Type> args, HashMap<Bound, Type> replacements, HashMap<Bound, Bound> bounds) {
+        return new Union(tys.stream().map(t -> t.reduce(List.of(), replacements, bounds)).collect(Collectors.toList()));
+    }
+
+    @Override
+    public List<Bound> getBounds(List<Bound> bs) {
+        return bs;
     }
 
 }
@@ -959,7 +1053,7 @@ record Tuple(List<Type> tys) implements Type, Serializable {
     }
 
     @Override
-    public boolean isNone() {
+    public boolean isEmpty() {
         return false;
     }
 
@@ -972,6 +1066,21 @@ record Tuple(List<Type> tys) implements Type, Serializable {
         return tys.isEmpty() || tys.stream().allMatch(Type::isConcrete);
     }
 
+    @Override
+    public Type expandAliases(HashMap<Bound, Bound> bs) {
+        return new Tuple(tys.stream().map(t -> t.expandAliases(bs)).collect(Collectors.toList()));
+    }
+
+    @Override
+    public Type reduce(List<Type> args, HashMap<Bound, Type> replacements, HashMap<Bound, Bound> bounds) {
+        return new Tuple(tys.stream().map(t -> t.reduce(List.of(), replacements, bounds)).collect(Collectors.toList()));
+    }
+
+    @Override
+    public List<Bound> getBounds(List<Bound> bs) {
+        return bs;
+    }
+
 }
 
 /**
@@ -981,12 +1090,32 @@ record Tuple(List<Type> tys) implements Type, Serializable {
  * "V{Int} <: AbsV{Int}"), `parent` is the parent's declaration and `src` is the
  * source code of the declaration.
  */
-record Decl(String mod, TypeName nm, Type ty, Inst parInst, Decl parent, String src) implements Serializable {
+record Decl(String mod, TypeName nm, Type ty, Decl parent, String src) implements Serializable {
 
     @Override
     public String toString() {
         var ignore = nm.isAny() || this.parent.nm.isAny(); // parent is null for Any
-        return CodeColors.comment(nm + " ≡ ") + mod + " " + ty + (ignore ? "" : CodeColors.comment(" <: ") + parInst);
+        return CodeColors.comment(nm + " ≡ ") + mod + " " + thisTy() + (ignore ? "" : CodeColors.comment(" <: ") + parentTy());
+    }
+
+    Type thisTy() {
+        var t = ty;
+        var bounds = t.getBounds(new ArrayList<>());
+        while (t instanceof Exist e)
+            t = e.ty();
+        var pair = (Tuple) t;
+        t = pair.tys().get(0);
+        while (!bounds.isEmpty())
+            t = new Exist(bounds.removeLast(), t);
+        return t;
+    }
+
+    Inst parentTy() {
+        var t = ty;
+        while (t instanceof Exist e)
+            t = e.ty();
+        var pair = (Tuple) t;
+        return (Inst) pair.tys().get(1);
     }
 
     /**
@@ -1007,6 +1136,11 @@ record Decl(String mod, TypeName nm, Type ty, Inst parInst, Decl parent, String 
             cnt++;
         }
         return cnt;
+    }
+
+    Decl expandAliases() {
+        var newty = Type.expandAliasesFixpoint(ty);
+        return new Decl(mod, nm, newty, parent, src);
     }
 }
 
@@ -1059,6 +1193,11 @@ record Sig(FuncName nm, Type ty, List<String> argnms, int kwPos, String src) imp
     boolean structuralEquals(Sig other) {
         if (!nm.operationName().equals(other.nm().operationName())) return false;
         return ty.structuralEquals(other.ty());
+    }
+
+    Sig expandAliases() {
+        var newty = Type.expandAliasesFixpoint(ty);
+        return new Sig(nm, newty, argnms, kwPos, src);
     }
 }
 

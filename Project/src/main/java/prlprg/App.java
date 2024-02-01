@@ -13,13 +13,12 @@ public class App {
 
     private static int MAX_SIGS_TO_READ = 100;
     static String dir, types, functions, aliases;
-    static String[] defaultArgs = {
-        "-c=DARK", // color the output : DARK, LIGHT, NONE
-        "-r=../Inputs/", // root directory with input files
-        "-f=stdf.jlg", // file with function signatures
-        "-t=stdt.jlg", // file with type declarations
-        "-a=stda.jlg", // file with alias declarations
-        "-m=50", // max number of sigs to read (0 = all)
+    static String[] defaultArgs = { "-c=NONE", // color the output : DARK, LIGHT, NONE
+            "-r=../Inputs/", // root directory with input files
+            "-f=stdf.jlg", // file with function signatures
+            "-t=stdt.jlg", // file with type declarations
+            "-a=stda.jlg", // file with alias declarations
+            "-m=5000", // max number of sigs to read (0 = all)
     };
 
     static int FUEL = 1;
@@ -40,6 +39,8 @@ public class App {
             printSeparator();
             print("Reading types from " + dir + types);
             new Parser().withFile(dir + types).parseTypes();
+
+            NameUtils.TypeName.freeze();
 
             printSeparator();
             print("Reading sigs from " + dir + functions);

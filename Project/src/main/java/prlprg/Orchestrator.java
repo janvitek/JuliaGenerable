@@ -88,7 +88,7 @@ class Orchestrator {
                     weird++;
                 else if (inf.results.size() == 1) {
                     var rty = inf.results.get(0).retTy();
-                    if (rty.isNone()) {
+                    if (rty.isEmpty()) {
                         nothings++;
                     } else if (rty.isConcrete()) {
                         concrete++;
@@ -155,6 +155,7 @@ class Orchestrator {
             var dt = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
             try {
                 var p = Paths.get("/tmp").resolve("jl_" + dt);
+                App.print("Logging to " + p);
                 if (Files.exists(p)) {
                     delete(p);
                 }
@@ -286,8 +287,8 @@ class Orchestrator {
          */
         String toTest() {
             return """
-                   @WARNTYPE %s [%s] "%s"
-                   """.formatted(name, args, file);
+                    @WARNTYPE %s [%s] "%s"
+                    """.formatted(name, args, file);
         }
     }
 

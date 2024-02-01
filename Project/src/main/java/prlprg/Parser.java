@@ -98,13 +98,6 @@ class Parser {
             return nm + (ps == null ? "" : "{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}");
         }
 
-        /**
-         * When we see a TypeInst in a parent position we make the type is in the DB.
-         */
-        void addMissing() {
-            if (!nm.likelyConstant()) GenDB.it.types.addMissing(nm);
-        }
-
     }
 
     /**
@@ -256,7 +249,6 @@ class Parser {
             NameUtils.reset(); // reset the fresh variable generator
             var modifiers = parseModifiers(p);
             var name = ParsedType.parseTypeName(p);
-            name.seenDeclaration(); // update this type name to recall that it has a declaration
             var src = p.last.getLine();
             var ps = new ArrayList<ParsedType>();
             var q = p.sliceMatchedDelims("{", "}");
@@ -276,7 +268,6 @@ class Parser {
          * Turns a TypeDeclaration to a TyDecl.
          */
         TyDecl toTy() {
-            parent.addMissing();
             var args = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
             return new TyDecl(modifiers, nm, new TyInst(nm, args), parent.toTy(), src);
         }
@@ -330,7 +321,7 @@ class Parser {
         Ty makeVarArg(Ty t) {
             List<Ty> tt = new ArrayList<>();
             tt.add(t);
-            return new TyInst(new TypeName("Core", "Vararg"), tt);
+            return new TyInst(TypeName.mk("Core", "Vararg"), tt);
         }
 
         @Override
@@ -421,6 +412,9 @@ class Parser {
                 Ty t = null;
                 var uai = UnionAllInst.parse(p);
                 t = uai.toTy();
+                if (p.has("@soft")) { // ignoring this for now
+                    p.drop();
+                }
                 p.take("[");
                 return p.has("typealias") ? new TypeAlias(name, t) : null;
             } catch (Exception e) {
@@ -708,6 +702,14 @@ class Parser {
         stats.linesOfTypes = stats.lines;
         stats.types.start();
 
+        var tn = TypeName.mk("Core", "Union");
+        var any = new TypeInst(TypeName.mk("Core", "Any"), List.of());
+        var decl = new TypeDeclaration("abstract type", tn, List.of(), any, "Builtin");
+        GenDB.it.types.addParsed(decl);
+        tn = TypeName.mk("Core", "Vararg");
+        decl = new TypeDeclaration("abstract type", tn, List.of(), any, "Builtin");
+        GenDB.it.types.addParsed(decl);
+
         while (!isEmpty())
             GenDB.it.types.addParsed(TypeDeclaration.parse(sliceLine()));
 
@@ -726,7 +728,15 @@ class Parser {
         var aliases = GenDB.it.aliases;
 
         while (!isEmpty()) {
-            var a = TypeAlias.parseAlias(sliceLine());
+            var q = sliceLine();
+            var r = q.copy();
+            var found = false; // we are looking for a "typealias" keyword, ignore the other aliases
+            while (!r.isEmpty()) { // if we don't do this, we will create broken typenames
+                var tok = r.take();
+                if (tok.is("typealias")) found = true;
+            }
+            if (!found) continue;
+            var a = TypeAlias.parseAlias(q);
             if (a != null) aliases.addParsed(a.tn(), a.sig());
         }
 
