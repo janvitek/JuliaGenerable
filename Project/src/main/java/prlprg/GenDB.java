@@ -1236,25 +1236,25 @@ class Method implements Serializable {
      * transformations.
      */
     Method(MethodInformation mi, String filename) {
-        this.sig = mi.decl;
+        this.sig = mi.decl.expandAliases();
         this.filename = filename;
         this.originSig = mi.originDecl;
-        this.returnType = mi.returnType;
+        this.returnType = Type.expandAliasesFixpoint(mi.returnType);
         this.originPackageAndFile = mi.src;
         for (var v : mi.arguments) {
             argNames.add(v.nm());
             var ty = v.ty().toTy().fixUp(new ArrayList<>());
-            env.put(v.nm(), ty.toType(new ArrayList<>()));
+            env.put(v.nm(), Type.expandAliasesFixpoint(ty.toType(new ArrayList<>())));
         }
         for (var v : mi.locals) {
             var ty = v.ty().toTy().fixUp(new ArrayList<>());
-            env.put(v.nm(), ty.toType(new ArrayList<>()));
+            env.put(v.nm(), Type.expandAliasesFixpoint(ty.toType(new ArrayList<>())));
         }
         for (var op : mi.ops)
             if (op.tgt() != null && op.ret() != null) {
                 if (!env.containsKey(op.tgt())) {
                     var ty = op.ret().toTy().fixUp(new ArrayList<>());
-                    env.put(op.tgt(), ty.toType(new ArrayList<>()));
+                    env.put(op.tgt(), Type.expandAliasesFixpoint(ty.toType(new ArrayList<>())));
                 }
             }
         for (var op : mi.ops) {
