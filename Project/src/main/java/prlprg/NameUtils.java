@@ -287,20 +287,19 @@ class NameUtils implements Serializable {
      */
     TypeName type(String exp) {
         // the parser can see weird names like typeof(t)
+        // We don't call mk() because it would log those names
         if (exp.startsWith("typeof(")) {
-            return TypeName.mk(exp);
+            return new TypeName("", exp);
         } else if (exp.startsWith("Symbol(")) {
-            return TypeName.mk(exp);
+            return new TypeName("", exp);
         }
         var suf = suffix(exp);
         var pre = prefix(exp);
         pre = pre == null ? "" : pre;
-        var tn = TypeName.mk(pre, suf);
+        var tn = new TypeName(pre, suf);
         if (tn.likelyConstant()) return tn;
-        if (names.containsKey(tn)) return names.get(tn);
-        names.put(tn, tn);
         if (!pre.equals("")) packages.add(pre);
-        return tn;
+        return TypeName.mk(pre, suf);
     }
 
     FuncName function(String exp) {
@@ -313,13 +312,9 @@ class NameUtils implements Serializable {
     }
 
     TypeName getShort(String nm) {
-        var tn = new TypeName("", nm);
-        if (names.containsKey(tn)) return names.get(tn);
-        names.put(tn, tn);
-        return tn;
+        return TypeName.mk(nm);
     }
 
-    private final HashMap<TypeName, TypeName> names = new HashMap<>();
     final HashSet<String> packages = new HashSet<>();
 
     private String prefix(String s) {
