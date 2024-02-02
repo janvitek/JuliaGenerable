@@ -59,7 +59,7 @@ public class JuliaUtils {
      * by calling `go()`. Returns a ProcessBuilder which when started, runs the
      * configured julia binary with the right depot.
      */
-    public static class JuliaScriptBuilder {
+    private static class JuliaScriptBuilder {
         private List<String> args;
         private Path wd;
         private HashMap<String, String> env;
@@ -107,7 +107,7 @@ public class JuliaUtils {
         return new JuliaScriptBuilder();
     }
 
-    public static void testJulia() {
+    private static void testJulia() {
         var pb = julia().args("-e", "println(\"Using julia v$VERSION with depot `$(only(DEPOT_PATH))'\")").go();
         try {
             var p = pb.start();
@@ -122,7 +122,7 @@ public class JuliaUtils {
         }
     }
 
-    public static void setupSharedEnv() {
+    private static void setupSharedEnv() {
         var pkgList = packages.stream().map((s) -> "\"" + s + "\"").collect(Collectors.joining(", "));
         var pb = julia().go();
         try {
