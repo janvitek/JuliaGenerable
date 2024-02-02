@@ -597,8 +597,9 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
 
     @Override
     public String toString() {
+        var name = nm.pkg.equals("Core") ? nm.nm : nm.toString(); // This will shorten the printing of Any
         var args = tys.stream().map(Type::toString).collect(Collectors.joining(","));
-        return nm + (tys.isEmpty() ? "" : "{" + args + "}");
+        return name + (tys.isEmpty() ? "" : "{" + args + "}");
     }
 
     @Override

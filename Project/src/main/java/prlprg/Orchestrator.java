@@ -406,6 +406,17 @@ class Orchestrator {
      */
     private void readOneSigResult(Method m, List<Info> siginfo) {
         var found = 0;
+        // first try with strict equality 
+        for (var sig : siginfo) {
+            if (sig.sig.arity() == m.originSig.arity()) {
+                if (sig.sig.toString().equals(m.originSig.toString())) {
+                    found++;
+                    sig.addResult(m.sig.ty(), m.returnType);
+                    return;
+                }
+            }
+        }
+
         Info foundSig = null;
         for (var sig : siginfo) {
             if (sig.sig.arity() == m.originSig.arity()) {
@@ -438,7 +449,6 @@ class Orchestrator {
                         for (var si : siginfo) {
                             App.print(">>> " + si.sig.toString());
                         }
-                        App.die("no matching signature");
                     }
                 }
             }

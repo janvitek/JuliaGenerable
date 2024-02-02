@@ -18,7 +18,7 @@ public class App {
             "-f=stdf.jlg", // file with function signatures
             "-t=stdt.jlg", // file with type declarations
             "-a=stda.jlg", // file with alias declarations
-            "-m=100", // max number of sigs to read (0 = all)
+            "-m=100000", // max number of sigs to read (0 = all)
     };
 
     static int FUEL = 1;
