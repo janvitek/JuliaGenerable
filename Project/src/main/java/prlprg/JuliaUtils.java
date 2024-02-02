@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -59,11 +60,17 @@ public class JuliaUtils {
      * configured julia binary with the right depot.
      */
     public static class JuliaScriptBuilder {
-        List<String> args;
+        private List<String> args;
+        private Path wd;
+        private HashMap<String, String> env;
 
         JuliaScriptBuilder() {
             args = new ArrayList<>();
+            wd = null;
+            env = new HashMap<>();
+
             args.add(bin.toString());
+            env.put("JULIA_DEPOT_PATH", depot.toString());
         }
 
         JuliaScriptBuilder arg(String arg) {
@@ -77,9 +84,21 @@ public class JuliaUtils {
             return this;
         }
 
+        JuliaScriptBuilder directory(Path p) {
+            wd = p;
+            return this;
+        }
+
+        JuliaScriptBuilder env(String key, String value) {
+            env.put(key, value);
+            return this;
+        }
+
         ProcessBuilder go() {
             var pb = new ProcessBuilder(args);
-            pb.environment().put("JULIA_DEPOT_PATH", depot.toString());
+            if (wd != null)
+                pb.directory(wd.toFile());
+            pb.environment().putAll(env);
             return pb;
         }
     }
@@ -103,24 +122,22 @@ public class JuliaUtils {
         }
     }
 
-    private static String setupSharedEnv = """
-        import Pkg
-        Pkg.activate("jgextra"; shared=true)
-        Pkg.add([%s])
-        Pkg.add("MethodAnalysis")
-        Pkg.develop(path="%s")
-        Pkg.instantiate()
-        Pkg.status()
-        """;
     public static void setupSharedEnv() {
+        var pkgList = packages.stream().map((s) -> "\"" + s + "\"").collect(Collectors.joining(", "));
         var pb = julia().go();
         try {
             var p = pb.start();
             writeStream(
                 p.getOutputStream(),
-                setupSharedEnv.formatted(
-                    packages.stream().map((s) -> "\"" + s + "\"").collect(Collectors.joining(", ")),
-                    typeDiscover));
+                """
+                import Pkg
+                Pkg.activate("jgextra"; shared=true)
+                Pkg.add([%s])
+                Pkg.add("MethodAnalysis")
+                Pkg.develop(path="%s")
+                Pkg.instantiate()
+                Pkg.status()
+                """.formatted(pkgList, typeDiscover));
             String output = loadStream(p.getInputStream());
             String error = loadStream(p.getErrorStream());
             var ret = p.waitFor();
@@ -131,28 +148,19 @@ public class JuliaUtils {
         }
     }
 
-    private static String runTypeDiscovery = """
-        push!(LOAD_PATH, "@jgextra")
-        using TypeDiscover
-        using %s
-        typediscover(%s; funcfile="%s", typefile="%s", aliasfile="%s")
-        """;
     public static void runTypeDiscovery() {
+        var pkgList = packages.stream().collect(Collectors.joining(", "));
         var pb = julia().go();
         try {
             var p = pb.start();
             writeStream(
                 p.getOutputStream(),
-                runTypeDiscovery.formatted(
-                    packages.stream().collect(Collectors.joining(", ")),
-                    "append!(["
-                        + packages.stream().collect(Collectors.joining(", "))
-                        + "], "
-                        + (includeLoaded ? "Base.loaded_modules_array()" : "[]")
-                        + ")",
-                    App.Options.functionsPath,
-                    App.Options.typesPath,
-                    App.Options.aliasesPath));
+                """
+                push!(LOAD_PATH, "@jgextra")
+                using TypeDiscover
+                using %s
+                typediscover(append!([%s], %s ? Base.loaded_modules_array() : []); funcfile="%s", typefile="%s", aliasfile="%s")
+                """.formatted(pkgList, pkgList, includeLoaded ? "true" : "false", App.Options.functionsPath, App.Options.typesPath, App.Options.aliasesPath));
             String output = loadStream(p.getInputStream());
             String error = loadStream(p.getErrorStream());
             var ret = p.waitFor();
@@ -163,11 +171,9 @@ public class JuliaUtils {
     }
 
     public static void runTests(Path tests, Path tmp) {
-        var pb = julia().args(tests.toString()).go();
-        pb.directory(tmp.toFile());
+        var pb = julia().directory(tmp).args(tests.toString()).go();
         try {
-            var p = pb.start();
-            p.waitFor();
+            pb.start().waitFor();
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
