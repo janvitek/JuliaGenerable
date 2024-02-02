@@ -18,7 +18,7 @@ public class App {
         static int MAX_SIGS_TO_READ = 100;
         static String root;
         static String types, functions, aliases;
-        static String juliaBin, juliaDepot;
+        static String juliaBin, juliaDepot, juliaPkgsFile;
         static boolean regen;
         static final String inputs = "Inputs";
         static final String typeDiscover = "TypeDiscover.jl";
@@ -37,6 +37,7 @@ public class App {
         "-julia=julia", // path to the julia binary to use
         "-depot=/tmp/JuliaGenerableDepot", // what depot to run julia with
         "-regen=FALSE", // should regenerate input files even if they exist?
+        "-pkgs=pkgs.txt", // file with the list of packages to check, one per line, use `@LOADED` to include all loaded modules in the VM
     };
 
     static int FUEL = 1;
@@ -144,6 +145,8 @@ public class App {
                 case "FALSE" -> false;
                 default -> false;
                 };
+            } else if (arg.startsWith("-pkgs")) {
+                Options.juliaPkgsFile = arg.substring(6).strip();
             } else if (arg.startsWith("-r")) { // root directory
                 Options.root = arg.substring(3).strip();
             } else if (arg.startsWith("-t")) {

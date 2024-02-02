@@ -12,11 +12,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class JuliaUtils {
     private static Path bin;
     private static Path depot;
     private static Path typeDiscover;
+    private static List<String> packages;
+    private static boolean includeLoaded;
 
     /**
      * Test that we have a working julia. Make sure we also have a shared environment that
@@ -34,6 +37,19 @@ public class JuliaUtils {
         if (!Files.isDirectory(typeDiscover)) {
             throw new RuntimeException("Couldn't find the TypeDiscover.jl package at " + typeDiscover);
         }
+        
+        var pf = Paths.get(App.Options.root).resolve(App.Options.inputs).resolve(App.Options.juliaPkgsFile);
+        if (Files.notExists(pf)) {
+            throw new RuntimeException("Couldn't find the packages file at " + pf);
+        }
+        try {
+            var ps = Files.readAllLines(pf);
+            includeLoaded = ps.contains("@LOADED");
+            packages = ps.stream().filter((p) -> !p.equals("@LOADED")).toList();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
         testJulia();
         setupSharedEnv();
     }
@@ -90,6 +106,7 @@ public class JuliaUtils {
     private static String setupSharedEnv = """
         import Pkg
         Pkg.activate("jgextra"; shared=true)
+        Pkg.add([%s])
         Pkg.add("MethodAnalysis")
         Pkg.develop(path="%s")
         Pkg.instantiate()
@@ -99,7 +116,11 @@ public class JuliaUtils {
         var pb = julia().go();
         try {
             var p = pb.start();
-            writeStream(p.getOutputStream(), setupSharedEnv.formatted(typeDiscover));
+            writeStream(
+                p.getOutputStream(),
+                setupSharedEnv.formatted(
+                    packages.stream().map((s) -> "\"" + s + "\"").collect(Collectors.joining(", ")),
+                    typeDiscover));
             String output = loadStream(p.getInputStream());
             String error = loadStream(p.getErrorStream());
             var ret = p.waitFor();
@@ -113,13 +134,25 @@ public class JuliaUtils {
     private static String runTypeDiscovery = """
         push!(LOAD_PATH, "@jgextra")
         using TypeDiscover
-        typediscover(; funcfile="%s", typefile="%s", aliasfile="%s")
+        using %s
+        typediscover(%s; funcfile="%s", typefile="%s", aliasfile="%s")
         """;
     public static void runTypeDiscovery() {
         var pb = julia().go();
         try {
             var p = pb.start();
-            writeStream(p.getOutputStream(), runTypeDiscovery.formatted(App.Options.functionsPath, App.Options.typesPath, App.Options.aliasesPath));
+            writeStream(
+                p.getOutputStream(),
+                runTypeDiscovery.formatted(
+                    packages.stream().collect(Collectors.joining(", ")),
+                    "append!(["
+                        + packages.stream().collect(Collectors.joining(", "))
+                        + "], "
+                        + (includeLoaded ? "Base.loaded_modules_array()" : "[]")
+                        + ")",
+                    App.Options.functionsPath,
+                    App.Options.typesPath,
+                    App.Options.aliasesPath));
             String output = loadStream(p.getInputStream());
             String error = loadStream(p.getErrorStream());
             var ret = p.waitFor();
