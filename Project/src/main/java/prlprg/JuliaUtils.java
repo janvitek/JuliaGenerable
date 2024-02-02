@@ -22,8 +22,8 @@ public class JuliaUtils {
     private static boolean includeLoaded;
 
     /**
-     * Test that we have a working julia. Make sure we also have a shared environment that
-     * contains the TypeDiscover.jl package.
+     * Test that we have a working julia. Make sure we also have a shared
+     * environment that contains the TypeDiscover.jl package.
      */
     public static void setup() {
         bin = Paths.get(App.Options.juliaBin);
@@ -31,8 +31,7 @@ public class JuliaUtils {
         typeDiscover = Paths.get(App.Options.root).resolve(App.Options.typeDiscover);
 
         if (!Files.isDirectory(depot)) {
-            if (!depot.toFile().mkdirs())
-                throw new RuntimeException("Couldn't create depot directory " + depot);
+            if (!depot.toFile().mkdirs()) throw new RuntimeException("Couldn't create depot directory " + depot);
         }
         if (!Files.isDirectory(typeDiscover)) {
             throw new RuntimeException("Couldn't find the TypeDiscover.jl package at " + typeDiscover);
@@ -55,9 +54,9 @@ public class JuliaUtils {
     }
 
     /**
-     * Builder for a julia command. Start by calling `julia()`, add args, finalize by calling `go()`.
-     * Returns a ProcessBuilder which when started, runs the configured julia binary with the
-     * right depot.
+     * Builder for a julia command. Start by calling `julia()`, add args, finalize
+     * by calling `go()`. Returns a ProcessBuilder which when started, runs the
+     * configured julia binary with the right depot.
      */
     public static class JuliaScriptBuilder {
         List<String> args;
@@ -73,7 +72,8 @@ public class JuliaUtils {
         }
 
         JuliaScriptBuilder args(String... args) {
-            for (var a : args) arg(a);
+            for (var a : args)
+                arg(a);
             return this;
         }
 
@@ -89,7 +89,7 @@ public class JuliaUtils {
     }
 
     public static void testJulia() {
-        var pb = julia().args("-e",  "println(\"Using julia v$VERSION with depot `$(only(DEPOT_PATH))'\")").go();
+        var pb = julia().args("-e", "println(\"Using julia v$VERSION with depot `$(only(DEPOT_PATH))'\")").go();
         try {
             var p = pb.start();
             String output = loadStream(p.getInputStream());
@@ -162,12 +162,11 @@ public class JuliaUtils {
         }
     }
 
-    public static  void runTests(Path tests, Path tmp) {
+    public static void runTests(Path tests, Path tmp) {
         var pb = julia().args(tests.toString()).go();
         pb.directory(tmp.toFile());
         try {
             var p = pb.start();
-            // String output = loadStream(p.getInputStream());
             p.waitFor();
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
