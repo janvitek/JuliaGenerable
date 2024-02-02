@@ -115,7 +115,6 @@ class Orchestrator {
             else
                 App.output("  " + a);
         }
-        App.print("Note: Vector{Int} should be concrete, it shows up as abstract because we do not handle aliases");
 
         max = 10;
         App.printSeparator();

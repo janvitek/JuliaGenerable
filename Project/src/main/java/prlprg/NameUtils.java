@@ -38,13 +38,25 @@ class NameUtils implements Serializable {
         final String pkg; // package name can be ""
         final String nm; // suffix name never ""
 
-        static final HashSet<TypeName> allNames = new HashSet<>();
-        static final HashMap<TypeName, TypeName> toDefined = new HashMap<>();
-        static final HashMap<TypeName, List<TypeName>> toLong = new HashMap<>();
-        static final HashSet<TypeName> aliases = new HashSet<>();
-        static final HashSet<TypeName> types = new HashSet<>();
-        static boolean frozen = false;
+        static final HashSet<TypeName> allNames = new HashSet<>(); // all likely type names
+        static final HashMap<TypeName, TypeName> toDefined = new HashMap<>(); // map from a type name to a name that has a definition
+        static final HashMap<TypeName, List<TypeName>> toLong = new HashMap<>(); // map from a name without a package to all names that match it
+        static final HashSet<TypeName> aliases = new HashSet<>(); // all names we know to be aliases
+        static final HashSet<TypeName> types = new HashSet<>(); // all names we know to be types
+        static boolean frozen = false; // becomes true when we have read all type and alias definitions
 
+        /**
+         * This function is called when we are "reasonably" sure that we have a type. It
+         * could be either "","Any" or "Core","Any" for example. Typical cases where we
+         * get someting else than a type are variables in UnionAll types. Their name is
+         * a TypeName -- because, at first we don't know better.
+         * 
+         * There are other TypeName objects in the system, e.g. for constants. But they
+         * are mostly created with a direct constructor and do not go through this
+         * function. "Mostly" becauase we have a heuristic to discover those cases. It
+         * fails from time to time. E.g. for now the var#"asd" names are still treated
+         * as types.
+         */
         static TypeName mk(String pk, String nm) {
             if (nm.equals("")) throw new RuntimeException("Empty name");
             var tn = new TypeName(pk, nm);
@@ -62,10 +74,18 @@ class NameUtils implements Serializable {
             return tn;
         }
 
+        /**
+         * Create a short name.
+         */
         static TypeName mk(String nm) {
             return mk("", nm);
         }
 
+        /**
+         * When we have seen all alias definitions and all type definition, build the
+         * toDefined mapping so that we can make queries involving soft imports and
+         * partial names.
+         */
         static void freeze() {
             var seen = new HashSet<TypeName>();
             for (var a : GenDB.it.aliases.all()) {
@@ -86,6 +106,32 @@ class NameUtils implements Serializable {
             frozen = true;
         }
 
+        /**
+         * Give a type name that does not have a definition, find its definition or
+         * complain or even fail.
+         * 
+         * <pre>
+         *    Any ==> Core.Any
+         *    Foo.Int32 ==> Core.Int32
+         * </pre>
+         * 
+         * We assume a well-defined program. I.e. all names are meaningful.
+         * 
+         * If we see a name that does not have a mapping in toDefined, we shorten it to
+         * its suffix, dropping the package, and get all definitions that end in that
+         * suffix.
+         * 
+         * Our hope is that there is a single definition for that name, in that case,
+         * since the program is well-defined, it must be the one we are looking for.
+         * 
+         * If there are multiple definitions, then we have to pick one. We hope that
+         * there is a single one that belongs to the base / core packages and thus is a
+         * soft import.
+         * 
+         * If no definition is found -- either we are missing a type (Seems to be
+         * happening for Colon and DataType) or what we have is a variable and we did
+         * not recognize it as such.
+         */
         private static void findDefinition(TypeName tnm) {
             // What is the meaning of this name? It does not have a definition
             // in the DB, it is either a soft import or a short names.
