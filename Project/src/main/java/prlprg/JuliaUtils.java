@@ -69,8 +69,7 @@ public class JuliaUtils {
             wd = null;
             env = new HashMap<>();
 
-            args.add(bin.toString());
-            env.put("JULIA_DEPOT_PATH", depot.toString());
+            arg(bin.toString()).env("JULIA_DEPOT_PATH", depot.toString());
         }
 
         JuliaScriptBuilder arg(String arg) {
