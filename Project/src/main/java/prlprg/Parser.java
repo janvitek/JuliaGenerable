@@ -374,7 +374,7 @@ class Parser {
                 var r = q.sliceNextCommaOrSemi();
                 if (r.isEmpty()) break;
                 var tok = r.peek();
-                if (semiOrNull != null && tok.isBefore(semiOrNull) && firstKeyword == -1) {
+                if (semiOrNull != null && semiOrNull.isBefore(tok) && firstKeyword == -1) {
                     firstKeyword = params.size();
                 }
                 params.add(Param.parse(r));
@@ -1096,8 +1096,8 @@ class Parser {
             } else if (tok.is(")") || tok.is("}")) {
                 count--;
             }
-            if (count == 0 && has(";")) {
-                return tok;
+            if (count == 0 && p.has(";")) {
+                return p.take();
             }
         }
         return null;
