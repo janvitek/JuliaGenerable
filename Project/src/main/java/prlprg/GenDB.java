@@ -467,7 +467,7 @@ class GenDB implements Serializable {
      * Function "kwcall" is part of the translation of keyword arguments and is
      * ignored.
      * 
-     * Functions withe keyword arguments are compiled to an equivalent function
+     * Functions with keyword arguments are compiled to an equivalent function
      * without any, we ignore the keyword version.
      */
     final void addSig(TySig sig) {
