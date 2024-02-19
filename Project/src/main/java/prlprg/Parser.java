@@ -589,10 +589,17 @@ class Parser {
         private Op parseOp(Parser p) {
             if (p.has("(")) {
                 var q = p.sliceMatchedDelims("(", ")");
-                var nm = q.take().toString();
-                q.take("=");
-                var op = parseCall(q);
-                return new Op(nm, op.op, op.args, op.ret);
+                if (p.has("(")) {
+                    // Using a register as the function name
+                    var nm = q.take().toString();
+                    var args = callArglist(p.sliceMatchedDelims("(", ")"));
+                    return new Op(nm, GenDB.it.names.function(nm.toString()), args, null);
+                } else {
+                    var nm = q.take().toString();
+                    q.take("=");
+                    var op = parseCall(q);
+                    return new Op(nm, op.op, op.args, op.ret);
+                }
             } else {
                 var tok = p.peek();
                 if (tok.toString().startsWith("%")) {
@@ -616,14 +623,19 @@ class Parser {
             return new Op(lhs.toString(), GenDB.it.names.function(op.toString()), List.of(lhs.toString(), rhs.toString()), r);
         }
 
+        private List<String> callArglist(Parser p) {
+            var args = new ArrayList<String>();
+            while (!p.isEmpty()) {
+                var r = p.sliceNextCommaOrSemi();
+                args.add(r.take().toString());
+            }
+            return args;
+        }
+
         private Op normalCall(Parser p) {
             var nm = ParsedType.parseFunctionName(p);
             var q = p.sliceMatchedDelims("(", ")");
-            var args = new ArrayList<String>();
-            while (!q.isEmpty()) {
-                var r = q.sliceNextCommaOrSemi();
-                args.add(r.take().toString());
-            }
+            var args = callArglist(q);
             var r = p.has("::") ? UnionAllInst.parse(p.take("::")) : null;
             return new Op(null, nm, args, r);
         }
