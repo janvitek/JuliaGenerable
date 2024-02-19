@@ -991,8 +991,11 @@ class Parser {
                 return new Tok(this, Kind.DELIMITER, pos, start, off);
             } else if (cp == '"') {
                 off++;
-                while (off < lns[pos].length() && lns[pos].charAt(off) != '"')
-                    off++;
+                while (off < lns[pos].length()) {
+                    if (lns[pos].charAt(off) == '\\') off += 2;
+                    else if (lns[pos].charAt(off) == '"') break;
+                    else off++;
+                }
                 off++;
                 return new Tok(this, Kind.STRING, pos, start, off);
             } else if (cp == '\'') {
