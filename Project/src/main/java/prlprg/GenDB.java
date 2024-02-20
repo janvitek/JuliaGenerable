@@ -416,7 +416,7 @@ class GenDB implements Serializable {
      * assumes we have only one generator running at a time.
      */
     static final void saveDB() {
-        if (SAVE) return;
+        if (!SAVE) return;
         try {
             try (var file = new FileOutputStream("/tmp/db.ser")) {
                 try (var out = new ObjectOutputStream(file)) {
