@@ -103,7 +103,7 @@ public class App {
         var sub = new Subtyper();
         var cnt = 0;
         for (var i : GenDB.it.types.all()) {
-            var tg1 = sub.make(i.decl.ty(), new Fuel(1));
+            var tg1 = sub.make(i.decl.thisTy(), new Fuel(1));
             var childs = new ArrayList<Type>();
             while (tg1.hasNext()) {
                 childs.add(tg1.next());
