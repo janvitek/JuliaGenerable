@@ -2,6 +2,7 @@ package prlprg;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -12,6 +13,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -197,5 +199,32 @@ public class JuliaUtils {
         BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(s));
         bw.write(what);
         bw.close();
+    }
+
+    public static void runConcretenessSanityChecks(Path imports, Path out, HashSet<String> abstracts, HashSet<String> concretes) {
+        try {
+            try (var w = new BufferedWriter(new FileWriter(out.toString()))) {
+                w.write("include(\"" + imports + "\")\n");
+                for (var a : abstracts) {
+                    w.write("try isconcretetype(" + a + ") && println(\"  Should be concrete: $(" + a + ")\") catch _ end\n");
+                }
+                for (var a : concretes) {
+                    w.write("try isconcretetype(" + a + ") || println(\"  Should be abstract: $(" + a + ")\") catch _ end\n");
+                }
+            }
+        } catch (IOException e) {
+            throw new Error(e);
+        }
+
+        var pb = julia().args(out.toString()).go();
+        try {
+            var p = pb.start();
+            String output = loadStream(p.getInputStream());
+            p.waitFor();
+            App.print("Sanity checks from " + out + ":");
+            App.print(output);
+        } catch (IOException | InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

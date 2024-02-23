@@ -230,6 +230,10 @@ class NameUtils implements Serializable {
             return nm.equals("Any");
         }
 
+        boolean isVararg() {
+            return nm.equals("Vararg");
+        }
+
         boolean isShort() {
             return pkg.equals("");
         }

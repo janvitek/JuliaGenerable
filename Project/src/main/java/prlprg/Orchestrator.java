@@ -117,13 +117,15 @@ class Orchestrator {
         max = 10;
         App.printSeparator();
         App.print("Concrete types: (printing the first few on terminal, remaining in the log file)");
-        for (var a : concretes)
+        for (var a : concretes) {
             if (max-- > 0)
                 App.print("  " + a);
             else
                 App.output("  " + a);
+        }
         App.print("Note: Tuple should show as abstract, it is a weird case.");
-        System.exit(0);
+
+        JuliaUtils.runConcretenessSanityChecks(ctxt.imports, ctxt.root.resolve("sanity.jl"), abstracts, concretes);
     }
 
     /**
