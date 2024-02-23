@@ -27,17 +27,17 @@ public class App {
         static Path functionsPath;
     }
 
-    static String[] defaultArgs = {
-        "-c=NONE", // color the output : DARK, LIGHT, NONE
-        "-r=..", // root directory of the project
-        "-f=stdf.jlg", // file with function signatures
-        "-t=stdt.jlg", // file with type declarations
-        "-a=stda.jlg", // file with alias declarations
-        "-m=1000", // max number of sigs to read (0 = all)
-        "-julia=julia", // path to the julia binary to use
-        "-depot=/tmp/JuliaGenerableDepot", // what depot to run julia with
-        "-regen=FALSE", // should regenerate input files even if they exist?
-        "-pkgs=pkgs.txt", // file with the list of packages to check, one per line, use `@LOADED` to include all loaded modules in the VM
+    static String[] defaultArgs = { "-c=NONE", // color the output : DARK, LIGHT, NONE
+            "-r=/Users/jan/Library/CloudStorage/Dropbox/j/write/JuliaGenerable/", // root directory of the project
+            //           "-r=..", // root directory of the project
+            "-f=stdf.jlg", // file with function signatures
+            "-t=stdt.jlg", // file with type declarations
+            "-a=stda.jlg", // file with alias declarations
+            "-m=1000", // max number of sigs to read (0 = all)
+            "-julia=julia", // path to the julia binary to use
+            "-depot=/tmp/JuliaGenerableDepot", // what depot to run julia with
+            "-regen=FALSE", // should regenerate input files even if they exist?
+            "-pkgs=pkgs.txt", // file with the list of packages to check, one per line, use `@LOADED` to include all loaded modules in the VM
     };
 
     static int FUEL = 1;
