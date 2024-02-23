@@ -754,6 +754,7 @@ class Parser {
         var decl = new TypeDeclaration("abstract type", tn, List.of(), any, "Builtin");
         GenDB.it.types.addParsed(decl);
         tn = TypeName.mk("Core", "Vararg");
+        // TODO: this should have `Core.TypeofVararg` as the parent...
         decl = new TypeDeclaration("abstract type", tn, List.of(), any, "Builtin");
         GenDB.it.types.addParsed(decl);
 

@@ -219,7 +219,7 @@ class GenDB implements Serializable {
             var infos = db.get(tn.nm);
             if (infos == null) db.put(tn.nm, infos = new ArrayList<>());
             Info it = null;
-            for (var i : infos) // Infos holds all types withe same trailing name (e.g "Any") 
+            for (var i : infos) // Infos holds all types with the same trailing name (e.g "Any") 
                 if (i.nm.equals(tn)) it = i;
             if (it != null) throw new RuntimeException("Type already defined: " + tn);
             infos.add(new Info(ty));
@@ -1183,6 +1183,7 @@ record Sig(FuncName nm, Type ty, List<String> argnms, int kwPos, String src) imp
      * of existentials wrapping a tuple, so we unwrap the existentials and return
      * the tuple's arity.
      */
+    // TODO: varargs
     int arity() {
         var t = ty;
         while (t instanceof Exist e)
