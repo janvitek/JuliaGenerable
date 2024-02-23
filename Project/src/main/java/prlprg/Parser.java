@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import prlprg.App.Timer;
-import static prlprg.CodeColors.color;
 import prlprg.NameUtils.FuncName;
 import prlprg.NameUtils.TypeName;
 
@@ -36,12 +35,6 @@ class Parser {
         static TypeName parseTypeName(Parser p) {
             var tok = p.take();
             var nm = tok.toString();
-            // The following handles: Compiler.=>
-            if (nm.endsWith(".")) {
-                var rest = p.take();
-                if (tok.end() != rest.start()) throw new RuntimeException("Illformed name at: \n" + "  " + rest.getLine());
-                nm += rest.toString();
-            }
             if (p.has("(")) {
                 var q = p.sliceMatchedDelims("(", ")");
                 nm += "(";
@@ -381,7 +374,7 @@ class Parser {
                 var r = q.sliceNextCommaOrSemi();
                 if (r.isEmpty()) break;
                 var tok = r.peek();
-                if (semiOrNull != null && semiOrNull.isBefore(tok) && firstKeyword == -1) {
+                if (semiOrNull != null && semiOrNull.adjacent(tok) && firstKeyword == -1) {
                     firstKeyword = params.size();
                 }
                 params.add(Param.parse(r));
@@ -692,8 +685,9 @@ class Parser {
 
     }
 
-    protected List<Lex.Tok> toks = new ArrayList<>(); // the current list of token, decreasing as we parse
-    Lex.Tok last; // for debugging purposes, we try to keep the last token, so we can remember where an error occured
+    Tok last; // for debugging purposes, we try to keep the last token, so we can remember where an error occured
+    Lexer lex = new Lexer();
+    List<Tok> toks = new ArrayList<>();
 
     /**
      * Initialiszes the parser with data held in a file.
@@ -702,7 +696,8 @@ class Parser {
         var path = pathobj.toString();
         try {
             List<String> ls = Files.readAllLines(Path.of(path));
-            toks = new Lex(ls.toArray(new String[0])).tokenize();
+            lex = new Lexer(ls.toArray(new String[0]));
+            toks = lex.next();
             stats.lines = ls.size();
             return this;
         } catch (IOException e) {
@@ -715,6 +710,7 @@ class Parser {
      */
     Parser copy() {
         var p = new Parser();
+        p.lex = lex;
         p.toks = new ArrayList<>(toks);
         p.last = last;
         return p;
@@ -739,6 +735,13 @@ class Parser {
         stats.sigsFound = GenDB.it.sigs.allSigs().size();
         stats.funsFound = GenDB.it.sigs.allNames().size();
         App.print("Processed " + stats.linesOfSigs + " lines of input, found " + stats.sigsFound + " sigs for " + stats.funsFound + " generic functions in " + stats.sigs);
+    }
+
+    Parser sliceLine() {
+        var p = new Parser();
+        p.toks = toks;
+        toks = lex.next();
+        return p;
     }
 
     /**
@@ -783,7 +786,6 @@ class Parser {
                 if (tok.is("typealias")) found = true;
             }
             if (!found) continue;
-            var line = q.getLine();
             var a = TypeAlias.parseAlias(q);
             if (a != null) aliases.addParsed(a.tn(), a.sig());
         }
@@ -807,265 +809,6 @@ class Parser {
         Timer aliases = new Timer();
         Timer sigs = new Timer();
         Timer types = new Timer();
-    }
-
-    enum Kind {
-        DELIMITER, IDENTIFIER, STRING, EOF;
-    }
-
-    private class Lex {
-
-        String[] lns;
-        int pos, off;
-        static char[] delimiters = { '{', '}', ':', ',', ';', '=', '(', ')', '[', ']', '#', '<', '>' };
-
-        Lex(String[] lns) {
-            this.lns = lns;
-        }
-
-        List<Tok> tokenize() {
-            List<Tok> toks = new ArrayList<>();
-            while (true) {
-                var tok = next();
-                if (tok.k == Kind.EOF) break;
-                toks.add(tok);
-            }
-            while (true) {
-                var ntoks = combineTokens(new ArrayList<>(toks));
-                if (toks.size() == ntoks.size()) return splitOffThreeDots(toks);
-                toks = ntoks;
-            }
-        }
-
-        List<Tok> splitOffThreeDots(List<Tok> toks) {
-            var ntoks = new ArrayList<Tok>();
-            for (var t : toks) {
-                var s = t.toString();
-                if (s.endsWith("...") && s.length() > 3) {
-                    ntoks.add(new Tok(t.l, t.k, t.ln, t.start, t.end - 3));
-                    ntoks.add(new Tok(t.l, Kind.DELIMITER, t.ln, t.end - 3, t.end));
-                } else
-                    ntoks.add(t);
-            }
-            return ntoks;
-        }
-
-        // Our parser is a bit dumb, we need to path the token stream, combining some adjacent
-        // tokens to form the right one. This is a bit of a hack, but it works.
-        List<Tok> combineTokens(List<Tok> toks) {
-            var smashed = false;
-
-            for (int i = 1; i < toks.size(); i++) {
-                var prv = toks.get(i - 1);
-                var cur = toks.get(i);
-                var dd = prv.isDelimiter() && cur.isDelimiter();
-                var is = prv.isIdentifier() && cur.isString();
-                var di = prv.isDelimiter() && cur.isIdentifier();
-                if (!dd && !is && !di) continue;
-
-                if (matchSymbol(prv, cur, "::") || matchSymbol(prv, cur, ">:") || matchSymbol(prv, cur, "<<") || matchSymbol(prv, cur, "==") || matchSymbol(prv, cur, "===") || matchSymbol(prv, cur, "<:") || matchSymbol(prv, cur, "=>")
-                        || matchSymbol(prv, cur, ":>")) {
-                    toks.set(i - 1, null);
-                    toks.set(i, new Tok(this, Kind.DELIMITER, prv.ln, prv.start, cur.end));
-                    smashed = true;
-                } else if (smashIdentString(prv, cur)) {
-                    toks.set(i - 1, null);
-                    toks.set(i, new Tok(this, Kind.IDENTIFIER, prv.ln, prv.start, cur.end));
-                    // This combines an identifier and a string that must be adjacent
-                    smashed = true;
-                } else if (smashColumnIdent(prv, cur)) {
-                    toks.set(i - 1, null);
-                    toks.set(i, new Tok(this, Kind.IDENTIFIER, prv.ln, prv.start, cur.end));
-                    // This combines an identifier and a string that must be adjenct
-                    smashed = true;
-                }
-            }
-            toks = smashed ? toks.stream().filter(t -> t != null).collect(Collectors.toList()) : toks;
-            for (int i = toks.size() - 1; i > 0; i--) {
-                var prv = toks.get(i - 1);
-                var cur = toks.get(i);
-                var adj = prv.end == cur.start;
-                var lte = prv.is("<:");
-                if (!adj || !lte) continue;
-                if (!cur.startsWith(":")) continue;
-                // Miss parse of :  "<::Function"  as "<:" and ":Function"
-                // whereas it should be "<" "::" "Function"
-                toks.set(i - 1, new Tok(this, Kind.DELIMITER, prv.ln, prv.start, prv.start + 1));
-                toks.set(i, new Tok(this, Kind.DELIMITER, prv.ln, cur.start + 1, cur.end));
-                toks.add(i, new Tok(this, Kind.DELIMITER, prv.ln, prv.start + 1, prv.start + 3));
-            }
-            return toks;
-        }
-
-        boolean smashIdentString(Tok prv, Tok cur) {
-            var adjacent = prv.end == cur.start;
-            var combination = prv.isIdentifier() && cur.isString();
-            return adjacent && combination;
-        }
-
-        boolean smashColumnIdent(Tok prv, Tok cur) {
-            var adjacent = prv.end == cur.start;
-            var prvIsCol = prv.length() == 1 && prv.charAt(prv.start) == ':';
-            return adjacent && prvIsCol && prv.isDelimiter() && cur.isIdentifier();
-        }
-
-        boolean matchSymbol(Tok prv, Tok cur, String sym) {
-            if (prv.end != cur.start) { // not adjacent, can't match is space separated
-                return false;
-            }
-            if (cur.end - prv.start != sym.length()) { // not the right length
-                return false;
-            }
-            for (int i = 0; i < sym.length(); i++)
-                if (sym.charAt(i) != prv.charAt(i + prv.start)) { // can read past of token,
-                    return false; // as long as both are on the same line, which they are
-                }
-            return true;
-        }
-
-        // We should probably cache the string value, but ... meh
-        record Tok(Lex l, Kind k, int ln, int start, int end) {
-
-            @Override
-            public String toString() {
-                return isEOF() ? "EOF" : getLine().substring(start, end);
-            }
-
-            String errorAt(String msg) {
-                return "\n> " + getLine() + "\n> " + " ".repeat(start) + color("^----" + msg + " at line " + ln, "Red");
-            }
-
-            String getLine() {
-                return l.lns[ln];
-            }
-
-            // can read past the end of the token, but not past the end of the line.
-            char charAt(int i) {
-                return getLine().charAt(i);
-            }
-
-            // Check that this token is the given string.
-            boolean is(final String s) {
-                if (length() != s.length()) { // have to be of the same length
-                    return false;
-                }
-                for (int i = 0; i < s.length(); i++)
-                    if (charAt(i + start) != s.charAt(i)) return false;
-                return true;
-            }
-
-            boolean startsWith(String s) {
-                if (length() < s.length()) { // have to be of the same length
-                    return false;
-                }
-                for (int i = 0; i < s.length(); i++)
-                    if (charAt(i + start) != s.charAt(i)) return false;
-                return true;
-            }
-
-            int length() {
-                return end - start;
-            }
-
-            // Check that this token is plausibly a number. It can have a single dot, and no sign/or E.
-            boolean isNumber() {
-                var dots = 0;
-                for (int i = start; i < end; i++) {
-                    var c = charAt(i);
-                    var digit = Character.isDigit(c);
-                    if (!digit && c != '.') return false;
-                    if (!digit) dots++;
-                }
-                return dots == 0 || (dots == 1 && length() > 1);
-            }
-
-            /**
-             * Return true if this token occurs before the other in the source file. Throws
-             * if either is EOF.
-             */
-            boolean isBefore(Tok other) {
-                if (other.isEOF() || isEOF()) throw new RuntimeException("EOF do not have a position");
-                return ln < other.ln || (ln == other.ln && start < other.start);
-            }
-
-            boolean isEOF() {
-                return k == Kind.EOF;
-            }
-
-            boolean isDelimiter() {
-                return k == Kind.DELIMITER;
-            }
-
-            boolean isIdentifier() {
-                return k == Kind.IDENTIFIER;
-            }
-
-            boolean isString() {
-                return k == Kind.STRING;
-            }
-        }
-
-        boolean isDelimiter(int c) {
-            for (char d : delimiters) {
-                if (c == d) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        Tok next() {
-            if (pos >= lns.length) return eof();
-
-            if (off >= lns[pos].length()) {
-                pos++;
-                off = 0;
-                return next();
-            }
-            int cp = lns[pos].codePointAt(off);
-            var start = off;
-            if (cp == 0x1B) {
-                off++;
-                while (off < lns[pos].length() && lns[pos].charAt(off) != 'm')
-                    off++;
-                off++;
-                return next();
-            } else if (Character.isWhitespace(cp)) {
-                off++;
-                while (off < lns[pos].length() && Character.isWhitespace(lns[pos].codePointAt(off)))
-                    off++;
-                return next();
-            } else if (isDelimiter(cp)) {
-                off++;
-                return new Tok(this, Kind.DELIMITER, pos, start, off);
-            } else if (cp == '"') {
-                off++;
-                while (off < lns[pos].length()) {
-                    if (lns[pos].charAt(off) == '\\')
-                        off += 2;
-                    else if (lns[pos].charAt(off) == '"')
-                        break;
-                    else
-                        off++;
-                }
-                off++;
-                return new Tok(this, Kind.STRING, pos, start, off);
-            } else if (cp == '\'') {
-                off++;
-                while (off < lns[pos].length() && lns[pos].charAt(off) != '\'')
-                    off++;
-                off++;
-                return new Tok(this, Kind.STRING, pos, start, off);
-            } else {
-                off++;
-                while (off < lns[pos].length()) {
-                    cp = lns[pos].codePointAt(off);
-                    if (cp == 0x1B || Character.isWhitespace(cp) || isDelimiter(cp) || lns[pos].charAt(off) == '"' || lns[pos].charAt(off) == '\'') break;
-                    off++;
-                }
-                return new Tok(this, Kind.IDENTIFIER, pos, start, off);
-            }
-        }
     }
 
     /**
@@ -1141,7 +884,7 @@ class Parser {
      * Return the next semi colon, found at the same syntactic level. Return null if
      * none there.
      */
-    Lex.Tok getSemi() {
+    Tok getSemi() {
         var p = copy();
         var count = 0;
         while (!p.isEmpty()) {
@@ -1156,28 +899,6 @@ class Parser {
             }
         }
         return null;
-    }
-
-    /**
-     * Splits the current parser in two, the new parser returned by the method has
-     * all the tokens that have the current line number. The old parser has the
-     * rest.
-     * 
-     * This method is useful because a lot of our input works on a line by line
-     * basis.
-     * 
-     * The benefits os calling sliceLine() is that if parsing goes wrong, we will
-     * limit the damages to the current line and we will get an error quicker.
-     * 
-     * It is also nicer to debug a parse that has few tokens.
-     */
-    Parser sliceLine() {
-        var p = new Parser();
-        if (isEmpty()) return p;
-        int ln = peek().ln;
-        while (!peek().isEOF() && peek().ln == ln)
-            p.add(take());
-        return p;
     }
 
     /**
@@ -1230,14 +951,14 @@ class Parser {
     /**
      * Return the end of file token.
      */
-    Lex.Tok eof() {
-        return new Lex.Tok(null, Kind.EOF, 0, 0, 0);
+    Tok eof() {
+        return new Tok(null, Kind.EOF, 0, 0, 0);
     }
 
     /**
      * Return the current token without consuming it.
      */
-    Lex.Tok peek() {
+    Tok peek() {
         var tok = !toks.isEmpty() ? toks.get(0) : eof();
         if (!tok.isEOF()) last = tok;
         return tok;
@@ -1254,7 +975,7 @@ class Parser {
     /**
      * Return the current token and consume it. Return EOF if empty.
      */
-    Lex.Tok take() {
+    Tok take() {
         return !toks.isEmpty() ? toks.remove(0) : eof();
     }
 
@@ -1271,16 +992,16 @@ class Parser {
     /**
      * Add a token at the end.
      */
-    private Parser add(Lex.Tok t) {
+    private Parser add(Tok t) {
         toks.addLast(t);
         return this;
     }
 
-    void failAt(String msg, Lex.Tok last) {
+    void failAt(String msg, Tok last) {
         throw new RuntimeException(last == null ? "Huh?" : last.errorAt(msg));
     }
 
-    void failIfEmpty(String msg, Lex.Tok last) {
+    void failIfEmpty(String msg, Tok last) {
         if (isEmpty()) failAt(msg, last);
     }
 
@@ -1288,9 +1009,8 @@ class Parser {
     public String toString() {
         var head = isEmpty() ? "EOF" : toks.getFirst().toString();
         var rest = "";
-        for (int i = 1; i < toks.size() && i < 5; i++) {
+        for (int i = 1; i < toks.size() && i < 5; i++)
             rest += toks.get(i).toString();
-        }
         return head + " (" + toks.size() + ") " + rest;
     }
 
