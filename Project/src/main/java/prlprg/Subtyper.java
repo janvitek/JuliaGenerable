@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import prlprg.NameUtils.TypeName;
 
@@ -24,12 +25,15 @@ class Subtyper {
         case Inst inst -> {
             // Takes care of the case `inst` does not have arguments it expects, in which case
             // it will be provided existentials taken from its decl.
-            var decl = GenDB.it.types.get(inst.nm()).decl;
-            var argCount = decl.argCount();
+            var i = GenDB.it.types.get(inst.nm());
+            if (i.isVararg()) {
+                yield new VarargGen(inst, f);
+            }
+            var argCount = i.decl.argCount();
             if (argCount == inst.tys().size()) {
                 yield new InstGen(inst, f);
             } else if (inst.tys().isEmpty()) {
-                yield new ExistGen((Exist) decl.ty(), f);
+                yield new ExistGen((Exist) i.decl.ty(), f);
             } else {
                 throw new RuntimeException("Wrong number of arguments for " + inst);
             }
@@ -132,7 +136,7 @@ class Subtyper {
                 return;
             }
             this.tys = tyGens.stream().map(tg -> tg.next()).collect(Collectors.toCollection(ArrayList::new));
-            this.next = new Tuple(new ArrayList<>(tys));
+            this.next = new Tuple(maybeSplatVararg());
         }
 
         @Override
@@ -142,7 +146,7 @@ class Subtyper {
                 var tg = tyGens.get(i);
                 if (tg.hasNext()) {
                     tys.set(i, tg.next());
-                    next = new Tuple(new ArrayList<>(tys));
+                    next = new Tuple(maybeSplatVararg());
                     return prev;
                 } else {
                     tg = make(t.tys().get(i), f);
@@ -157,6 +161,18 @@ class Subtyper {
         @Override
         public String toString() {
             return "TupleGen for " + next == null ? "null" : next.toString();
+        }
+
+        // If the signature has Vararg as its last type, we need to splat the contents (which are generated wrapped in a tuple)
+        private List<Type> maybeSplatVararg() {
+            var res = new ArrayList<>(tys);
+            if (!tyGens.isEmpty() && tyGens.getLast() instanceof VarargGen) {
+                if (tys.getLast() instanceof Tuple tup) {
+                    res.removeLast();
+                    res.addAll(tup.tys());
+                }
+            }
+            return res;
         }
     }
 
@@ -261,6 +277,96 @@ class Subtyper {
         @Override
         public String toString() {
             return "InstGen for " + next == null ? "null" : next.toString();
+        }
+    }
+
+    // Generates subtypes of a Vararg. The possible cases are:
+    //  1. the Vararg type itself, which is just a constructor (we add this one by hand in `Parser.parseTypes`)
+    //  2. Vararg{T}, which represents zero or more elements of type T
+    //  3. Vararg{T,N}, which represents exactly N elements of type T (N must be an integer constant, not a type)
+    // In all cases, this just wraps another generator, either InstGen (case 1), or TupleGen (cases 2 and 3).
+    // For case 2. we start with the empty tuple, and then generate subtypes for tuples of increasing lengths,
+    // up to `MAX_VARARG`.
+    class VarargGen extends TypeGen {
+
+        // For Vararg{T}, the max length of the vararg list to generate,
+        // eg, (), (T), (T, T) and the same for subtypes of T
+        static final int MAX_VARARG = 2;
+
+        static enum Kind {
+            VarargType, UnknownSizeVararg, KnownSizeVararg,
+        }
+
+        final Kind kind;
+        final Inst inst;
+
+        Type t;
+        int currentSize, maxSize;
+        TypeGen tg;
+
+        VarargGen(Inst inst, Fuel f) {
+            super(null, f);
+            this.inst = inst;
+
+            switch (inst.tys().size()) {
+            case 0 -> {
+                this.kind = Kind.VarargType;
+                this.tg = new InstGen(inst, f);
+            }
+            case 1 -> {
+                this.kind = Kind.UnknownSizeVararg;
+                this.t = inst.tys().getFirst();
+                this.currentSize = 0;
+                this.maxSize = MAX_VARARG;
+                // start with empty tuple
+                this.tg = new TupleGen(new Tuple(new ArrayList<>()), f);
+            }
+            case 2 -> {
+                this.kind = Kind.KnownSizeVararg;
+                this.t = inst.tys().getFirst();
+                // parse the size
+                if (inst.tys().getLast() instanceof Con c) {
+                    try {
+                        this.currentSize = this.maxSize = Integer.parseInt(c.nm());
+                    } catch (NumberFormatException e) {
+                        throw new RuntimeException("Vararg expects the second argument to be a constant int");
+                    }
+                } else {
+                    throw new RuntimeException("Vararg expects the second argument to be a constant int");
+                }
+                this.tg = new TupleGen(new Tuple(Stream.generate(() -> this.t).limit(this.currentSize).collect(Collectors.toCollection(ArrayList::new))), f);
+            }
+            default -> {
+                throw new RuntimeException("Vararg expects number of parameters <= 2 but got " + inst.tys().size());
+            }
+            }
+            this.next = tg.next();
+        }
+
+        @Override
+        Type next() {
+            var prev = next;
+            next = switch (kind) {
+            case VarargType -> tg.next();
+            case UnknownSizeVararg -> {
+                if (tg.hasNext()) {
+                    yield tg.next();
+                }
+                if (currentSize < maxSize) {
+                    currentSize += 1;
+                    tg = new TupleGen(new Tuple(Stream.generate(() -> this.t).limit(this.currentSize).collect(Collectors.toCollection(ArrayList::new))), f);
+                    yield tg.next();
+                }
+                yield null;
+            }
+            case KnownSizeVararg -> tg.next();
+            };
+            return prev;
+        }
+
+        @Override
+        public String toString() {
+            return "VarargGen for " + next == null ? "null" : next.toString();
         }
     }
 

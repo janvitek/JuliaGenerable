@@ -135,6 +135,10 @@ class GenDB implements Serializable {
                 return nm.isAny();
             }
 
+            public boolean isVararg() {
+                return nm.isVararg();
+            }
+
             /**
              * This method fixes up types coming from the parser. This results in populating
              * the patched fields of Info objects. Some types that are referenced but for
