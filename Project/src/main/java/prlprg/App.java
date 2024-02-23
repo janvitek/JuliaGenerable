@@ -98,7 +98,6 @@ public class App {
         print("Starting orchestrator...");
         Orchestrator gen = new Orchestrator();
         gen.orchestrate();
-        // for now the above exit();
 
         // What follows will be moved to orchestrator  or GenDB.
         var sub = new Subtyper();

@@ -126,8 +126,6 @@ class Orchestrator {
         App.print("Note: Tuple should show as abstract, it is a weird case.");
 
         JuliaUtils.runConcretenessSanityChecks(ctxt.imports, ctxt.root.resolve("sanity.jl"), abstracts, concretes);
-
-        System.exit(0);
     }
 
     /**
