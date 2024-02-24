@@ -368,7 +368,7 @@ class Parser {
             }
             var wheres = parseWhere(p);
             if (p.has("[")) p.sliceMatchedDelims("[", "]"); // drops it
-            if (!p.isEmpty()) p.failAt("Leftovers not expected: ", p.peek());
+            /// There may be leftovers...
             return new Function(name, params, wheres, firstKeyword, source);
         }
 
@@ -1003,7 +1003,7 @@ class Parser {
     public static void main(String[] args) {
         // GenDB.readDB();
         var p = new Parser();
-        var file = "/tmp/jl_100905/out.0/t226.tst";
+        var file = "/tmp/jl_112553/out.0/t8465.tst";
         var ms = MethodInformation.parse(p.withFile(file), file.toString());
     }
 }

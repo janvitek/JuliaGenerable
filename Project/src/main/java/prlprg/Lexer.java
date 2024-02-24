@@ -16,8 +16,7 @@ class Lexer {
 
   /** Testing/debuging */
   public static void main(String[] args) {
-    new Line(" var\"#s92\"} where var\"#s92\"", 1);
-    //var line = new Line("const a.aa = s   <: b.bb@ == (22.2)::T.:a2 ", 1);
+    System.out.println(new Line(" Body::Distributed.var\"#204#206\"", 1));
   }
 
   /** The source text. */
@@ -59,7 +58,6 @@ class Line {
   Line(String line, int lineNumber) {
     this.line = line;
     this.lineNumber = lineNumber;
-
     // Go over the string of Unicode characters and create  UNKNWON tokens
     // for each character.
     // On the way: create tokesn for character constants and string constants.
@@ -145,9 +143,8 @@ class Line {
     while (!atEnd(pos)) {
       ch = charAt(pos);
       pos += increment(pos);
-      if (ch == '\'' && !atEnd(pos)) pos += increment(pos);
-      if (atEnd(pos)) return ret;
       if (ch == '\"') return pos;
+      if (ch == '\'' && !atEnd(pos)) pos += increment(pos);
     }
     return ret;
   }
@@ -433,7 +430,7 @@ class FirstPass extends Transformer {
     else if (t1.adjacent(t2) && t1.isChar('0') && t2.isChar('x')) // 0x12
       v.revisit(t1.asNumber().merge(t2));
     else if (t1.adjacent(t2) && t1.isIdent() && t2.isString()) // var"#1343"
-      v.revisit(t1.merge(t2));
+      v.revisit(t1.asIdent().merge(t2));
     else if (t1.isNumber()) // 1
       v.done(t1.asNumber()).revisit(t2);
     else if (t1.isIdent()) // a
