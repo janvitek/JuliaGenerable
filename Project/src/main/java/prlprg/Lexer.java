@@ -16,7 +16,7 @@ import static prlprg.CodeColors.color;
 class Lexer {
 
   public static void main(String[] args) {
-    new Line("(===)", 1);
+    new Line(" var\"#s92\"} where var\"#s92\"", 1);
     //var line = new Line("const a.aa = s   <: b.bb@ == (22.2)::T.:a2 ", 1);
   }
 
@@ -40,7 +40,6 @@ class Lexer {
     var line = lines.removeFirst();
     while (line.tokens.isEmpty() && !lines.isEmpty())
       line = lines.removeFirst();
-    line.tokens.add(new Tok(line, Kind.EOF, 0, 0, 0));
     return line.tokens;
   }
 
@@ -56,10 +55,16 @@ class Line {
   /** The tokens in the line. */
   protected List<Tok> tokens = new ArrayList<>();
 
-  /** Create a Line given a string and its position in the source file. */
+  /**
+   * Create a Line given a string and its position in the source file.
+   */
   Line(String line, int lineNumber) {
     this.line = line;
     this.lineNumber = lineNumber;
+
+    // Go over the string of Unicode characters and create  UNKNWON tokens
+    // for each character.
+    // On the way: create tokesn for character constants and string constants.
     int pos = 0;
     while (!atEnd(pos)) {
       var start = pos;
@@ -74,20 +79,25 @@ class Line {
         continue;
       }
       if (atEnd(pos)) break;
+      var ch = charAt(pos);
       pos += increment(pos);
+      if (Character.isWhitespace(ch)) continue; // skip spaces
       tokens.add(new Tok(this, Kind.UNKNOWN, start, pos, 1));
     }
-    var tok = tokens.getLast();
-    if (!tok.isSpace()) tokens.addLast(tok.asSpaceAfter());
-    tokens = Visitor.visit(tokens, new FirstPass());
-    tokens = Visitor.visit(tokens, new Operators());
-    tokens = Visitor.visit(tokens, new Dotted());
-    tokens = Visitor.visit(tokens, new DottedIdents());
-    var res = new ArrayList<Tok>();
+    // Add an EOF token. This means that we don't need to worry about visiting the last token. 
+    tokens.addLast(new Tok(this, Kind.EOF, 0, 0, 0));
+
+    // Passes of lexing.
+    tokens = Visitor.visit(tokens, new FirstPass()); // Most things
+    tokens = Visitor.visit(tokens, new Operators()); // Operators === and &&
+    tokens = Visitor.visit(tokens, new Dotted()); // a.b. and 2.2
+    tokens = Visitor.visit(tokens, new DottedIdents()); // a.b.==
+
+    // Sanity check
     for (var t : tokens)
-      if (!t.isSpace()) res.add(t);
-    tokens = res;
-    System.out.println(this);
+      if (t.k() == Kind.UNKNOWN) throw new RuntimeException("Should not be there");
+
+    System.out.println(this); // TODO: remove
   }
 
   /** Return the Unicode char at that position. */
@@ -110,19 +120,19 @@ class Line {
    * -1 if not a char constant.
    */
   private int readChar(int pos) {
-    var ret = -1;
-    if (atEnd(pos)) return ret;
+    var ret = -1; // means it was not a char constant
+    if (atEnd(pos)) return ret; // at end of string, this is not a char
     var ch = charAt(pos);
     pos += increment(pos);
-    if (ch != '\'' || atEnd(pos)) return ret;
+    if (ch != '\'' || atEnd(pos)) return ret; // does not start with a single quote
     ch = charAt(pos);
     pos += increment(pos);
-    if (ch == '\'' && !atEnd(pos)) pos += increment(pos);
-    if (atEnd(pos)) return ret;
+    if (ch == '\'' && !atEnd(pos)) pos += increment(pos); // seen an escape character, skip the next one
+    if (atEnd(pos)) return ret; // ill formed char constant, the line ended early
     ch = charAt(pos);
     pos += increment(pos);
-    if (ch != '\'') return ret;
-    return pos;
+    if (ch != '\'') return ret; // ill formed char constant, there is no closing single quote
+    return pos; // success return how many characters we read
   }
 
   /**
@@ -131,17 +141,15 @@ class Line {
    */
   private int readString(int pos) {
     var ret = -1;
-    if (atEnd(pos)) return ret;
+    if (atEnd(pos)) return ret; // already at the end of the line
     var ch = charAt(pos);
     pos += increment(pos);
-    if (ch != '\"' || atEnd(pos)) return ret;
+    if (ch != '\"' || atEnd(pos)) return ret; // does not start with a double quote or at end just after
     while (!atEnd(pos)) {
       ch = charAt(pos);
       pos += increment(pos);
       if (ch == '\'' && !atEnd(pos)) pos += increment(pos);
       if (atEnd(pos)) return ret;
-      ch = charAt(pos);
-      pos += increment(pos);
       if (ch == '\"') return pos;
     }
     return ret;
@@ -175,7 +183,7 @@ class Line {
  * line token added when sending values to the parser.
  */
 enum Kind {
-  IDENTIFIER, NUMBER, STRING, CHAR, DELIM, UNKNOWN, SPACE, OPERATOR, EOF;
+  IDENTIFIER, NUMBER, STRING, CHAR, DELIM, UNKNOWN, OPERATOR, EOF;
 }
 
 /**
@@ -217,19 +225,9 @@ record Tok(Line l, Kind k, int start, int end, int length) {
     return k == Kind.EOF;
   }
 
-  /** Returns true if the token is SPACE or if it can be turned into a space */
-  boolean isSpace() {
-    return k == Kind.SPACE || length == 1 && Character.isWhitespace(getLine().codePointAt(start));
-  }
-
-  /** Returns this token with kind set to SPACE */
-  protected Tok asSpace() {
-    return new Tok(l, Kind.SPACE, start, end, length);
-  }
-
-  /** Returns an empty token of kind SPACE occuring just after this one. */
-  protected Tok asSpaceAfter() {
-    return new Tok(l, k, end, end, 0);
+  /** Returns true if the token is STRING */
+  boolean isString() {
+    return k == Kind.STRING;
   }
 
   /**
@@ -322,14 +320,7 @@ record Tok(Line l, Kind k, int start, int end, int length) {
   }
 
   public String toString() {
-    if (length == 0)
-      return "";
-    else if (k == Kind.SPACE)
-      return " ";
-    else if (k == Kind.EOF)
-      return "<END>";
-    else
-      return k == Kind.UNKNOWN ? "?" : getLine().substring(start, end);
+    return length == 0 ? "" : (k == Kind.EOF ? "<END>" : (k == Kind.UNKNOWN ? "?" : getLine().substring(start, end)));
   }
 
   String errorAt(String msg) {
@@ -338,20 +329,31 @@ record Tok(Line l, Kind k, int start, int end, int length) {
 
 }
 
-/** A class for traversing a token sequence */
+/** A class for traversing a token sequence. */
 class Visitor {
   private List<Tok> from; // source tokens
   private List<Tok> to; // destination tokens
 
+  /** Create a visitor from a list of tokens. This method is not exposed. */
   private Visitor(List<Tok> from) {
     this.from = from;
     this.to = new ArrayList<>();
   }
 
+  /**
+   * Given a list of tokens and a transformer, reuturn the transformer list of
+   * tokens.
+   */
   static List<Tok> visit(List<Tok> from, Transformer e) {
     return new Visitor(from).visit(e);
   }
 
+  /**
+   * Internal method that takes from the head of the source, and adding to the end
+   * of the target list. The game is to put things on the target list when we are
+   * done with them, and put things back on the source list if they need to be
+   * revisited.
+   */
   private List<Tok> visit(Transformer e) {
     while (!from.isEmpty()) {
       var tok = from.removeFirst();
@@ -363,17 +365,20 @@ class Visitor {
     return to;
   }
 
+  /** We are done with this token, add it to the target list. */
   protected Visitor done(Tok t) {
     to.addLast(t);
     return this;
   }
 
+  /** We are done with these two tokens, add them to the target list. */
   protected Visitor done(Tok t1, Tok t2) {
     to.addLast(t1);
     to.addLast(t2);
     return this;
   }
 
+  /** We are done with these three tokens, add them to the target list. */
   protected Visitor done(Tok t1, Tok t2, Tok t3) {
     to.addLast(t1);
     to.addLast(t2);
@@ -381,42 +386,63 @@ class Visitor {
     return this;
   }
 
+  /** We have looked at this token, but need to see it again. */
   protected Visitor revisit(Tok t) {
     from.addFirst(t);
     return this;
   }
 }
 
+/**
+ * Interface for transformers. They have a single method that takes two tokens
+ * and a visitor. The visitor is used for callbacks to rdecide which tokens we
+ * are done with and which tokens need to be revisited. (Note: the visitor is
+ * could be passed to the constructor of the transformer, but that would need a
+ * constructor for each transformer, a couple more lines of code)
+ */
 class Transformer {
   void accept(Tok t1, Tok t2, Visitor v) {
-    v.done(t1).revisit(t2);
   }
 }
 
+/**
+ * The first pass of lexing. This handles delimiters (e.g. '[') as well as "::",
+ * "...", numbbers, identifiers.
+ */
 class FirstPass extends Transformer {
   void accept(Tok t1, Tok t2, Visitor v) {
-    if (t1.adjacent(t2) && t1.isSpace() && t2.isSpace())
-      v.revisit(t1.asSpace().merge(t2));
-    else if (t1.isDelim())
+    if (t1.isDelim())
       v.done(t1.asDelim()).revisit(t2);
-    else if (t1.adjacent(t2) && t1.isChar(':') && t2.isChar(':'))
+    else if (t1.adjacent(t2) && t1.isChar(':') && t2.isChar(':')) // ::
       v.done(t1.asDelim().merge(t2));
     else if (t1.adjacent(t2) && t1.isNumber() && t2.isNumber())
       v.revisit(t1.asNumber().merge(t2));
     else if (t1.adjacent(t2) && t1.isIdent() && t2.isIdent())
       v.revisit(t1.asIdent().merge(t2));
-    else if (t1.adjacent(t2) && t1.isIdent() && t2.isNumber())
+    else if (t1.adjacent(t2) && t1.isIdent() && t2.isNumber()) // naem3
       v.revisit(t1.asIdent().merge(t2));
-    else if (t1.adjacent(t2) && t1.isIdent() && t2.isChar('\''))
+    else if (t1.adjacent(t2) && t1.isIdent() && t2.isChar('\'')) // name'
       v.revisit(t1.asIdent().merge(t2));
-    else if (t1.adjacent(t2) && t1.isIdent() && t2.isChar('!'))
+    else if (t1.adjacent(t2) && t1.isIdent() && t2.isChar('!')) // name!
       v.revisit(t1.asIdent().merge(t2));
-    else if (t1.adjacent(t2) && t1.isChar('.') && t2.isChar('.'))
+    else if (t1.adjacent(t2) && t1.isChar('.') && t2.isChar('.')) // ...
       v.revisit(t1.asOperator().merge(t2));
-    else if (t1.adjacent(t2) && t1.is("..") && t2.isChar('.'))
+    else if (t1.adjacent(t2) && t1.is("..") && t2.isChar('.')) // ...
       v.revisit(t1.merge(t2));
-    else if (t1.isSpace())
-      v.done(t1.asSpace()).revisit(t2);
+    else if (t1.adjacent(t2) && t1.isChar('@') && t2.isChar('_')) // @__Module
+      v.revisit(t1.asIdent().merge(t2));
+    else if (t1.adjacent(t2) && t1.isChar('@') && t2.isIdent()) // @soft
+      v.revisit(t1.asIdent().merge(t2));
+    else if (t1.adjacent(t2) && t1.isChar('%') && t2.isNumber()) // handle register names, could mess up arithemtic ege 3%4 will be '3' '%4'
+      v.revisit(t1.asIdent().merge(t2));
+    else if (t1.adjacent(t2) && t1.isChar('#') && t2.isIdent()) // #self#
+      v.revisit(t1.asIdent().merge(t2));
+    else if (t1.adjacent(t2) && t1.isIdent() && t2.isChar('#')) // #self#
+      v.revisit(t1.asIdent().merge(t2));
+    else if (t1.adjacent(t2) && t1.isChar('0') && t2.isChar('x')) // 0x12
+      v.revisit(t1.asNumber().merge(t2));
+    else if (t1.adjacent(t2) && t1.isIdent() && t2.isString()) // var"#1343"
+      v.revisit(t1.merge(t2));
     else if (t1.isNumber())
       v.done(t1.asNumber()).revisit(t2);
     else if (t1.isIdent())
@@ -449,7 +475,7 @@ class DottedIdents extends Transformer {
 
 class Operators extends Transformer {
   void accept(Tok t1, Tok t2, Visitor v) {
-    if (t1.adjacent(t2) && t1.isOperator() && t2.isOperator() && t1.length() + t2.length() <= 3)
+    if (t1.adjacent(t2) && t1.isOperator() && t2.isOperator())
       v.revisit(t1.asOperator().merge(t2));
     else if (t1.adjacent(t2) && t1.isChar(':') && t2.isIdent())
       v.revisit(t1.asIdent().merge(t2));
