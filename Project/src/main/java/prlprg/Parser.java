@@ -14,7 +14,6 @@ import prlprg.NameUtils.TypeName;
 
 /**
  * Parser for Julia type and method signatures, and files from code_warntype.
- * 
  * The inputs are well-behaved records, one per line.
  */
 class Parser {
@@ -30,36 +29,24 @@ class Parser {
         Ty toTy();
 
         /**
-         * Type names are messy, see the doc for details.
+         * Read a type name. This is messy because we are not yet sure this is a type,
+         * for instance 'typeof(Base.:!)' is a value we read.
          */
         static TypeName parseTypeName(Parser p) {
-            var tok = p.take();
-            var nm = tok.toString();
-            if (p.has("(")) {
-                var q = p.sliceMatchedDelims("(", ")");
-                nm += "(";
-                while (!q.isEmpty())
-                    nm += q.take().toString();
-                nm += ")";
-            }
+            var nm = p.take().toString();
+            if (p.has("(")) nm += "(" + p.sliceMatchedDelims("(", ")").foldToString("") + ")";
             return GenDB.it.names.type(nm);
         }
 
-        /**
-         * Function names are dotted identifiers and delims.
-         */
+        /** Function names are dotted identifiers. */
         static FuncName parseFunctionName(Parser p) {
-            var str = "";
-            while (!p.isEmpty() && !p.peek().is("(") && !p.peek().is("::"))
-                str += p.take().toString();
+            var str = p.take().toString();
             if (str.isEmpty()) p.failAt("Missing function name", p.peek());
             return GenDB.it.names.function(str);
         }
     }
 
-    /**
-     * An instance of a datatype constructor (not a union all or bound var).
-     */
+    /** An instance of a datatype constructor (not a union all or bound var). */
     record TypeInst(TypeName nm, List<ParsedType> ps) implements ParsedType {
 
         static ParsedType parse(Parser p) {
@@ -381,7 +368,7 @@ class Parser {
             }
             var wheres = parseWhere(p);
             if (p.has("[")) p.sliceMatchedDelims("[", "]"); // drops it
-
+            if (!p.isEmpty()) p.failAt("Leftovers not expected: ", p.peek());
             return new Function(name, params, wheres, firstKeyword, source);
         }
 
@@ -412,9 +399,7 @@ class Parser {
                 Ty t = null;
                 var uai = UnionAllInst.parse(p);
                 t = uai.toTy();
-                if (p.has("@soft")) { // ignoring this for now
-                    p.drop();
-                }
+                if (p.has("@soft")) p.drop(); // ignoring this for now
                 p.take("[");
                 return p.has("typealias") ? new TypeAlias(name, t) : null;
             } catch (Exception e) {
@@ -460,15 +445,10 @@ class Parser {
 
         private void parseMethodInfoHeader(Parser p) {
             p.take("MethodInstance").take("for");
-            var q = p.sliceLine();
-            this.decl = parseFun(q);
-            q = p.sliceLine().take("from");
-            var r = q.sliceUpToLast("@");
-            this.originDecl = parseFun(r);
-            this.src = "";
-            while (!q.isEmpty())
-                src += q.take().toString() + " ";
-            src = src.trim();
+            this.decl = parseFun(p.sliceLine());
+            var q = p.sliceLine().take("from");
+            this.originDecl = parseFun(q.sliceUpToLast("@"));
+            this.src = q.foldToString(" ").trim();
         }
 
         /**
@@ -483,7 +463,7 @@ class Parser {
         private List<Type> parseStaticArguments(Parser p) {
             var bs = new ArrayList<Type>();
             if (p.has("Static")) {
-                p.take("Static").take("Parameters");
+                p.nextLine(); // drop this line
                 while (!p.isEmpty() && !p.has("Arguments") && !p.has("Locals") && !p.has("Body")) {
                     var q = p.sliceLine();
                     var pty = BoundVar.parse(q);
@@ -498,7 +478,7 @@ class Parser {
         private List<Param> parseArguments(Parser p) {
             var ps = new ArrayList<Param>();
             if (p.has("Arguments")) {
-                p.take("Arguments");
+                p.nextLine();
                 while (!p.isEmpty() && !p.has("Locals") && !p.has("Body")) {
                     var q = p.sliceLine();
                     ps.add(Param.parse(q));
@@ -510,7 +490,7 @@ class Parser {
         private List<Param> parseLocals(Parser p) {
             var ps = new ArrayList<Param>();
             if (p.has("Locals")) {
-                p.take("Locals");
+                p.nextLine();
                 while (!p.isEmpty() && !p.has("Body")) {
                     var q = p.sliceLine();
                     ps.add(Param.parse(q));
@@ -563,17 +543,32 @@ class Parser {
             return ms;
         }
 
-        /**
-         * An Op is a single line in a method body. If the target is null, then it is a
-         * plain call. The target "nop" is reserved for empty operations.q
-         */
-        record Op(String tgt, FuncName op, List<String> args, ParsedType ret) {
+        /** Operation in the code_warntype instruction stream. A single line of code. */
+        interface Op {
+        }
+
+        /** An instruction that assigns to a register. */
+        record RegAssign(String tgt, FuncName op, List<String> args, ParsedType ret) implements Op {
 
             @Override
             public String toString() {
-                if (tgt == null) return op + "(" + args.stream().collect(Collectors.joining(", ")) + ")" + (ret == null ? "" : " :: " + ret);
-                if (tgt.equals("nop")) return "nop";
                 return tgt + " = " + op + "(" + args.stream().collect(Collectors.joining(", ")) + ")" + (ret == null ? "" : " :: " + ret);
+            }
+        }
+
+        record Call(FuncName op, List<String> args, ParsedType ret) implements Op {
+
+            @Override
+            public String toString() {
+                return op + "(" + args.stream().collect(Collectors.joining(", ")) + ")" + (ret == null ? "" : " :: " + ret);
+            }
+        }
+
+        record Other(String val) implements Op {
+
+            @Override
+            public String toString() {
+                return val;
             }
         }
 
@@ -584,6 +579,7 @@ class Parser {
                 var q = p.sliceLine();
                 var last = q.peek();
                 try {
+                    // Start by dropping the decoration that is added for legivility by code_warntype
                     if (q.peek().isNumber())
                         q.drop().drop();
                     else if (q.peek().is("│"))
@@ -593,12 +589,12 @@ class Parser {
                     else
                         throw new RuntimeException("Weird");
                     q.failIfEmpty("Expected more...", last);
+
                     var tok = q.peek();
-                    if (tok.is("goto") || tok.is("return") || tok.is("nothing")) {
-                        q.drop();
-                        continue;
-                    }
-                    ops.add(parseOp(q));
+                    if (tok.is("goto") || tok.is("return") || tok.is("nothing"))
+                        ops.add(new Other(q.take().toString()));
+                    else
+                        ops.add(parseOp(q));
                 } catch (Throwable e) {
                     App.output("Error parsing op: " + last.getLine());
                 }
@@ -607,16 +603,15 @@ class Parser {
 
         // E.g. │         Core.NewvarNode(:(top))
         private Op parseRawCall(Parser p) {
-            var op = parseCall(p);
-            return new Op(null, op.op, op.args, op.ret);
+            return normalCall(p);
         }
 
         // E.g. │         (tn = Core.Compiler.getproperty(%3, :name))
         private Op parseLocalAssign(Parser p) {
             var tgt = p.take().toString();
             p.take("=");
-            var op = parseCall(p);
-            return new Op(tgt, op.op, op.args, op.ret);
+            var op = normalCall(p);
+            return new RegAssign(tgt, op.op, op.args, op.ret);
         }
 
         // E.g. |   %15 = Core.Compiler.getglobal(top, name)::Any
@@ -632,10 +627,10 @@ class Parser {
                 var func = GenDB.it.names.function(op);
                 if (!q.isEmpty()) throw new RuntimeException("Leftovers " + q);
                 var ret = UnionAllInst.parse(p.take("::"));
-                return new Op(reg, func, List.of(l, r), ret);
+                return new RegAssign(reg, func, List.of(l, r), ret);
             } else {
-                var op = parseCall(p);
-                return new Op(reg, op.op, op.args, op.ret);
+                var op = normalCall(p);
+                return new RegAssign(reg, op.op, op.args, op.ret);
             }
         }
 
@@ -646,41 +641,26 @@ class Parser {
                     // Using a register as the function name
                     var nm = q.take().toString();
                     var args = callArglist(p.sliceMatchedDelims("(", ")"));
-                    return new Op(nm, GenDB.it.names.function(nm.toString()), args, null);
+                    return new RegAssign(nm, GenDB.it.names.function(nm.toString()), args, null);
                 } else
                     return parseLocalAssign(p);
             } else
                 return p.peek().toString().startsWith("%") ? parseRegisterAssign(p) : parseRawCall(p);
         }
 
-        private Op inlineCall(Parser p) {
-            var q = p.sliceMatchedDelims("(", ")");
-            var lhs = q.take();
-            var op = q.take();
-            var rhs = q.take();
-            var r = p.has("::") ? UnionAllInst.parse(p.take("::")) : null;
-            return new Op(lhs.toString(), GenDB.it.names.function(op.toString()), List.of(lhs.toString(), rhs.toString()), r);
-        }
-
         private List<String> callArglist(Parser p) {
             var args = new ArrayList<String>();
-            while (!p.isEmpty()) {
-                var r = p.sliceNextCommaOrSemi();
-                args.add(r.take().toString());
-            }
+            while (!p.isEmpty())
+                args.add(p.sliceNextCommaOrSemi().take().toString());
             return args;
         }
 
-        private Op normalCall(Parser p) {
+        private Call normalCall(Parser p) {
             var nm = ParsedType.parseFunctionName(p);
             var q = p.sliceMatchedDelims("(", ")");
             var args = callArglist(q);
             var r = p.has("::") ? UnionAllInst.parse(p.take("::")) : null;
-            return new Op(null, nm, args, r);
-        }
-
-        private Op parseCall(Parser p) {
-            return p.has("(") ? inlineCall(p) : normalCall(p);
+            return new Call(nm, args, r);
         }
 
     }
@@ -737,11 +717,21 @@ class Parser {
         App.print("Processed " + stats.linesOfSigs + " lines of input, found " + stats.sigsFound + " sigs for " + stats.funsFound + " generic functions in " + stats.sigs);
     }
 
+    /**
+     * Split current parser into one with the current line, the old one has the rest
+     * of the tokens.
+     */
     Parser sliceLine() {
         var p = new Parser();
         p.toks = toks;
         toks = lex.next();
         return p;
+    }
+
+    /** Advance to the next line, dropping any leftover tokens. Return this. */
+    Parser nextLine() {
+        toks = lex.next();
+        return this;
     }
 
     /**
@@ -890,11 +880,10 @@ class Parser {
         var count = 0;
         while (!p.isEmpty()) {
             var tok = p.take();
-            if (tok.is("(") || tok.is("{")) {
+            if (tok.is("(") || tok.is("{"))
                 count++;
-            } else if (tok.is(")") || tok.is("}")) {
-                count--;
-            }
+            else if (tok.is(")") || tok.is("}")) count--;
+
             if (count == 0 && p.has(";")) {
                 return p.take();
             }
@@ -922,9 +911,7 @@ class Parser {
         return p;
     }
 
-    /**
-     * The index of the last occurence of `s` in the tokens, or -1
-     */
+    /** Index of last occurence of `s`, or -1 */
     private int lastIndexOf(String s) {
         int i = toks.size() - 1;
         while (i >= 0)
@@ -935,54 +922,38 @@ class Parser {
         return -1;
     }
 
-    /**
-     * Returns true if there are no more tokens in this parser.
-     */
+    /** True if there are no more tokens in this parser. */
     boolean isEmpty() {
-        return toks.isEmpty();
+        return toks.isEmpty() || (toks.size() == 1 && toks.get(0).isEOF());
     }
 
-    /**
-     * Is the string `s` the current value in the parser.
-     */
+    /** Is string `s` the current value. */
     boolean has(String s) {
         return peek().is(s);
     }
 
-    /**
-     * Return the end of file token.
-     */
+    /** Return the end of file token. Used as EOL */
     Tok eof() {
         return new Tok(null, Kind.EOF, 0, 0, 0);
     }
 
-    /**
-     * Return the current token without consuming it.
-     */
+    /** Return current token without consuming it or EOF. */
     Tok peek() {
-        var tok = !toks.isEmpty() ? toks.get(0) : eof();
-        if (!tok.isEOF()) last = tok;
-        return tok;
+        return last = !toks.isEmpty() ? toks.get(0) : eof();
     }
 
-    /**
-     * Consume a token, return the current parser.
-     */
+    /** Consume a token, return current parser. */
     Parser drop() {
         toks.remove(0);
         return this;
     }
 
-    /**
-     * Return the current token and consume it. Return EOF if empty.
-     */
+    /** Return and consume a token, or EOF if empty. */
     Tok take() {
         return !toks.isEmpty() ? toks.remove(0) : eof();
     }
 
-    /**
-     * Consume the current token, and fail if either empty or the token is not `s`.
-     */
+    /** Consume current token, fail if not `s`. */
     Parser take(String s) {
         if (isEmpty()) throw new RuntimeException("Expected " + s + " but got nothing");
         var t = take();
@@ -990,9 +961,7 @@ class Parser {
         return this;
     }
 
-    /**
-     * Add a token at the end.
-     */
+    /** Add a token at the end. Return this. */
     private Parser add(Tok t) {
         toks.addLast(t);
         return this;
@@ -1006,13 +975,24 @@ class Parser {
         if (isEmpty()) failAt(msg, last);
     }
 
+    /** Return contents of the parser as a string. */
+    String foldToString(String sep) {
+        var sb = new StringBuilder();
+        while (!isEmpty()) { // Recall that there is an EOF token at the end of the list
+            sb.append(take().toString()); // Can't quite use streams.
+            sb.append(sep);
+        }
+        return sb.toString();
+    }
+
+    /** Print debug info. */
     @Override
     public String toString() {
         var head = isEmpty() ? "EOF" : toks.getFirst().toString();
         var rest = "";
         for (int i = 1; i < toks.size() && i < 5; i++)
             rest += toks.get(i).toString();
-        return head + " (" + toks.size() + ") " + rest;
+        return head + "<-(" + toks.size() + ")->" + rest;
     }
 
     /** Return the current line of source input */
@@ -1023,7 +1003,7 @@ class Parser {
     public static void main(String[] args) {
         // GenDB.readDB();
         var p = new Parser();
-        var file = "/tmp/jl_104341/out.0/t999.tst";
+        var file = "/tmp/jl_100905/out.0/t226.tst";
         var ms = MethodInformation.parse(p.withFile(file), file.toString());
     }
 }

@@ -6,21 +6,21 @@ import java.util.List;
 import static prlprg.CodeColors.color;
 
 /**
- * Translates strings into tokens. The new lexer uses a different design than
- * the old one which should be easier to change.
+ * Translates strings into tokens. The new lexer uses a different design which
+ * should be easier to change.
  * 
- * Each line of code is represented by an object taht has a list of tokens in
- * it. When we return a list of tokens, we add the EOF token at the end for
- * backward compatibiltiy.
+ * Each line of code is represented by a Line object containing a sequence of
+ * tokens terminated by an EOF.
  */
 class Lexer {
 
+  /** Testing/debuging */
   public static void main(String[] args) {
     new Line(" var\"#s92\"} where var\"#s92\"", 1);
     //var line = new Line("const a.aa = s   <: b.bb@ == (22.2)::T.:a2 ", 1);
   }
 
-  /** The lines from the file. */
+  /** The source text. */
   List<Line> lines = new ArrayList<>();
 
   /** Create a Lexder from an array of strings. */
@@ -55,9 +55,7 @@ class Line {
   /** The tokens in the line. */
   protected List<Tok> tokens = new ArrayList<>();
 
-  /**
-   * Create a Line given a string and its position in the source file.
-   */
+  /** Creates a Line from a string and its position in the source file. */
   Line(String line, int lineNumber) {
     this.line = line;
     this.lineNumber = lineNumber;
@@ -91,13 +89,12 @@ class Line {
     tokens = Visitor.visit(tokens, new FirstPass()); // Most things
     tokens = Visitor.visit(tokens, new Operators()); // Operators === and &&
     tokens = Visitor.visit(tokens, new Dotted()); // a.b. and 2.2
-    tokens = Visitor.visit(tokens, new DottedIdents()); // a.b.==
 
     // Sanity check
     for (var t : tokens)
       if (t.k() == Kind.UNKNOWN) throw new RuntimeException("Should not be there");
 
-    System.out.println(this); // TODO: remove
+    //System.out.println(this); // 
   }
 
   /** Return the Unicode char at that position. */
@@ -160,12 +157,10 @@ class Line {
     return lineNumber;
   }
 
-  /**
-   * Return the line as a string along with the orignal and the token by token.
-   */
+  /** Return the original line, the parsed one, and a token list for debugging. */
   public String toString() {
-    var sb = new StringBuilder();
-    var sb2 = new StringBuilder();
+    var sb = new StringBuilder(); // sb contains the parsed line without spaces
+    var sb2 = new StringBuilder(); // sb2 has ticks at the end of each token
     for (var token : tokens) {
       sb.append(token);
       sb2.append(token);
@@ -177,18 +172,19 @@ class Line {
 }
 
 /**
- * The kind of token. Mostly self-explanatory. Except: UNKNOWN is the starting
- * state for all tokens, part of lexing is to figure out what kind of token it
- * is. SPACE is for all whitespaces these will be dropped. EOF is the end of
- * line token added when sending values to the parser.
+ * Token kind. UNKNOWN is the starting state for tokens, lexing figures out what
+ * kind of token it is. EOF is the end of line tokens.
  */
 enum Kind {
   IDENTIFIER, NUMBER, STRING, CHAR, DELIM, UNKNOWN, OPERATOR, EOF;
 }
 
 /**
- * A token in the input with the enclosing line in which it occurs, its kind,
- * and start and end positions
+ * A token in the input with the enclosing source line in which it occurs, its
+ * kind, and start and end positions as well as the end.
+ * 
+ * NOTE: I am confused by unicode, I assumed that length is not always
+ * end-start, but this maybe just me being confused.
  */
 record Tok(Line l, Kind k, int start, int end, int length) {
 
@@ -235,12 +231,10 @@ record Tok(Line l, Kind k, int start, int end, int length) {
    */
   boolean isDelim() {
     if (k == Kind.DELIM) return true;
-    if (k != Kind.UNKNOWN) return false;
-    if (length == 1) {
-      int ch = getLine().codePointAt(start);
-      return ch == '(' || ch == ')' || ch == '[' || ch == ']' || ch == '{' || ch == '}' || ch == ',' || ch == ';' || ch == '?';
-    }
-    return false;
+    if (k != Kind.UNKNOWN) return false; // Continue only if type is unknown
+    if (length > 1) throw new RuntimeException("Unexpected length for an Unknown token");
+    int ch = getLine().codePointAt(start);
+    return ch == '(' || ch == ')' || ch == '[' || ch == ']' || ch == '{' || ch == '}' || ch == ',' || ch == ';' || ch == '?';
   }
 
   /** Returns this token with kind set to DELIM */
@@ -262,11 +256,9 @@ record Tok(Line l, Kind k, int start, int end, int length) {
   boolean isNumber() {
     if (k == Kind.NUMBER) return true;
     if (k != Kind.UNKNOWN) return false;
-    if (length == 1) {
-      int ch = getLine().codePointAt(start);
-      return Character.isDigit(ch);
-    }
-    return false;
+    if (length > 1) throw new RuntimeException("Unexpected length for an Unknown token");
+    int ch = getLine().codePointAt(start);
+    return Character.isDigit(ch);
   }
 
   /** Returns true if the token is an operator or can be turned into one. */
@@ -274,7 +266,7 @@ record Tok(Line l, Kind k, int start, int end, int length) {
     if (k == Kind.OPERATOR) return true;
     if (k != Kind.UNKNOWN) return false;
     if (isDelim()) return false;
-    if (length != 1) return false;
+    if (length > 1) throw new RuntimeException("Unexpected length for an Unknown token");
     var ch = getLine().codePointAt(start);
     if (ch == '.') return false; // dots are kind of delimiters
     if (ch == '_') return false; // underscores are kind of identifiers
@@ -291,12 +283,11 @@ record Tok(Line l, Kind k, int start, int end, int length) {
   /** Returns true if the token is an identifier or can be turned into one. */
   boolean isIdent() {
     if (k == Kind.IDENTIFIER) return true;
-    if (length == 1) {
-      int ch = getLine().codePointAt(start);
-      if (ch == '_') return true;
-      return Character.isAlphabetic(ch);
-    }
-    return false;
+    if (k != Kind.UNKNOWN) return false;
+    if (length > 1) throw new RuntimeException("Unexpected length for an Unknown token");
+    int ch = getLine().codePointAt(start);
+    if (ch == '_') return true;
+    return Character.isAlphabetic(ch);
   }
 
   /** Returns this token with kind set to IDENTIFIER */
@@ -411,15 +402,15 @@ class Transformer {
  */
 class FirstPass extends Transformer {
   void accept(Tok t1, Tok t2, Visitor v) {
-    if (t1.isDelim())
+    if (t1.isDelim()) // delmiters are delimiters
       v.done(t1.asDelim()).revisit(t2);
     else if (t1.adjacent(t2) && t1.isChar(':') && t2.isChar(':')) // ::
       v.done(t1.asDelim().merge(t2));
-    else if (t1.adjacent(t2) && t1.isNumber() && t2.isNumber())
+    else if (t1.adjacent(t2) && t1.isNumber() && t2.isNumber()) // 12
       v.revisit(t1.asNumber().merge(t2));
-    else if (t1.adjacent(t2) && t1.isIdent() && t2.isIdent())
+    else if (t1.adjacent(t2) && t1.isIdent() && t2.isIdent()) // ab
       v.revisit(t1.asIdent().merge(t2));
-    else if (t1.adjacent(t2) && t1.isIdent() && t2.isNumber()) // naem3
+    else if (t1.adjacent(t2) && t1.isIdent() && t2.isNumber()) // name3
       v.revisit(t1.asIdent().merge(t2));
     else if (t1.adjacent(t2) && t1.isIdent() && t2.isChar('\'')) // name'
       v.revisit(t1.asIdent().merge(t2));
@@ -433,7 +424,7 @@ class FirstPass extends Transformer {
       v.revisit(t1.asIdent().merge(t2));
     else if (t1.adjacent(t2) && t1.isChar('@') && t2.isIdent()) // @soft
       v.revisit(t1.asIdent().merge(t2));
-    else if (t1.adjacent(t2) && t1.isChar('%') && t2.isNumber()) // handle register names, could mess up arithemtic ege 3%4 will be '3' '%4'
+    else if (t1.adjacent(t2) && t1.isChar('%') && t2.isNumber()) // %12  could mess up arithemtic ege 3%4 will be '3' '%4'
       v.revisit(t1.asIdent().merge(t2));
     else if (t1.adjacent(t2) && t1.isChar('#') && t2.isIdent()) // #self#
       v.revisit(t1.asIdent().merge(t2));
@@ -443,34 +434,14 @@ class FirstPass extends Transformer {
       v.revisit(t1.asNumber().merge(t2));
     else if (t1.adjacent(t2) && t1.isIdent() && t2.isString()) // var"#1343"
       v.revisit(t1.merge(t2));
-    else if (t1.isNumber())
+    else if (t1.isNumber()) // 1
       v.done(t1.asNumber()).revisit(t2);
-    else if (t1.isIdent())
+    else if (t1.isIdent()) // a
       v.done(t1.asIdent()).revisit(t2);
-    else
+    else // everything else
       v.done(t1).revisit(t2);
   }
 
-}
-
-class Dotted extends Transformer {
-  void accept(Tok t1, Tok t2, Visitor v) {
-    if (t1.adjacent(t2) && (t1.isIdent() || t1.isNumber()) && t2.isChar('.'))
-      v.revisit(t1.merge(t2));
-    else
-      v.done(t1).revisit(t2);
-  }
-}
-
-class DottedIdents extends Transformer {
-  void accept(Tok t1, Tok t2, Visitor v) {
-    if (t1.adjacent(t2) && t1.isIdent() && t1.endsWith('.') && (t2.isIdent() || t2.isNumber() || t2.isOperator()))
-      v.revisit(t1.merge(t2));
-    else if (t1.adjacent(t2) && t1.isIdent() && t1.endsWith('.') && t2.isNumber())
-      v.revisit(t1.merge(t2));
-    else
-      v.done(t1).revisit(t2);
-  }
 }
 
 class Operators extends Transformer {
@@ -481,5 +452,25 @@ class Operators extends Transformer {
       v.revisit(t1.asIdent().merge(t2));
     else
       v.done(t1.isOperator() ? t1.asOperator() : t1).revisit(t2);
+  }
+}
+
+/**
+ * Handles dotted identifiers and floating point numbers: a.b.b, 2.2
+ */
+class Dotted extends Transformer {
+  void accept(Tok t1, Tok t2, Visitor v) {
+    if (t1.adjacent(t2) && (t1.isIdent() || t1.isNumber()) && t2.isChar('.'))
+      v.revisit(t1.merge(t2));
+    else if (t1.adjacent(t2) && t1.isChar('.') && t2.isNumber()) // .2
+      v.done(t1.asNumber().merge(t2));
+    else if (t1.adjacent(t2) && t1.isNumber() && t2.isNumber())
+      v.done(t1.merge(t2)); // 2.2  (nothing more can add on)
+    else if (t1.adjacent(t2) && t1.isIdent() && (t2.isIdent() || t2.isNumber())) // a.b  a.b2
+      v.revisit(t1.merge(t2));
+    else if (t1.adjacent(t2) && t1.isIdent() && t1.endsWith('.') && t2.isOperator()) // Comp.=>
+      v.revisit(t1.merge(t2));
+    else
+      v.done(t1).revisit(t2);
   }
 }

@@ -17,6 +17,7 @@ import prlprg.NameUtils.FuncName;
 import prlprg.NameUtils.TypeName;
 import prlprg.Parser.MethodInformation;
 import prlprg.Parser.TypeDeclaration;
+import prlprg.Parser.MethodInformation.RegAssign;
 
 /**
  * A database containing all the information that we have acquired about types
@@ -1256,44 +1257,48 @@ class Method implements Serializable {
             var ty = v.ty().toTy().fixUp(new ArrayList<>());
             env.put(v.nm(), Type.expandAliasesFixpoint(ty.toType(new ArrayList<>())));
         }
-        for (var op : mi.ops)
-            if (op.tgt() != null && op.ret() != null) {
-                if (!env.containsKey(op.tgt())) {
-                    var ty = op.ret().toTy().fixUp(new ArrayList<>());
-                    env.put(op.tgt(), Type.expandAliasesFixpoint(ty.toType(new ArrayList<>())));
-                }
-            }
-        for (var op : mi.ops) {
-            if (op.op().toString().equals("Core.Const") || op.op().toString().equals("Core.NewvarNode")) continue;
-            var tys = new ArrayList<Type>();
-            for (var arg : op.args()) {
-                if (env.containsKey(arg)) {
-                    tys.add(env.get(arg));
-                } else {
-                    if (arg.charAt(0) == '\"') {
-                        tys.add(new Inst(GenDB.it.names.getShort("String"), List.of()));
-                    } else if (arg.charAt(0) == ':') {
-                        tys.add(new Inst(GenDB.it.names.getShort("Symbol"), List.of()));
-                    } else if (arg.charAt(0) >= '0' && arg.charAt(0) <= '9') {
-                        tys.add(new Inst(GenDB.it.names.getShort("Int64"), List.of()));
-                    } else if (arg.equals("false") || arg.equals("true")) {
-                        tys.add(new Inst(GenDB.it.names.getShort("Bool"), List.of()));
-                    } else if (arg.equals("nothing")) {
-                        tys.add(new Inst(GenDB.it.names.getShort("Nothing"), List.of()));
-                    } else {
-                        if (!GenDB.it.seenMissing.contains(arg)) {
-                            GenDB.it.seenMissing.add(arg);
-                            App.output("Missing type for " + arg);
-                        }
-                        tys.add(GenDB.it.types.get(GenDB.it.names.getShort("Any")).decl.ty());
+        for (var oper : mi.ops)
+            if (oper instanceof RegAssign op) {
+                if (op.tgt() != null && op.ret() != null) {
+                    if (!env.containsKey(op.tgt())) {
+                        var ty = op.ret().toTy().fixUp(new ArrayList<>());
+                        env.put(op.tgt(), Type.expandAliasesFixpoint(ty.toType(new ArrayList<>())));
                     }
                 }
             }
-            var s = new Sig(op.op(), new Tuple(tys), List.of(), -1, "none");
-            var args = new ArrayList<String>();
-            for (var arg : op.args())
-                if (env.containsKey(arg)) args.add(arg);
-            ops.add(new Calls(op.tgt(), args, s));
+        for (var oper : mi.ops) {
+            if (oper instanceof RegAssign op) {
+                if (op.op().toString().equals("Core.Const") || op.op().toString().equals("Core.NewvarNode")) continue;
+                var tys = new ArrayList<Type>();
+                for (var arg : op.args()) {
+                    if (env.containsKey(arg)) {
+                        tys.add(env.get(arg));
+                    } else {
+                        if (arg.charAt(0) == '\"') {
+                            tys.add(new Inst(GenDB.it.names.getShort("String"), List.of()));
+                        } else if (arg.charAt(0) == ':') {
+                            tys.add(new Inst(GenDB.it.names.getShort("Symbol"), List.of()));
+                        } else if (arg.charAt(0) >= '0' && arg.charAt(0) <= '9') {
+                            tys.add(new Inst(GenDB.it.names.getShort("Int64"), List.of()));
+                        } else if (arg.equals("false") || arg.equals("true")) {
+                            tys.add(new Inst(GenDB.it.names.getShort("Bool"), List.of()));
+                        } else if (arg.equals("nothing")) {
+                            tys.add(new Inst(GenDB.it.names.getShort("Nothing"), List.of()));
+                        } else {
+                            if (!GenDB.it.seenMissing.contains(arg)) {
+                                GenDB.it.seenMissing.add(arg);
+                                App.output("Missing type for " + arg);
+                            }
+                            tys.add(GenDB.it.types.get(GenDB.it.names.getShort("Any")).decl.ty());
+                        }
+                    }
+                }
+                var s = new Sig(op.op(), new Tuple(tys), List.of(), -1, "none");
+                var args = new ArrayList<String>();
+                for (var arg : op.args())
+                    if (env.containsKey(arg)) args.add(arg);
+                ops.add(new Calls(op.tgt(), args, s));
+            }
         }
     }
 
