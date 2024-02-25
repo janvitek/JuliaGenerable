@@ -178,7 +178,7 @@ class Parser {
         static ParsedType parse(Parser p) {
             if (p.has("(")) {
                 p = p.sliceMatchedDelims("(", ")");
-                if (p.isEmpty()) return new TypeInst(GenDB.it.names.getShort("Tuple"), new ArrayList<>());
+                if (p.isEmpty()) return new TypeInst(GenDB.it.names.makeShort("Tuple"), new ArrayList<>());
             }
             var type = TypeInst.parse(p);
             if (!p.has("where")) return type;
@@ -242,7 +242,7 @@ class Parser {
             while (!q.isEmpty())
                 ps.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
 
-            TypeInst parent = p.has("<:") ? (TypeInst) TypeInst.parse(p.drop()) : new TypeInst(GenDB.it.names.getShort("Any"), new ArrayList<>());
+            TypeInst parent = p.has("<:") ? (TypeInst) TypeInst.parse(p.drop()) : new TypeInst(GenDB.it.names.makeShort("Any"), new ArrayList<>());
             if (p.peek().isNumber()) {
                 p.drop();
                 if (!modifiers.contains("primitive")) p.failAt("Expected 'primitive'", p.peek());
@@ -586,8 +586,12 @@ class Parser {
                         q.drop();
                     else if (q.peek().toString().startsWith("└"))
                         q.drop();
-                    else
-                        throw new RuntimeException("Weird");
+                    else if (q.peek().is("@") || q.peek().is("["))
+                        continue;
+                    else {
+                        ops.add(new Other("Unparsed :: " + q.peek().getLine()));
+                        continue;
+                    }
                     q.failIfEmpty("Expected more...", last);
 
                     var tok = q.peek();
@@ -1004,7 +1008,7 @@ class Parser {
         // GenDB.readDB();
         var p = new Parser();
         var file = "/tmp/jl_112553/out.0/t8465.tst";
-        var ms = MethodInformation.parse(p.withFile(file), file.toString());
+        MethodInformation.parse(p.withFile(file), file.toString());
     }
 }
 
@@ -1015,7 +1019,7 @@ class Parser {
  */
 interface Ty {
 
-    final static Ty Any = new TyInst(GenDB.it.names.getShort("Any"), List.of());
+    final static Ty Any = new TyInst(GenDB.it.names.makeShort("Any"), List.of());
     final static Ty None = new TyUnion(List.of());
 
     /**

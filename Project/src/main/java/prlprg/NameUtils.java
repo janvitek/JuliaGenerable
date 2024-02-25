@@ -8,9 +8,8 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * A utility class to deal with names.
- *
- * Type names are tricky because of imports and 'soft' imports. For example,
+ * A utility class to deal with names. Type names are tricky because of imports
+ * and 'soft' imports. For example,
  *
  * <pre>
  *  Base.Ptr
@@ -24,13 +23,16 @@ import java.util.regex.Pattern;
  *  abstract type SomeOtherPackage.Ptr{T} end
  * </pre>
  *
- * then this defines a new type that is not the same as Base.Ptr.
- *
- * Furthermore, the parser creates TypeNames before it can tell if a name refers
- * to a type or a type variable in an existential.
- *
- * Finally, some expression that occur where a type can be found are program
- * variables that are converted to type constants.
+ * then this defines a new type that is not the same as Base.Ptr. Furthermore,
+ * the parser creates TypeNames before it can tell if a name refers to a type or
+ * a type variable in an existential. Finally, some expression that occur where
+ * a type can be found are program variables that are converted to type
+ * constants.
+ * 
+ * NameUtils first receives names of definitions and aliases. Once all of them
+ * have been seen, it is frozen and the toDefined map is built. This map allows
+ * to resolve soft imports. There will be cases where we can't resolve them, and
+ * we give up in those.
  */
 class NameUtils implements Serializable {
 
@@ -38,18 +40,33 @@ class NameUtils implements Serializable {
         final String pkg; // package name can be ""
         final String nm; // suffix name never ""
 
-        static final HashSet<TypeName> allNames = new HashSet<>(); // all likely type names
-        static final HashMap<TypeName, TypeName> toDefined = new HashMap<>(); // map from a type name to a name that has a definition
-        static final HashMap<TypeName, List<TypeName>> toLong = new HashMap<>(); // map from a name without a package to all names that match it
-        static final HashSet<TypeName> aliases = new HashSet<>(); // all names we know to be aliases
-        static final HashSet<TypeName> types = new HashSet<>(); // all names we know to be types
-        static boolean frozen = false; // becomes true when we have read all type and alias definitions
+        /** Create a TypeName from a package and a suffixe. */
+        private TypeName(String pkg, String nm) {
+            this.pkg = pkg;
+            this.nm = nm;
+        }
 
         /**
-         * This function is called when we are "reasonably" sure that we have a type. It
-         * could be either "","Any" or "Core","Any" for example. Typical cases where we
-         * get someting else than a type are variables in UnionAll types. Their name is
-         * a TypeName -- because, at first we don't know better.
+         * Invariants: any name that ...
+         * 
+         * <pre>
+         *  -- ... was in a "type" position will show up in allNames
+         *  -- ... has a definition will show up in toDefined
+         *  -- ... seen defined as an alias will show up in aliases
+         *  -- ... that has a long form will show up in toLong
+         * </pre>
+         */
+        private static final HashSet<TypeName> allNames = new HashSet<>(); // all likely type names
+        private static final HashMap<TypeName, TypeName> toDefined = new HashMap<>(); // from a name to a name that has a type definition (abstract or struct)
+        private static final HashMap<TypeName, List<TypeName>> toLong = new HashMap<>(); // map from a short name to all names that match it
+        private static final HashSet<TypeName> aliases = new HashSet<>(); // all names we know to be aliases
+        private static boolean frozen = false; // becomes true when we have read all type and alias definitions
+
+        /**
+         * Call when "reasonably" sure that it is a type. Args could be either "","Any"
+         * or "Core","Any". Cases where someting else than a type is provided is
+         * variables in UnionAll, their come as a TypeName -- because, at first, we
+         * don't know better.
          * 
          * There are other TypeName objects in the system, e.g. for constants. But they
          * are mostly created with a direct constructor and do not go through this
@@ -58,121 +75,81 @@ class NameUtils implements Serializable {
          * as types.
          */
         static TypeName mk(String pk, String nm) {
-            if (nm.equals("")) throw new RuntimeException("Empty name");
+            if (nm.equals("")) throw new RuntimeException("Empty name is not allowed");
             var tn = new TypeName(pk, nm);
-            if (allNames.contains(tn)) return tn;
-            allNames.add(tn);
-            if (!tn.isShort()) {
-                var snm = new TypeName("", nm);
-                var list = new ArrayList<TypeName>();
-                list.add(tn);
-                toLong.put(snm, list);
-            }
-            if (frozen) {
-                findDefinition(tn);
-            }
+            if (allNames.contains(tn)) return tn; // if this exact name is already in the system, return it        
+            allNames.add(tn); // otherwise add it to the names 
+            if (!frozen) {
+                if (!pk.equals("")) {
+                    var snm = new TypeName("", nm);
+                    var list = toLong.getOrDefault(snm, new ArrayList<>());
+                    list.add(tn);
+                    toLong.put(snm, list);
+                }
+            } else
+                ensureNameIsDefined(tn);
             return tn;
         }
 
         /**
-         * Create a short name.
-         */
-        static TypeName mk(String nm) {
-            return mk("", nm);
-        }
-
-        /**
-         * When we have seen all alias definitions and all type definition, build the
-         * toDefined mapping so that we can make queries involving soft imports and
-         * partial names.
+         * When we have seen all alias and type definition, build the toDefined mapping
+         * to allow queries involving soft imports.
          */
         static void freeze() {
-            var seen = new HashSet<TypeName>();
-            for (var a : GenDB.it.aliases.all()) {
-                toDefined.put(a.nm, a.nm);
-                seen.add(a.nm);
-                aliases.add(a.nm);
-            }
-            for (var i : GenDB.it.types.all()) {
-                toDefined.put(i.nm, i.nm);
-                seen.add(i.nm);
-                types.add(i.nm);
-            }
-            // All the names that don't have a definition
-            for (var tnm : allNames) {
-                if (seen.contains(tnm)) continue; // already handled                
-                findDefinition(tnm);
-            }
+            for (var a : GenDB.it.aliases.all())
+                addToSets(a.nm, aliases);
+            for (var i : GenDB.it.types.all())
+                addToSets(i.nm, aliases);
+            for (var tnm : allNames)
+                ensureNameIsDefined(tnm);
             frozen = true;
         }
 
+        /** Helper for freeze */
+        private static void addToSets(TypeName tn, HashSet<TypeName> set) {
+            toDefined.put(tn, tn);
+            set.add(tn);
+        }
+
         /**
-         * Give a type name that does not have a definition, find its definition or
-         * complain or even fail.
+         * Give a typeName wothout a definition, find its definition or complain.
          * 
          * <pre>
          *    Any ==> Core.Any
          *    Foo.Int32 ==> Core.Int32
          * </pre>
          * 
-         * We assume a well-defined program. I.e. all names are meaningful.
-         * 
-         * If we see a name that does not have a mapping in toDefined, we shorten it to
-         * its suffix, dropping the package, and get all definitions that end in that
-         * suffix.
-         * 
-         * Our hope is that there is a single definition for that name, in that case,
-         * since the program is well-defined, it must be the one we are looking for.
-         * 
-         * If there are multiple definitions, then we have to pick one. We hope that
-         * there is a single one that belongs to the base / core packages and thus is a
-         * soft import.
-         * 
-         * If no definition is found -- either we are missing a type (Seems to be
-         * happening for Colon and DataType) or what we have is a variable and we did
-         * not recognize it as such.
+         * Assume a well-defined program where names refer to some entity. If some name
+         * N has no mapping in toDefined, shorten N to SN, dropping the package, and
+         * find all definitions for SN, regardless of origin package. If there is a
+         * single definition for SN, then it is also the definition for N. If SN has
+         * multiple definitions, then pick one. If there is a definition D for SN that
+         * belongs to tbe base packages, then D is the definition for N. This is a soft
+         * import. If there is no definition in the base packages, then we have an
+         * ambibuity. If no definition is found. It can be that we are missing a type
+         * (for example Colon and DataType are not found) or we have a bug.
          */
-        private static void findDefinition(TypeName tnm) {
+        private static void ensureNameIsDefined(TypeName tnm) {
             // What is the meaning of this name? It does not have a definition
             // in the DB, it is either a soft import or a short names.
+            if (toDefined.containsKey(tnm)) return; // already defined
 
-            // Let's shorten it...
-            var tn = tnm.isShort() ? tnm : new TypeName("", tnm.nm);
-
-            // Let's get all the names that share the same suffix
-            var nms = toLong.get(tn);
-            if (nms == null || nms.isEmpty()) {
-                App.output(tn + " not in toLong, is it really a type? If yes, then it is a bug. The parser somtime generates noise names.");
-                return;
-            }
-            if (nms.size() == 1) {
-                var nm = nms.get(0);
-                if (!aliases.contains(nm) && !types.contains(nm)) App.print(nm + " lacks a definition, we are missing a type. Oh well.");
-                toDefined.put(tn, nm);
-            } else {
-                var found = false;
-                for (var nm : nms)
-                    if (nm.isBasic()) {
-                        if (found) throw new RuntimeException("Multiple definitions for " + tn);
-                        found = true;
-                        toDefined.put(tn, nm);
-                    }
-                if (!found) throw new RuntimeException("Missing definition for " + tn);
-            }
-        }
-
-        /**
-         * Create a type name from a package name and a suffix name. The basic property
-         * holds only for names that are defined in Base or Core and not for names of
-         * subpakages.
-         */
-        private TypeName(String pkg, String nm) {
-            this.pkg = pkg;
-            this.nm = nm;
+            // If we get past this point it means, we are dealing with a soft import
+            var stn = new TypeName("", tnm.nm); // shortened...
+            var nms = toLong.get(stn); // all names that share the same suffix
+            // If we have no match, then it means that either it is a variable that we thought was perhaps a type
+            // or there is a type without a definition.
+            if (nms == null || nms.isEmpty()) return;
+            var basics = nms.stream().filter(n -> n.isBasic()).toList();
+            if (basics.isEmpty()) return; // this does not look like a type that can be soft imported
+            var defs = basics.stream().map(n -> toDefined.get(n)).filter(d -> d != null).toList();
+            var uniqs = new HashSet<>(defs);
+            if (uniqs.size() == 1) toDefined.put(tnm, uniqs.iterator().next());
+            // Else we have an ambiguity, can't resolve it
         }
 
         // number with optional exponent
-        static Pattern pattern = Pattern.compile("[-+]?\\d*\\.?\\d+([eE][-+]?\\d+)?");
+        private static Pattern pattern = Pattern.compile("[-+]?\\d*\\.?\\d+([eE][-+]?\\d+)?");
 
         boolean likelyConstant() {
             if (nm.equals("true") || nm.equals("false") || nm.startsWith(":") || nm.startsWith("\"") || nm.startsWith("\'")) return true;
@@ -226,18 +203,25 @@ class NameUtils implements Serializable {
             return false;
         }
 
+        /** Is this Any? */
         boolean isAny() {
             return nm.equals("Any");
         }
 
+        /** Is this VarArg? */
         boolean isVararg() {
             return nm.equals("Vararg");
         }
 
+        /** Is this a TypeName without a packages? */
         boolean isShort() {
             return pkg.equals("");
         }
 
+        /**
+         * Is this a basic type? One that occurs in the Base or Core packages. One that
+         * can be the subject of a soft import.
+         */
         boolean isBasic() {
             if (isShort()) return false;
             if (pkg.startsWith("Base.")) return true;
@@ -247,22 +231,17 @@ class NameUtils implements Serializable {
             return false;
         }
 
-        /**
-         * Try to handle the case when we see types from code_warn types. This will
-         * break if users choose to define either of these names for themselves.
-         */
+        /** Is this a Tuple? */
         boolean isTuple() {
             return nm.equals("Tuple");
         }
 
-        /**
-         * Try to handle the case when we see types from code_warn types. This will
-         * break if users choose to define either of these names for themselves.
-         */
+        /** Is this a Union? */
         boolean isUnion() {
             return nm.equals("Union");
         }
 
+        /** Return the type name as a string. */
         @Override
         public String toString() {
             return pkg.equals("") ? nm : pkg + "." + nm;
@@ -276,31 +255,30 @@ class NameUtils implements Serializable {
         private final String pkg;
         private final String nm;
 
-        /**
-         * Return the package name or an empty string if there is no package.
-         */
+        /** Return the package name or an empty string if there isn't one. */
         String packageName() {
             return pkg;
         }
 
-        /**
-         * Return the function name without the package prefix. Never empty.
-         */
+        /** Return the function name without the package prefix. Never empty. */
         String operationName() {
             return nm;
         }
 
+        /** Create a function name from a package and a suffix. */
         FuncName(String pkg, String nm) {
             this.pkg = pkg == null ? "" : pkg;
             this.nm = nm;
         }
 
+        /** Equality of names */
         @Override
         public boolean equals(Object o) {
             if (o instanceof FuncName t) return pkg.equals(t.pkg) && nm.equals(t.nm);
             return false;
         }
 
+        /** Traditional hash */
         @Override
         public int hashCode() {
             return pkg.hashCode() + nm.hashCode();
@@ -312,37 +290,31 @@ class NameUtils implements Serializable {
         }
 
         /**
-         * Returns this function name as it could appear in Julia source code. There are
-         * two things to do: add quotes for names that were constructed out of
-         * conncatenated identifier and string. The second is for names that are symbols
-         * such as < surround them with a ":(<)".
+         * Returns this function name as it could appear in Julia source code. Names
+         * that are symbols such as < surround them with a ":(<)".
          */
         String toJulia() {
-            // FileWatching.|
-            // Pkg.Artifacts.var#verify_artifact#1
-            // Base.GMP.MPQ.//
-            var name = nm;
-            if (name.startsWith("var#")) {
-                name = name.substring(0, 3) + "\"" + name.substring(3) + "\"";
-            } else if (!Character.isLetter(name.charAt(0)) && name.charAt(0) != '_') {
-                name = ":(" + name + ")";
-            }
+            var name = !Character.isLetter(nm.charAt(0)) && nm.charAt(0) != '_' ? (":(" + nm + ")") : nm;
             return pkg.equals("") ? name : pkg + "." + name;
         }
 
     }
 
     /**
-     * From a string make a type name.
+     * From a string make a type name. This function has three roles: (1) it returns
+     * a TypeName after splitting the package part of the input from the name part.
+     * (2) It adds the package part to packages so that we can generate the import
+     * for that one, (3) it calls TypeName.mk() to register the type name. (If it is
+     * not a type name, it will try to avoid calling mk(), but this is only a
+     * heuristic, if the name looks credible we will call mk() -- that in turn will
+     * try to ignore bogus type names).
      */
     TypeName type(String exp) {
         // the parser can see weird names like typeof(t)
         // We don't call mk() because it would log those names
-        if (exp.startsWith("typeof(")) {
+        if (exp.startsWith("typeof("))
             return new TypeName("", exp);
-        } else if (exp.startsWith("Symbol(")) {
-            return new TypeName("", exp);
-        }
+        else if (exp.startsWith("Symbol(")) return makeShort(exp);
         var suf = suffix(exp);
         var pre = prefix(exp);
         pre = pre == null ? "" : pre;
@@ -352,6 +324,10 @@ class NameUtils implements Serializable {
         return TypeName.mk(pre, suf);
     }
 
+    /**
+     * Return a FuncName after splitting the string into a package and function. The
+     * package is added to packages so we can generate an import.
+     */
     FuncName function(String exp) {
         var suf = suffix(exp);
         var pre = prefix(exp);
@@ -361,20 +337,24 @@ class NameUtils implements Serializable {
         return tn;
     }
 
-    TypeName getShort(String nm) {
-        return TypeName.mk(nm);
+    /** Returns a short type name. */
+    TypeName makeShort(String nm) {
+        return new TypeName("", nm);
     }
 
+    /** All packages that are seen as part of names. */
     final HashSet<String> packages = new HashSet<>();
 
+    /**
+     * Return the package part of the name, i.e. the string until the last dot. Null
+     * if none.
+     */
     private String prefix(String s) {
         var i = s.lastIndexOf(".");
         return i == -1 ? null : s.substring(0, i);
     }
 
-    /**
-     * Return the suffix of a name, i.e., the part after the last dot.
-     */
+    /** Return the suffix of a name, i.e., the part after the last dot. */
     String suffix(String s) {
         var i = s.lastIndexOf(".");
         return i == -1 ? s : s.substring(i + 1);
@@ -386,16 +366,12 @@ class NameUtils implements Serializable {
     // keep names short, so I'll try to avoid doing that if possible.)
     private static int gen = 0;
 
-    /**
-     * Reset the type variable name generator. Call this between distinct types.
-     */
+    /** Reset the type variable name generator. Call this between definitions. */
     static void reset() {
         gen = 0;
     }
 
-    /**
-     * A few Greek letters used for type variables.
-     */
+    /** A few Greek letters used for type variables. */
     final private static char[] varNames = { 'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω' };
 
     /**
@@ -412,5 +388,4 @@ class NameUtils implements Serializable {
         gen++;
         return nm;
     }
-
 }

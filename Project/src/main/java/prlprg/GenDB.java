@@ -22,13 +22,10 @@ import prlprg.Parser.MethodInformation.RegAssign;
 /**
  * A database containing all the information that we have acquired about types
  * and signatures of methods.
- *
- * NOTE: for some reason I have static variables in the DB, perhaps this should
- * be revisited. I don't recall why that was.
  */
 class GenDB implements Serializable {
     class Aliases implements Serializable {
-        final private HashMap<TypeName, Alias> db = new HashMap<>(); // maps package.type name to alias
+        final private HashMap<TypeName, Alias> db = new HashMap<>(); // maps TypeName to alias
         final private HashMap<String, List<Alias>> shortNames = new HashMap<>(); // maps type without prefix to alias
 
         class Alias implements Serializable {
@@ -128,7 +125,7 @@ class GenDB implements Serializable {
                     parentName = nm;
                     parent = this;
                     var tany = new Tuple(List.of(any, any));
-                    decl = new Decl("abstract type", names.getShort("Any"), tany, null, "");
+                    decl = new Decl("abstract type", names.makeShort("Any"), tany, null, "");
                 }
             }
 
@@ -257,7 +254,7 @@ class GenDB implements Serializable {
          */
         void printHierarchy() {
             App.output("\nType hierarchy (Green is abstract )");
-            printHierarchy(get(names.getShort("Any")), 0);
+            printHierarchy(get(names.makeShort("Any")), 0);
         }
 
         /**
@@ -405,7 +402,7 @@ class GenDB implements Serializable {
     Aliases aliases = new Aliases();
     Types types = new Types();
     Signatures sigs = new Signatures();
-    Inst any = new Inst(names.getShort("Any"), List.of());
+    Inst any = new Inst(names.makeShort("Any"), List.of());
     Union none = new Union(List.of());
     HashSet<String> seenMissing = new HashSet<>();
 
@@ -493,7 +490,7 @@ class GenDB implements Serializable {
                 sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
 
         types.all().forEach(i -> i.fixUpParent());
-        types.get(names.getShort("Any")).toDecl();
+        types.get(names.makeShort("Any")).toDecl();
         for (var i : types.all())
             i.decl = i.decl.expandAliases();
         types.printHierarchy();
@@ -1275,21 +1272,21 @@ class Method implements Serializable {
                         tys.add(env.get(arg));
                     } else {
                         if (arg.charAt(0) == '\"') {
-                            tys.add(new Inst(GenDB.it.names.getShort("String"), List.of()));
+                            tys.add(new Inst(GenDB.it.names.makeShort("String"), List.of()));
                         } else if (arg.charAt(0) == ':') {
-                            tys.add(new Inst(GenDB.it.names.getShort("Symbol"), List.of()));
+                            tys.add(new Inst(GenDB.it.names.makeShort("Symbol"), List.of()));
                         } else if (arg.charAt(0) >= '0' && arg.charAt(0) <= '9') {
-                            tys.add(new Inst(GenDB.it.names.getShort("Int64"), List.of()));
+                            tys.add(new Inst(GenDB.it.names.makeShort("Int64"), List.of()));
                         } else if (arg.equals("false") || arg.equals("true")) {
-                            tys.add(new Inst(GenDB.it.names.getShort("Bool"), List.of()));
+                            tys.add(new Inst(GenDB.it.names.makeShort("Bool"), List.of()));
                         } else if (arg.equals("nothing")) {
-                            tys.add(new Inst(GenDB.it.names.getShort("Nothing"), List.of()));
+                            tys.add(new Inst(GenDB.it.names.makeShort("Nothing"), List.of()));
                         } else {
                             if (!GenDB.it.seenMissing.contains(arg)) {
                                 GenDB.it.seenMissing.add(arg);
                                 App.output("Missing type for " + arg);
                             }
-                            tys.add(GenDB.it.types.get(GenDB.it.names.getShort("Any")).decl.ty());
+                            tys.add(GenDB.it.types.get(GenDB.it.names.makeShort("Any")).decl.ty());
                         }
                     }
                 }
