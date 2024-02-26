@@ -324,6 +324,8 @@ class Orchestrator {
         var tests = new ArrayList<Test>();
         var seen = new HashSet<String>();
         for (var s : it.sigs.allSigs()) {
+            //   if (!s.nm().toString().equals("Core.Compiler.checkbounds")) continue; //TODO REMOVE
+
             var signameArity = s.nm().toString() + s.arity();
             if (seen.contains(signameArity)) continue;
             seen.add(signameArity);
@@ -406,18 +408,17 @@ class Orchestrator {
     private void readOneSigResult(Method m, List<Info> siginfo) {
         var found = 0;
         // first try with strict equality 
-        for (var sig : siginfo) {
+        for (var sig : siginfo)
             if (sig.sig.arity() == m.originSig.arity()) {
-                if (sig.sig.toString().equals(m.originSig.toString())) {
+                if (sig.sig.toString().equals(m.sig.toString())) {
                     found++;
                     sig.addResult(m.sig.ty(), m.returnType);
                     return;
                 }
             }
-        }
 
         Info foundSig = null;
-        for (var sig : siginfo) {
+        for (var sig : siginfo)
             if (sig.sig.arity() == m.originSig.arity()) {
                 // Perhaps a match. We need to check the types.
                 if (sig.sig.structuralEquals(m.originSig)) {
@@ -426,13 +427,13 @@ class Orchestrator {
                     foundSig = sig;
                 }
             }
-        }
-        if (found == 0) App.print("No match for " + m.sig + ". This can happen if processing a susbeet of methods.");
+
+        if (found == 0) App.print("No match for " + m.sig + ". This can happen if processing a susbet of methods.");
         if (found > 1) {
             App.print("Found " + found + " matches for " + m.sig + ". This sounds like a bug.");
             for (var sig : siginfo) {
                 if (sig.sig.arity() == m.originSig.arity()) {
-                    if (sig.sig.structuralEquals(m.originSig)) {
+                    if (sig.sig.structuralEquals(m.sig)) {
                         App.print("  - " + sig.sig);
                     }
 
