@@ -368,7 +368,9 @@ class Orchestrator {
                 try {
                     rd = new BufferedReader(new FileReader(fn));
                     var ln = rd.readLine();
-                    App.print("  " + fn + " head:\n    " + ln == null ? "<EOF>" : ln);
+                    App.print("  " + fn);
+                    ln = (ln == null) ? "<EOF>" : ln;
+                    App.print("   head:  " + ln);
                 } catch (IOException e) {
                 } finally {
                     try {

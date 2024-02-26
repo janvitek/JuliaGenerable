@@ -16,7 +16,7 @@ class Lexer {
 
   /** Testing/debuging */
   public static void main(String[] args) {
-    System.out.println(new Line("?:\\.(\\d+))? # ", 1));
+    System.out.println(new Line("Mn/.nv", 1));
   }
 
   /** The source text. */
@@ -478,6 +478,8 @@ class Dotted extends Transformer {
       v.done(t1.asIdent()).revisit(t2);
     else if (t1.isNumber())
       v.done(t1.asNumber()).revisit(t2);
+    else if (t1.isChar('.'))
+      v.done(t1.asDelim()).revisit(t2);
     else
       v.done(t1).revisit(t2);
   }
