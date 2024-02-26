@@ -313,6 +313,28 @@ class GenDB implements Serializable {
             void addResult(Type argTy, Type retTy) {
                 results.add(new Result(argTy, retTy));
             }
+
+            boolean equalsSig(String other) {
+
+                var res = other.replaceAll(" : ", ":").replaceAll(" ", " @ ");
+                return equalsSrc(res + "]");
+            }
+
+            boolean equalsSTyig(TySig other) {
+                return equalsSrc(other.src());
+            }
+
+            private boolean equalsSrc(String a) {
+                // The src field contains the entire signature ending with the file name. 
+                // "function Base.*(x::T, y::T) where T<:Union{Core.Int128, Core.UInt128}  [generic @ int.jl:1027]"
+                // What we want to compare is the int.jl:1027 part.
+                // Sometimes there is no @
+                // "function SHA.var"#s972#1"(::Core.Any, context)  [generic]"
+                var aa = a.lastIndexOf('@') == -1 ? a : a.substring(a.lastIndexOf('@'));
+                var b = pre_patched.src();
+                var bb = b.lastIndexOf('@') == -1 ? b : b.substring(b.lastIndexOf('@'));
+                return aa.equals(bb);
+            }
         }
 
         /**
@@ -390,8 +412,9 @@ class GenDB implements Serializable {
          */
         Info find(TySig sig) {
             var infos = db.get(sig.nm().operationName());
-            if (infos != null) for (var info : infos)
-                if (sig.src().equals(info.pre_patched.src())) return info;
+            if (infos == null) return null;
+            for (var info : infos)
+                if (info.equalsSTyig(sig)) return info;
             return null;
 
         }

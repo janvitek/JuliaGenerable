@@ -324,7 +324,7 @@ class Orchestrator {
         var tests = new ArrayList<Test>();
         var seen = new HashSet<String>();
         for (var s : it.sigs.allSigs()) {
-            //   if (!s.nm().toString().equals("Core.Compiler.checkbounds")) continue; //TODO REMOVE
+            // if (!s.nm().toString().contains("zip_iteratorsize")) continue; //TODO REMOVE
 
             var signameArity = s.nm().toString() + s.arity();
             if (seen.contains(signameArity)) continue;
@@ -406,54 +406,13 @@ class Orchestrator {
      * of code_warntype.
      */
     private void readOneSigResult(Method m, List<Info> siginfo) {
-        var found = 0;
-        // first try with strict equality 
-        for (var sig : siginfo)
-            if (sig.sig.arity() == m.originSig.arity()) {
-                if (sig.sig.toString().equals(m.sig.toString())) {
-                    found++;
-                    sig.addResult(m.sig.ty(), m.returnType);
-                    return;
-                }
-            }
-
-        Info foundSig = null;
-        for (var sig : siginfo)
-            if (sig.sig.arity() == m.originSig.arity()) {
-                // Perhaps a match. We need to check the types.
-                if (sig.sig.structuralEquals(m.originSig)) {
-                    // We found a match. We can now add the result to the DB.
-                    found++;
-                    foundSig = sig;
-                }
-            }
-
-        if (found == 0) App.print("No match for " + m.sig + ". This can happen if processing a susbet of methods.");
-        if (found > 1) {
-            App.print("Found " + found + " matches for " + m.sig + ". This sounds like a bug.");
-            for (var sig : siginfo) {
-                if (sig.sig.arity() == m.originSig.arity()) {
-                    if (sig.sig.structuralEquals(m.sig)) {
-                        App.print("  - " + sig.sig);
-                    }
-
-                    boolean matched = false;
-                    for (var si : siginfo) {
-                        if (si.sig.ty().structuralEquals(m.sig.ty())) {
-                            matched = true;
-                            break;
-                        }
-                    }
-                    if (!matched) {
-                        App.print("=== No matching signature for `" + m.sig + "'");
-                    }
-                }
-            }
-        }
-        if (found == 1) {
-            if (foundSig == null) throw new Error("Can't happen");
-            foundSig.addResult(m.sig.ty(), m.returnType);
-        }
+        var foundsigs = siginfo.stream().filter(sig -> sig.equalsSig(m.originPackageAndFile)).collect(Collectors.toList());
+        if (foundsigs.size() == 0)
+            App.print("No match for " + m.sig + ". This can happen if processing a susbet of methods.");
+        else if (foundsigs.size() > 1) {
+            App.print("Found " + foundsigs.size() + " matches for " + m.sig + ". This sounds like a bug."); 
+        } else
+            foundsigs.getFirst().addResult(m.sig.ty(), m.returnType);
     }
 
     /**
