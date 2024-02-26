@@ -23,6 +23,7 @@ import java.util.stream.Collectors;
 import prlprg.App.Timer;
 import prlprg.GenDB.Signatures.Info;
 import prlprg.Parser.MethodInformation;
+import java.util.Collections;
 
 /**
  * Class for orchestrating the generation of type stability tests.
@@ -362,15 +363,18 @@ class Orchestrator {
         }
         if (count != ctxt.count) App.print("Expected " + ctxt.count + " methods, found " + count);
         if (!ctxt.failures.isEmpty()) {
+            var strings = new ArrayList<String>();
+            var empties = new ArrayList<String>();
             App.print("The following " + ctxt.failures.size() + " files contain failed requests");
             for (var fn : ctxt.failures) {
                 BufferedReader rd = null;
                 try {
                     rd = new BufferedReader(new FileReader(fn));
                     var ln = rd.readLine();
-                    App.print("  " + fn);
-                    ln = (ln == null) ? "<EOF>" : ln;
-                    App.print("   head:  " + ln);
+                    if (ln == null)
+                        empties.add(fn);
+                    else
+                        strings.add(fn + " : " + ln);
                 } catch (IOException e) {
                 } finally {
                     try {
@@ -379,6 +383,12 @@ class Orchestrator {
                     }
                 }
             }
+            Collections.sort(strings);
+            for (var s : strings)
+                App.print("  " + s);
+            Collections.sort(empties);
+            for (var s : empties)
+                App.print("  " + s);
         }
     }
 
