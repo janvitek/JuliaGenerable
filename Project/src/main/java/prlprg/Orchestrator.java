@@ -1,7 +1,9 @@
 package prlprg;
 
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.FilenameFilter;
 import java.io.IOException;
@@ -324,7 +326,7 @@ class Orchestrator {
         var tests = new ArrayList<Test>();
         var seen = new HashSet<String>();
         for (var s : it.sigs.allSigs()) {
-            // if (!s.nm().toString().contains("zip_iteratorsize")) continue; //TODO REMOVE
+            //    if (!s.nm().toString().contains("image")) continue; //TODO REMOVE
 
             var signameArity = s.nm().toString() + s.arity();
             if (seen.contains(signameArity)) continue;
@@ -361,8 +363,20 @@ class Orchestrator {
         if (count != ctxt.count) App.print("Expected " + ctxt.count + " methods, found " + count);
         if (!ctxt.failures.isEmpty()) {
             App.print("The following " + ctxt.failures.size() + " files contain failed requests");
-            for (var f : ctxt.failures)
-                App.print("  " + f);
+            for (var fn : ctxt.failures) {
+                BufferedReader rd = null;
+                try {
+                    rd = new BufferedReader(new FileReader(fn));
+                    var ln = rd.readLine();
+                    App.print("  " + fn + " head:\n    " + ln == null ? "<EOF>" : ln);
+                } catch (IOException e) {
+                } finally {
+                    try {
+                        rd.close();
+                    } catch (IOException e) {
+                    }
+                }
+            }
         }
     }
 
@@ -410,7 +424,7 @@ class Orchestrator {
         if (foundsigs.size() == 0)
             App.print("No match for " + m.sig + ". This can happen if processing a susbet of methods.");
         else if (foundsigs.size() > 1) {
-            App.print("Found " + foundsigs.size() + " matches for " + m.sig + ". This sounds like a bug."); 
+            App.print("Found " + foundsigs.size() + " matches for " + m.sig + ". This sounds like a bug.");
         } else
             foundsigs.getFirst().addResult(m.sig.ty(), m.returnType);
     }

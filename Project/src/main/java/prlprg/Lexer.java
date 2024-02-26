@@ -16,7 +16,7 @@ class Lexer {
 
   /** Testing/debuging */
   public static void main(String[] args) {
-    System.out.println(new Line(" Body::Distributed.var\"#204#206\"", 1));
+    System.out.println(new Line("?:\\.(\\d+))? # ", 1));
   }
 
   /** The source text. */
@@ -90,7 +90,7 @@ class Line {
 
     // Sanity check
     for (var t : tokens)
-      if (t.k() == Kind.UNKNOWN) throw new RuntimeException("Should not be there");
+      if (t.k() == Kind.UNKNOWN) throw new RuntimeException("Should not be there: " + (char) charAt(t.start()));
 
     //System.out.println(this); // 
   }
@@ -122,7 +122,7 @@ class Line {
     if (ch != '\'' || atEnd(pos)) return ret; // does not start with a single quote
     ch = charAt(pos);
     pos += increment(pos);
-    if (ch == '\'' && !atEnd(pos)) pos += increment(pos); // seen an escape character, skip the next one
+    if (ch == '\\' && !atEnd(pos)) pos += increment(pos); // seen an escape character, skip the next one
     if (atEnd(pos)) return ret; // ill formed char constant, the line ended early
     ch = charAt(pos);
     pos += increment(pos);
@@ -142,9 +142,10 @@ class Line {
     if (ch != '\"' || atEnd(pos)) return ret; // does not start with a double quote or at end just after
     while (!atEnd(pos)) {
       ch = charAt(pos);
+      var c = (char) ch;
       pos += increment(pos);
       if (ch == '\"') return pos;
-      if (ch == '\'' && !atEnd(pos)) pos += increment(pos);
+      if (ch == '\\' && !atEnd(pos)) pos += increment(pos);
     }
     return ret;
   }
@@ -459,6 +460,10 @@ class Dotted extends Transformer {
   void accept(Tok t1, Tok t2, Visitor v) {
     if (t1.adjacent(t2) && (t1.isIdent() || t1.isNumber()) && t2.isChar('.'))
       v.revisit(t1.merge(t2));
+    else if (t1.adjacent(t2) && t1.isChar(':') && t2.isOperator())
+      v.revisit(t1.asIdent().merge(t2));
+    else if (t1.adjacent(t2) && t1.isChar(':') && t2.isChar('.'))
+      v.revisit(t1.asIdent().merge(t2));
     else if (t1.adjacent(t2) && t1.isChar('.') && t2.isNumber()) // .2
       v.done(t1.asNumber().merge(t2));
     else if (t1.adjacent(t2) && t1.isNumber() && t2.isNumber())
@@ -467,6 +472,12 @@ class Dotted extends Transformer {
       v.revisit(t1.merge(t2));
     else if (t1.adjacent(t2) && t1.isIdent() && t1.endsWith('.') && t2.isOperator()) // Comp.=>
       v.revisit(t1.merge(t2));
+    else if (t1.isOperator())
+      v.done(t1.asOperator()).revisit(t2);
+    else if (t1.isIdent())
+      v.done(t1.asIdent()).revisit(t2);
+    else if (t1.isNumber())
+      v.done(t1.asNumber()).revisit(t2);
     else
       v.done(t1).revisit(t2);
   }
