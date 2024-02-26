@@ -33,7 +33,7 @@ public class App {
             "-f=stdf.jlg", // file with function signatures
             "-t=stdt.jlg", // file with type declarations
             "-a=stda.jlg", // file with alias declarations
-            "-m=1000", // max number of sigs to read (0 = all)
+            "-m=0", // max number of sigs to read (0 = all)
             "-julia=julia", // path to the julia binary to use
             "-depot=/tmp/JuliaGenerableDepot", // what depot to run julia with
             "-regen=FALSE", // should regenerate input files even if they exist?
@@ -111,7 +111,10 @@ public class App {
             }
             i.level_1_kids = childs;
         }
+
         print("Generated " + cnt + " types");
+
+        if (cnt != -1) return; // TODO REMOVE
         for (var nm : GenDB.it.sigs.allNames()) {
             for (var me : GenDB.it.sigs.get(nm)) {
                 var m = me.sig;
@@ -169,6 +172,7 @@ public class App {
     }
 
     static void print(String s) {
+        s = s == null ? "null" : s;
         System.err.println(s);
         output(s);
     }
