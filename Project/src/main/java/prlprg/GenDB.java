@@ -315,9 +315,12 @@ class GenDB implements Serializable {
             }
 
             boolean equalsSig(String other) {
+                // There is a silly format mistmatch in the way the parser represents source info in methods read from code_warntype
 
-                var res = other.replaceAll(" : ", ":").replaceAll(" ", " @ ");
-                return equalsSrc(res + "]");
+                int idx = other.indexOf(" ");
+                var split = idx != -1 ? other.substring(idx + 1) : other;
+                var res = split.replaceAll(" ", "");
+                return equalsSrc("@ " + res + "]");
             }
 
             boolean equalsSTyig(TySig other) {
