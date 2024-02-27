@@ -15,10 +15,8 @@ export typediscover
     Closure
     SingletonFunctionType
     Typ
-    # aliases
-    FunctionAlias
-    TypeAlias
-    ModuleAlias
+    # other
+    Mod
 end
 
 abstract type Discovery end
@@ -39,7 +37,7 @@ struct TypeDiscovery <: Discovery
 end
 
 struct AliasDiscovery <: Discovery
-    tag::Tag
+    tag::Tag  # tag of what this aliases to
     mod::Module
     sym::Symbol
     what::Union{Function, Type, Module}
@@ -54,6 +52,12 @@ isalias(m::Module, s::Symbol, t::Type) = begin
 end
 
 isalias(m::Module, s::Symbol, other::Module) = s != nameof(other) || m !== parentmodule(other)
+
+istagfunction(t::Tag) = Macro <= t <= Generic
+
+istagtype(t::Tag) = Closure <= t <= Typ
+
+istagmodule(t::Tag) = t == Mod
 
 issoftimport(m::Module, s::Symbol) = m ∈ [Core, Base] && Base.isexported(m, s)
 
@@ -133,7 +137,7 @@ discover(report::Function, modules::Vector{Module}) = begin
                 tag = tagof(val)
                 soft = issoftimport(mod, sym)
                 if isalias(mod, sym, val)
-                    report(AliasDiscovery(FunctionAlias, mod, sym, val, soft))
+                    report(AliasDiscovery(tag, mod, sym, val, soft))
                 end
                 for m in methods(val)
                     m ∈ methscache && continue
@@ -143,16 +147,17 @@ discover(report::Function, modules::Vector{Module}) = begin
             end
 
             if val isa Type && val ∉ [Union, UnionAll, DataType, Core.TypeofBottom, Union{}]
+                tag = tagof(val)
                 if isalias(mod, sym, val)
-                    report(AliasDiscovery(TypeAlias, mod, sym, val, issoftimport(mod, sym)))
+                    report(AliasDiscovery(tag, mod, sym, val, issoftimport(mod, sym)))
                 else
-                    report(TypeDiscovery(tagof(val), mod, sym, val, issoftimport(mod, sym)))
+                    report(TypeDiscovery(tag, mod, sym, val, issoftimport(mod, sym)))
                 end
             end
 
             if val isa Module && val !== mod
                 if isalias(mod, sym, val)
-                    report(AliasDiscovery(ModuleAlias, mod, sym, val, issoftimport(mod, sym)))
+                    report(AliasDiscovery(Mod, mod, sym, val, issoftimport(mod, sym)))
                 end
                 if ismodulenested(val, root)
                     discoveraux(val, root)
@@ -160,6 +165,9 @@ discover(report::Function, modules::Vector{Module}) = begin
             end
         end
     end
+
+    # make sure Any is always reported
+    Core ∈ modules || report(TypeDiscovery(tagof(Any), Core, :Any, Any, issoftimport(Core, :Any)))
 
     for m in modules
         discoveraux(m, m)
@@ -312,13 +320,13 @@ baseShowTypeCustom(io::IO, @nospecialize(x::Type)) = begin
 end
 
 Base.show(io::IO, d::FunctionDiscovery) = begin
-    @assert Macro <= d.tag <= Generic
+    @assert istagfunction(d.tag)
     print(io, "function ")
     baseShowMethodCustom(io, d)
 end
 
 Base.show(io::IO, d::TypeDiscovery) = begin
-    @assert Closure <= d.tag <= Typ
+    @assert istagtype(d.tag)
     if d.tag == SingletonFunctionType
         show(io, d.type)
     elseif d.tag == Closure || d.tag == Typ
@@ -352,18 +360,17 @@ Base.show(io::IO, d::TypeDiscovery) = begin
 end
 
 Base.show(io::IO, d::AliasDiscovery) = begin
-    @assert FunctionAlias <= d.tag <= ModuleAlias
     print(io, "const ", d.mod, ".", d.sym, " = ")
-    if d.tag == TypeAlias
+    if istagtype(d.tag)
         baseShowTypeCustom(io, d.what)
-    elseif d.tag == FunctionAlias
+    elseif istagfunction(d.tag)
         print(io, typeof(d.what).name.module, ".", nameof(d.what))
-    elseif d.tag == ModuleAlias
+    elseif istagmodule(d.tag)
         print(io, d.what)
     end
     d.soft && print(io, "  @soft")
     kind = lowercase(string(d.tag))
-    print(io, "  [", kind, " @ ", d.mod, ".", d.sym, "]")
+    print(io, "  [", kind, " alias @ ", d.mod, ".", d.sym, "]")
 end
 
 typediscover(mods::AbstractVector{Module}=Base.loaded_modules_array();
@@ -393,7 +400,6 @@ typediscover(mods::AbstractVector{Module}=Base.loaded_modules_array();
     skip_closures && push!(filt, Closure)
     skip_functionsingletons && push!(filt, SingletonFunctionType)
     skip_types && push!(filt, Typ)
-    skip_aliases && push!(filt, FunctionAlias, TypeAlias, ModuleAlias)
 
     mods = filter(m -> m !== TypeDiscover, mods)
 
@@ -404,6 +410,7 @@ typediscover(mods::AbstractVector{Module}=Base.loaded_modules_array();
     try
         discover(mods) do d::Discovery
             d.tag ∈ filt && return
+            d isa AliasDiscovery && skip_aliases && return
 
             io = if d isa FunctionDiscovery
                 funio
