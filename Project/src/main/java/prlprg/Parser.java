@@ -401,7 +401,7 @@ class Parser {
                 t = uai.toTy();
                 if (p.has("@soft")) p.drop(); // ignoring this for now
                 p.take("[");
-                return p.has("typealias") ? new TypeAlias(name, t) : null;
+                return new TypeAlias(name, t);
             } catch (Exception e) {
                 return null;
             }
@@ -778,7 +778,7 @@ class Parser {
             var found = false; // we are looking for a "typealias" keyword, ignore the other aliases
             while (!r.isEmpty()) { // if we don't do this, we will create broken typenames
                 var tok = r.take();
-                if (tok.is("typealias")) found = true;
+                if (tok.is("typ") && r.take().is("alias")) found = true;
             }
             if (!found) continue;
             var a = TypeAlias.parseAlias(q);
