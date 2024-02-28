@@ -58,9 +58,8 @@ class GenDB implements Serializable {
             if (alias != null) return alias;
             var aliases = shortNames.get(tn.nm);
             if (aliases == null) return null;
-            for (var a : aliases) {
+            for (var a : aliases)
                 if (tn.juliaEq(a.nm)) return a;
-            }
             return null;
         }
 
@@ -310,13 +309,20 @@ class GenDB implements Serializable {
                 return nm + " " + (sig == null ? "missing" : "defined");
             }
 
+            /**
+             * Add the result of a stability test, `argTy` are the arguments passed and
+             * `retTy` is the result of code_wrantype. The types may contain aliases and we
+             * expand them before adding.
+             */
             void addResult(Type argTy, Type retTy) {
+                argTy = Type.expandAliasesFixpoint(argTy);
+                retTy = Type.expandAliasesFixpoint(retTy);
                 results.add(new Result(argTy, retTy));
             }
 
             boolean equalsSig(String other) {
-                // There is a silly format mistmatch in the way the parser represents source info in methods read from code_warntype
-
+                // There is a silly format mistmatch in the way the parser represents 
+                // source info in methods read from code_warntype
                 int idx = other.indexOf(" ");
                 var split = idx != -1 ? other.substring(idx + 1) : other;
                 var res = split.replaceAll(" ", "");
@@ -394,17 +400,15 @@ class GenDB implements Serializable {
          * patched.
          */
         void toSigAll() {
-            for (var nm : allNames()) {
+            for (var nm : allNames())
                 for (var s : get(nm)) {
                     var n = s.patched;
                     try {
-                        s.sig = new Sig(s.patched.nm(), n.ty().toType(new ArrayList<>()), n.argnms(), n.kwPos(), n.src());
-                        s.sig = s.sig.expandAliases();
+                        s.sig = new Sig(n.nm(), n.ty().toType(new ArrayList<>()), n.argnms(), n.kwPos(), n.src()).expandAliases();
                     } catch (Exception e) {
                         App.print("Error: " + n.nm() + " " + e.getMessage() + "\n" + CodeColors.comment("Failed at " + n.src()));
                     }
                 }
-            }
         }
 
         /**
@@ -1330,9 +1334,8 @@ class Method implements Serializable {
         var s = originSig + ":: " + returnType + " @ " + filename + "\n";
         s += "  instance = " + sig + "\n";
         s += "  " + env + "\n-----\nOps:\n";
-        for (var op : ops) {
+        for (var op : ops)
             s += "   " + op + "\n";
-        }
         return s;
     }
 }

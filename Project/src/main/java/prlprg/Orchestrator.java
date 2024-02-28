@@ -95,6 +95,12 @@ class Orchestrator {
                         concrete++;
                         concretes.add(rty.toJulia());
                     } else {
+                        var s = rty.toJulia();
+                        if (s.contains("Tuple")) {
+                            App.print("Tuple: " + s);
+                        } else {
+                            App.print("Abstract: " + s);
+                        }
                         abstracts.add(rty.toJulia());
                     }
                 }
@@ -130,6 +136,20 @@ class Orchestrator {
 
         JuliaUtils.runConcretenessSanityChecks(ctxt.imports, ctxt.root.resolve("sanity.jl"), abstracts, concretes);
     }
+
+    /*
+    boolean hasLower(Type t) {
+    if (t instanceof Tuple tup) {
+        return tup.tys().stream().anyMatch(this::hasLower);
+    } else if (t instanceof Union u) {
+        return u.tys().stream().anyMatch(this::hasLower);
+    } else if (t instanceof TypeVar tv) {
+        return tv.lower().isPresent();
+    } else {
+        return false;
+    }
+    }
+    */
 
     /**
      * A context remembers where this generator is writing to. We assume there will
@@ -393,32 +413,23 @@ class Orchestrator {
     }
 
     /**
-     * Given a file produced by code_warntype, it may contain results for zero, one
-     * or more methods. Zero means code_warntype failed, one is the usual case, and
-     * more than one if the types passed applied to multiple methods.
+     * A file produced by code_warntype may contain results for zero, one or more
+     * methods. Zero means code_warntype failed, one is the usual case, and more
+     * than one means the types passed applied to multiple methods (We start by
+     * sending Any to all arguments, so we expect this outcome).
      * 
-     * This method will parse the results, and attempt to attribute them to
-     * signatures that are stored in the DB.
-     * 
-     * Each result should have a signature in the DB. If not: then our method
-     * discovery missed something.
+     * Parse the results, and attempt to attribute them to signatures that are
+     * stored in the DB. Each result should have a signature in the DB. If not: then
+     * our method discovery missed something.
      * 
      * Returns true if the file yielded results.
      */
     private boolean readFile(File file) {
-        var p = new Parser();
         try {
-            var ms = MethodInformation.parse(p.withFile(file), file.toString());
+            var ms = MethodInformation.parse(new Parser().withFile(file), file.toString());
             if (ms.isEmpty()) return false;
-            for (var m : ms) {
-                var nm = m.sig.nm();
-                var siginfo = it.sigs.get(nm.operationName());
-                if (siginfo == null) {
-                    App.print("Function " + nm + " not found, that is odd. How could we have generated a test for it");
-                    continue;
-                }
-                readOneSigResult(m, siginfo);
-            }
+            for (var m : ms)
+                readOneSigResult(m);
             return true;
         } catch (Exception e) {
             App.output("Error parsing " + file.toString() + ": " + e.getMessage());
@@ -427,11 +438,24 @@ class Orchestrator {
     }
 
     /**
-     * Given the signatures, siginfo, stored for one operationName in the DB, try to
-     * see if there is a match with the Method, m, that we parsed out of the results
-     * of code_warntype.
+     * The argument `m` is a method extracted from the results of code_warntype.
+     * This method queries the DB by method name to obtain a List of Signatures.Info
+     * objects that contain all the methods with the same name in the DB. The
+     * equalsSig method is used to filter that list to the methods that have the
+     * same origin package and file and line number. There should be one. The result
+     * is attributed to it.
+     * 
+     * Otherwise: If there is no match, this may be because we missed a method (e.g.
+     * are not analyzing all the method loaded into Julia. If there were more than
+     * one, this is likely a bug. But one that we choose to ignore as the price of
+     * discarding the information from code_warntype.
      */
-    private void readOneSigResult(Method m, List<Info> siginfo) {
+    private void readOneSigResult(Method m) {
+        var siginfo = it.sigs.get(m.sig.nm().operationName());
+        if (siginfo == null) {
+            App.print("Function " + m.sig.nm() + " not in DB. Odd that a test was generated for it");
+            return;
+        }
         var foundsigs = siginfo.stream().filter(sig -> sig.equalsSig(m.originPackageAndFile)).collect(Collectors.toList());
         if (foundsigs.size() == 0)
             App.print("No match for " + m.sig + ". This can happen if processing a susbet of methods.");
@@ -441,9 +465,7 @@ class Orchestrator {
             foundsigs.getFirst().addResult(m.sig.ty(), m.returnType);
     }
 
-    /**
-     * Convert a Sig's name to a Julia name.
-     */
+    /** Convert a Sig's name to a Julia name. */
     String juliaName(Sig s) {
         return s.nm().toJulia();
     }
