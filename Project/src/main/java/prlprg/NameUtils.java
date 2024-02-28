@@ -112,6 +112,21 @@ class NameUtils implements Serializable {
         }
 
         /**
+         * Return a valid type name. When processing data coming from code_warntype,
+         * some name are short (or may be soft imports), NameUtils keeps mapping from
+         * names to their actual definitions. This function returns those definitions.
+         */
+        public static TypeName resolve(TypeName tnm) {
+            var def0 = toDefined.get(tnm);
+            if (def0 != null) return def0;
+            var longs = toLong.get(tnm);
+            if (longs == null) return tnm;
+            var resu = longs.stream().filter(t -> t.isBasic()).findFirst().get();
+            var def = toDefined.get(resu);
+            return def == null ? tnm : def;
+        }
+
+        /**
          * Give a typeName wothout a definition, find its definition or complain.
          * 
          * <pre>

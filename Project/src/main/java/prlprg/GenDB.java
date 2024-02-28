@@ -54,6 +54,7 @@ class GenDB implements Serializable {
         }
 
         Alias get(TypeName tn) {
+            tn = TypeName.resolve(tn);
             var alias = db.get(tn);
             if (alias != null) return alias;
             var aliases = shortNames.get(tn.nm);
@@ -668,8 +669,17 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
         return false;
     }
 
+    /**
+     * A Inst type is concrete if it is a struct with all parameters bound. There
+     * are special cases for Tuple and Union, these are not Inst types, but if the
+     * name "Tuple" is used as a type we may end up here.
+     */
     @Override
     public boolean isConcrete() {
+        if (nm.toString().equals("Tuple") || nm.toString().equals("Union")) {
+            if (tys.size() != 0) throw new RuntimeException("Should be represented by class" + nm());
+            return false;
+        }
         return GenDB.it.types.isConcrete(nm, tys.size());
     }
 

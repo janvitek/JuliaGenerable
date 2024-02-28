@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import prlprg.App.Timer;
-import prlprg.GenDB.Signatures.Info;
 import prlprg.Parser.MethodInformation;
 import java.util.Collections;
 
