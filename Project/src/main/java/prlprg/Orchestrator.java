@@ -88,20 +88,13 @@ class Orchestrator {
                     weird++;
                 else if (inf.results.size() == 1) {
                     var rty = inf.results.get(0).retTy();
-                    if (rty.isEmpty()) {
+                    if (rty.isEmpty())
                         nothings++;
-                    } else if (rty.isConcrete()) {
+                    else if (rty.isConcrete()) {
                         concrete++;
                         concretes.add(rty.toJulia());
-                    } else {
-                        var s = rty.toJulia();
-                        if (s.contains("Tuple")) {
-                            App.print("Tuple: " + s);
-                        } else {
-                            App.print("Abstract: " + s);
-                        }
+                    } else
                         abstracts.add(rty.toJulia());
-                    }
                 }
             }
         }
