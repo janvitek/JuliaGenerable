@@ -28,14 +28,11 @@ class Parser {
         /** Creates a type in a simpler format */
         Ty toTy();
 
-        /**
-         * Read a type name. This is messy because we are not yet sure this is a type,
-         * for instance 'typeof(Base.:!)' is a value we read.
-         */
+        /** Read a type name. */
         static TypeName parseTypeName(Parser p) {
             var nm = p.take().toString();
-            if (p.has("(")) nm += "(" + p.sliceMatchedDelims("(", ")").foldToString("") + ")";
-            return GenDB.it.names.type(nm);
+            if (nm.isEmpty()) p.failAt("Missing type name", p.peek());
+            return GenDB.it.names.type(nm).resolve();
         }
 
         /** Function names are dotted identifiers. */
@@ -49,7 +46,10 @@ class Parser {
     /** An instance of a datatype constructor (not a union all or bound var). */
     record TypeInst(TypeName nm, List<ParsedType> ps) implements ParsedType {
 
+        /** Either returns a type or a constant */
         static ParsedType parse(Parser p) {
+            var constant = Constant.parseConstant(p);
+            if (constant != null) return constant;
             var name = ParsedType.parseTypeName(p);
             if (!p.has("{")) return new TypeInst(name, null); // null denotes absence of type params.
             List<ParsedType> params = new ArrayList<>();
@@ -60,8 +60,8 @@ class Parser {
         }
 
         /**
-         * Turns a ParsedType to a Ty. This cleans up constants, tuples and unions. Note
-         * the difference between:
+         * Turns a ParsedType to a Ty. This cleans up tuples and unions. Note the
+         * difference between:
          * 
          * <pre>
          *   Tuple{Int} 
@@ -75,7 +75,7 @@ class Parser {
          */
         @Override
         public Ty toTy() {
-            if (ps == null) return nm.likelyConstant() ? new TyCon(nm.toString()) : new TyInst(nm, new ArrayList<>());
+            if (ps == null) return new TyInst(nm, new ArrayList<>());
             var tys = ps.stream().map(tt -> tt.toTy()).collect(Collectors.toList());
             return nm.isTuple() ? new TyTuple(tys) : nm.isUnion() ? new TyUnion(tys) : new TyInst(nm, tys);
         }
@@ -83,6 +83,47 @@ class Parser {
         @Override
         public String toString() {
             return nm + (ps == null ? "" : "{" + ps.stream().map(Object::toString).collect(Collectors.joining(", ")) + "}");
+        }
+
+    }
+
+    record Constant(String val) implements ParsedType {
+
+        static Constant parseConstant(Parser p) {
+            var tryit = tryParse(p.copy());
+            return tryit == null ? null : tryParse(p);
+        }
+
+        private static Constant tryParse(Parser p) {
+            var tok = p.take();
+            if (tok.isNumber() || tok.isString())
+                return new Constant(tok.toString());
+            else if (tok.isIdent()) {
+                var s = tok.toString();
+                if (s.equals("true") || s.equals("false") || s.equals("missing") || s.equals("nothing"))
+                    return new Constant(s);
+                else if (p.has("("))
+                    return new Constant(s + "(" + p.sliceMatchedDelims("(", ")").foldToString("") + ")");
+                else
+                    return null;
+            } else if (tok.isChar(':')) {
+                var s = tok.toString();
+                if (p.has("("))
+                    s += "(" + p.sliceMatchedDelims("(", ")").foldToString("") + ")";
+                else
+                    s += p.take();
+                return new Constant(s);
+            } else
+                return null;
+        }
+
+        public Ty toTy() {
+            return new TyCon(val);
+        }
+
+        @Override
+        public String toString() {
+            return val;
         }
 
     }
@@ -178,11 +219,11 @@ class Parser {
         static ParsedType parse(Parser p) {
             if (p.has("(")) {
                 p = p.sliceMatchedDelims("(", ")");
-                if (p.isEmpty()) return new TypeInst(GenDB.it.names.makeShort("Tuple"), new ArrayList<>());
+                if (p.isEmpty()) return new TypeInst(GenDB.it.names.tuple(), new ArrayList<>());
             }
             var type = TypeInst.parse(p);
             if (!p.has("where")) return type;
-            if (p.drop().has("{")) p = p.sliceMatchedDelims("{", "}");
+            if (p.take("where").has("{")) p = p.sliceMatchedDelims("{", "}");
             var boundVars = new ArrayList<ParsedType>();
             while (!p.isEmpty()) {
                 boundVars.add(BoundVar.parse(p));
@@ -242,7 +283,7 @@ class Parser {
             while (!q.isEmpty())
                 ps.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
 
-            TypeInst parent = p.has("<:") ? (TypeInst) TypeInst.parse(p.drop()) : new TypeInst(GenDB.it.names.makeShort("Any"), new ArrayList<>());
+            TypeInst parent = p.has("<:") ? (TypeInst) TypeInst.parse(p.drop()) : new TypeInst(GenDB.it.names.any(), new ArrayList<>());
             if (p.peek().isNumber()) {
                 p.drop();
                 if (!modifiers.contains("primitive")) p.failAt("Expected 'primitive'", p.peek());
@@ -273,11 +314,7 @@ class Parser {
 
         // can be:  x   |  x :: T   |  :: T   |   x...  |   :: T...
         static Param parse(Parser p) {
-            var nm = "";
-            while (!p.isEmpty() && !p.has("::"))
-                nm += p.take().toString();
-
-            nm = nm.isEmpty() ? "?NA" : nm;
+            var nm = p.has("::") ? "?NA" : p.take().toString();
             var tok = p.take();
             var type = tok.is("::") ? UnionAllInst.parse(p) : null;
             var varargs = p.has("...") ? p.take().is("...") : false;
@@ -285,8 +322,7 @@ class Parser {
                 type = UnionAllInst.parse(p.drop());
                 varargs = p.has("...") ? p.take().is("...") : false;
             }
-
-            // TODO fix: this is a hack somethign is wrong with the parser
+            // FIXME: this is a hack somethign is wrong with the parser
             if (nm.endsWith("...")) {
                 nm = nm.substring(0, nm.length() - 3);
                 varargs = true;
@@ -294,21 +330,13 @@ class Parser {
             return new Param(nm, type, varargs);
         }
 
-        /**
-         * Wrap the type in a vararg if needed.
-         */
+        /** Wrap the type in a vararg if needed. */
         Ty toTy() {
             var t = ty == null ? Ty.any() : ty.toTy();
-            return varargs ? makeVarArg(t) : t;
-        }
-
-        /**
-         * Create a vararg type.
-         */
-        Ty makeVarArg(Ty t) {
+            if (!varargs) return t;
             List<Ty> tt = new ArrayList<>();
             tt.add(t);
-            return new TyInst(TypeName.mk("Core", "Vararg"), tt);
+            return new TyInst(GenDB.it.names.type("Core.Vararg"), tt);
         }
 
         @Override
@@ -332,25 +360,19 @@ class Parser {
         static List<ParsedType> parseWhere(Parser p) {
             var wheres = new ArrayList<ParsedType>();
             if (!p.has("where")) return wheres;
-
-            p.drop();
-            if (p.has("{")) p = p.sliceMatchedDelims("{", "}"); // we only need to read the where clause
-
+            if (p.take("where").has("{")) p = p.sliceMatchedDelims("{", "}"); // we only need to read the where clause
             while (!p.isEmpty()) {
                 wheres.add(BoundVar.parse(p));
-                if (p.has(",")) {
+                if (p.has(","))
                     p.drop().failIfEmpty("Missing type parameter", p.peek());
-                } else if (p.has("[")) // comment with line/file info
-                    break;
+                else if (p.has("[")) break;// comment with line/file info
             }
             return wheres;
         }
 
         static Function parse(Parser p) {
             NameUtils.reset();
-            if (p.has("function")) { // keyword is optional
-                p.drop();
-            }
+            if (p.has("function")) p.drop();// keyword is optional
             var name = ParsedType.parseFunctionName(p);
             var source = p.last.getLine();
             var q = p.sliceMatchedDelims("(", ")");
@@ -361,13 +383,10 @@ class Parser {
                 var r = q.sliceNextCommaOrSemi();
                 if (r.isEmpty()) break;
                 var tok = r.peek();
-                if (semiOrNull != null && semiOrNull.adjacent(tok) && firstKeyword == -1) {
-                    firstKeyword = params.size();
-                }
+                if (semiOrNull != null && semiOrNull.adjacent(tok) && firstKeyword == -1) firstKeyword = params.size();
                 params.add(Param.parse(r));
             }
             var wheres = parseWhere(p);
-            if (p.has("[")) p.sliceMatchedDelims("[", "]"); // drops it
             /// There may be leftovers...
             return new Function(name, params, wheres, firstKeyword, source);
         }
@@ -393,15 +412,9 @@ class Parser {
         static TypeAlias parseAlias(Parser p) {
             NameUtils.reset();
             try {
-                p.take("const");
-                var name = ParsedType.parseTypeName(p);
-                p.take("=");
-                Ty t = null;
-                var uai = UnionAllInst.parse(p);
-                t = uai.toTy();
-                if (p.has("@soft")) p.drop(); // ignoring this for now
-                p.take("[");
-                return new TypeAlias(name, t);
+                var name = ParsedType.parseTypeName(p.take("const"));
+                var uai = UnionAllInst.parse(p.take("="));
+                return new TypeAlias(name, uai.toTy()); // There are leftover that we ignore
             } catch (Exception e) {
                 return null;
             }
@@ -422,125 +435,148 @@ class Parser {
         Sig decl;
         Sig originDecl;
         List<Type> staticArguments;
-        List<Param> arguments;
-        List<Param> locals;
+        List<Type> arguments;
+        List<String> argnames;
+        List<Type> locals;
+        List<String> locnames;
         Type returnType;
         String src;
         List<Op> ops = new ArrayList<>();
         List<TySig> sigs = new ArrayList<>();
 
-        @Override
-        public String toString() {
-            var s1 = decl.toString() + "\n" + (staticArguments.isEmpty() ? "" : "staticArguments: " + staticArguments + "\n") + (arguments.isEmpty() ? "" : "arguments: " + arguments + "\n");
-            var s2 = (locals.isEmpty() ? "" : "locals: " + locals + "\n") + "returnType: " + returnType + "\n";
-            var s3 = "src: " + src + "\n" + ops.stream().map(Object::toString).collect(Collectors.joining("\n"));
-            return s1 + s2 + s3;
-        }
-
-        private Sig parseFun(Parser p) {
-            var d = Function.parse(p).toTy();
-            d = d.fixUp(new ArrayList<>());
-            return new Sig(d.nm(), d.ty().toType(new ArrayList<>()), d.argnms(), d.kwPos(), d.src());
-        }
-
-        private void parseMethodInfoHeader(Parser p) {
-            p.take("MethodInstance").take("for");
-            this.decl = parseFun(p.sliceLine());
-            var q = p.sliceLine().take("from");
-            this.originDecl = parseFun(q.sliceUpToLast("@"));
-            this.src = q.foldToString(" ").trim();
-        }
-
-        /**
-         * This section starts with "Static Parameters" and then introduces one type
-         * variable per line.
-         * 
-         * To return a List of Type object is slightly awkward because bound variables
-         * are not types.
-         * 
-         * We can encode them into an empty existential type -- this is a hack.
-         */
-        private List<Type> parseStaticArguments(Parser p) {
-            var bs = new ArrayList<Type>();
-            if (p.has("Static")) {
-                p.nextLine(); // drop this line
-                while (!p.isEmpty() && !p.has("Arguments") && !p.has("Locals") && !p.has("Body")) {
-                    var q = p.sliceLine();
-                    var pty = BoundVar.parse(q);
-                    var ty = pty.toTy().fixUp(new ArrayList<>());
-                    var encoding = new TyExist(ty, Ty.any());
-                    bs.add(encoding.toType(new ArrayList<>()));
-                }
-            }
-            return bs;
-        }
-
-        private List<Param> parseArguments(Parser p) {
-            var ps = new ArrayList<Param>();
-            if (p.has("Arguments")) {
-                p.nextLine();
-                while (!p.isEmpty() && !p.has("Locals") && !p.has("Body")) {
-                    var q = p.sliceLine();
-                    ps.add(Param.parse(q));
-                }
-            }
-            return ps;
-        }
-
-        private List<Param> parseLocals(Parser p) {
-            var ps = new ArrayList<Param>();
-            if (p.has("Locals")) {
-                p.nextLine();
-                while (!p.isEmpty() && !p.has("Body")) {
-                    var q = p.sliceLine();
-                    ps.add(Param.parse(q));
-                }
-            }
-            return ps;
-        }
-
-        private Type parseReturnType(Parser p) {
-            if (!p.has("Body")) return null;
-
-            p.take("Body").take("::");
-            var pty = UnionAllInst.parse(p); // this type could be all caps because code_warntype...
-            var ty = pty.toTy().fixUp(new ArrayList<>());
-            return ty.toType(new ArrayList<>());
-        }
-
-        private void parseHeader(Parser p) {
-            parseMethodInfoHeader(p);
-            this.staticArguments = parseStaticArguments(p);
-            try {
-                this.arguments = parseArguments(p);
-            } catch (Exception e) {
-                App.output("Error parsing arguments: " + e.getMessage());
-            }
-            try {
-                this.locals = parseLocals(p);
-            } catch (Exception e) {
-                App.output("Error parsing locals: " + e.getMessage());
-            }
-            try {
-                this.returnType = parseReturnType(p);
-            } catch (Exception e) {
-                App.output("Error parsing return type: " + e.getMessage());
-            }
-        }
-
-        /**
-         * Parse a method information block as returned by code_warntype.
-         **/
+        /** Parse a method information block as returned by code_warntype. **/
         static List<Method> parse(Parser p, String filename) {
             var ms = new ArrayList<Method>();
             while (!p.isEmpty()) {
                 var mi = new MethodInformation();
                 mi.parseHeader(p);
                 mi.parseBody(p);
-                var m = new Method(mi, filename);
-                ms.add(m);
+                ms.add(new Method(mi, filename));
             }
             return ms;
+        }
+
+        private void parseHeader(Parser p) {
+            p.take("MethodInstance").take("for");
+            this.decl = parseFun(p.sliceLine());
+            var q = p.sliceLine().take("from");
+            this.originDecl = parseFun(q.sliceUpToLast("@"));
+            this.src = q.foldToString(" ").trim();
+            try {
+                // This section starts with "Static Parameters" and then introduces one type
+                // variable per line. To return a List of Type object is slightly awkward
+                // because bound variables are not types. We encode them into an empty
+                // existential type -- this is a hack.
+                var bs = new ArrayList<Type>();
+                if (p.has("Static")) {
+                    p.nextLine();
+                    while (!p.isEmpty() && !p.has("Arguments") && !p.has("Locals") && !p.has("Body")) {
+                        var ty = BoundVar.parse(p.sliceLine()).toTy().fixUp(new ArrayList<>());
+                        bs.add(new TyExist(ty, Ty.any()).toType(new ArrayList<>()));
+                    }
+                }
+                this.staticArguments = bs;
+            } catch (Exception e) {
+                App.output("Error parsing static arguments: " + e.getMessage());
+            }
+            try {
+                var partys = new ArrayList<Type>();
+                var parnms = new ArrayList<String>();
+                if (p.has("Arguments")) {
+                    p.nextLine();
+                    while (!p.isEmpty() && !p.has("Locals") && !p.has("Body")) {
+                        var param = Param.parse(p.sliceLine());
+                        partys.add(param.toTy().fixUp(new ArrayList<>()).toType(new ArrayList<>()));
+                        parnms.add(param.nm());
+                    }
+                }
+                this.arguments = partys;
+                this.argnames = parnms;
+            } catch (Exception e) {
+                App.output("Error parsing arguments: " + e.getMessage());
+            }
+            try {
+                var partys = new ArrayList<Type>();
+                var parnms = new ArrayList<String>();
+
+                if (p.has("Locals")) {
+                    p.nextLine();
+                    while (!p.isEmpty() && !p.has("Body")) {
+                        var param = Param.parse(p.sliceLine());
+                        partys.add(param.toTy().fixUp(new ArrayList<>()).toType(new ArrayList<>()));
+                        parnms.add(param.nm());
+                    }
+                }
+                this.locals = partys;
+                this.locnames = parnms;
+            } catch (Exception e) {
+                App.output("Error parsing locals: " + e.getMessage());
+            }
+            try {
+                p.take("Body").take("::");
+                var ty = UnionAllInst.parse(p).toTy().fixUp(new ArrayList<>());
+                this.returnType = ty.toType(new ArrayList<>());
+            } catch (Exception e) {
+                App.output("Error parsing return type: " + e.getMessage());
+            }
+        }
+
+        private Sig parseFun(Parser p) {
+            var d = Function.parse(p).toTy().fixUp();
+            return new Sig(d.nm(), d.ty().toType(new ArrayList<>()), d.argnms(), d.kwPos(), d.src());
+        }
+
+        private Op parseOp(Parser p) {
+            if (p.has("(")) {
+                var q = p.sliceMatchedDelims("(", ")");
+                if (p.has("(")) {
+                    // Using a register as the function name
+                    var nm = q.take().toString();
+                    var args = callArglist(p.sliceMatchedDelims("(", ")"));
+                    return new RegAssign(nm, GenDB.it.names.function(nm.toString()), args, null);
+                } else {
+                    // E.g. │         (tn = Core.Compiler.getproperty(%3, :name))
+                    var tgt = p.take().toString();
+                    var op = normalCall(p.take("="));
+                    return new RegAssign(tgt, op.op, op.args, op.ret);
+                }
+            } else
+                return p.peek().toString().startsWith("%") ? parseRegisterAssign(p) : normalCall(p);
+        }
+
+        private List<String> callArglist(Parser p) {
+            var args = new ArrayList<String>();
+            while (!p.isEmpty())
+                args.add(p.sliceNextCommaOrSemi().take().toString());
+            return args;
+        }
+
+        // E.g. |   %15 = Core.Compiler.getglobal(top, name)::Any
+        // E.g. │   %16 = (f === %15)::Bool
+        private Op parseRegisterAssign(Parser p) {
+            var reg = p.take().toString();
+            if (p.take("=").has("(")) {
+                var q = p.sliceMatchedDelims("(", ")");
+                var l = q.take().toString();
+                var op = q.take().toString();
+                var r = q.take().toString();
+                var func = GenDB.it.names.function(op);
+                if (!q.isEmpty()) throw new RuntimeException("Leftovers " + q);
+                var ret = UnionAllInst.parse(p.take("::"));
+                return new RegAssign(reg, func, List.of(l, r), ret);
+            } else {
+                var op = normalCall(p);
+                return new RegAssign(reg, op.op, op.args, op.ret);
+            }
+        }
+
+        // E.g. │         Core.NewvarNode(:(top))
+        private Call normalCall(Parser p) {
+            var nm = ParsedType.parseFunctionName(p);
+            var q = p.sliceMatchedDelims("(", ")");
+            var args = callArglist(q);
+            var r = p.has("::") ? UnionAllInst.parse(p.take("::")) : null;
+            return new Call(nm, args, r);
         }
 
         /** Operation in the code_warntype instruction stream. A single line of code. */
@@ -605,66 +641,12 @@ class Parser {
             }
         }
 
-        // E.g. │         Core.NewvarNode(:(top))
-        private Op parseRawCall(Parser p) {
-            return normalCall(p);
-        }
-
-        // E.g. │         (tn = Core.Compiler.getproperty(%3, :name))
-        private Op parseLocalAssign(Parser p) {
-            var tgt = p.take().toString();
-            p.take("=");
-            var op = normalCall(p);
-            return new RegAssign(tgt, op.op, op.args, op.ret);
-        }
-
-        // E.g. |   %15 = Core.Compiler.getglobal(top, name)::Any
-        // E.g. │   %16 = (f === %15)::Bool
-        private Op parseRegisterAssign(Parser p) {
-            var reg = p.take().toString();
-            p.take("=");
-            if (p.has("(")) {
-                var q = p.sliceMatchedDelims("(", ")");
-                var l = q.take().toString();
-                var op = q.take().toString();
-                var r = q.take().toString();
-                var func = GenDB.it.names.function(op);
-                if (!q.isEmpty()) throw new RuntimeException("Leftovers " + q);
-                var ret = UnionAllInst.parse(p.take("::"));
-                return new RegAssign(reg, func, List.of(l, r), ret);
-            } else {
-                var op = normalCall(p);
-                return new RegAssign(reg, op.op, op.args, op.ret);
-            }
-        }
-
-        private Op parseOp(Parser p) {
-            if (p.has("(")) {
-                var q = p.sliceMatchedDelims("(", ")");
-                if (p.has("(")) {
-                    // Using a register as the function name
-                    var nm = q.take().toString();
-                    var args = callArglist(p.sliceMatchedDelims("(", ")"));
-                    return new RegAssign(nm, GenDB.it.names.function(nm.toString()), args, null);
-                } else
-                    return parseLocalAssign(p);
-            } else
-                return p.peek().toString().startsWith("%") ? parseRegisterAssign(p) : parseRawCall(p);
-        }
-
-        private List<String> callArglist(Parser p) {
-            var args = new ArrayList<String>();
-            while (!p.isEmpty())
-                args.add(p.sliceNextCommaOrSemi().take().toString());
-            return args;
-        }
-
-        private Call normalCall(Parser p) {
-            var nm = ParsedType.parseFunctionName(p);
-            var q = p.sliceMatchedDelims("(", ")");
-            var args = callArglist(q);
-            var r = p.has("::") ? UnionAllInst.parse(p.take("::")) : null;
-            return new Call(nm, args, r);
+        @Override
+        public String toString() {
+            var s1 = decl.toString() + "\n" + (staticArguments.isEmpty() ? "" : "staticArguments: " + staticArguments + "\n") + (arguments.isEmpty() ? "" : "arguments: " + arguments + "\n");
+            var s2 = (locals.isEmpty() ? "" : "locals: " + locals + "\n") + "returnType: " + returnType + "\n";
+            var s3 = "src: " + src + "\n" + ops.stream().map(Object::toString).collect(Collectors.joining("\n"));
+            return s1 + s2 + s3;
         }
 
     }
@@ -713,7 +695,7 @@ class Parser {
         stats.sigs.start();
 
         while (!isEmpty() && max-- > 0)
-            GenDB.it.addSig(Function.parse(sliceLine()).toTy());
+            GenDB.it.addSig(Function.parse(sliceLine()).toTy().fixUp());
 
         stats.sigs.stop();
         stats.sigsFound = GenDB.it.sigs.allSigs().size();
@@ -746,12 +728,15 @@ class Parser {
         stats.linesOfTypes = stats.lines;
         stats.types.start();
 
-        var tn = TypeName.mk("Core", "Union");
-        var any = new TypeInst(TypeName.mk("Core", "Any"), List.of());
+        var nu = GenDB.it.names;
+        var tn = nu.type("Core.Union");
+        var tnany = nu.type("Core.Any");
+        var any = new TypeInst(tnany, List.of());
         var decl = new TypeDeclaration("abstract type", tn, List.of(), any, "Builtin");
         GenDB.it.types.addParsed(decl);
-        tn = TypeName.mk("Core", "Vararg");
+
         // TODO: this should have `Core.TypeofVararg` as the parent...
+        tn = nu.type("Core.Vararg");
         decl = new TypeDeclaration("abstract type", tn, List.of(), any, "Builtin");
         GenDB.it.types.addParsed(decl);
 
@@ -761,6 +746,14 @@ class Parser {
         stats.types.stop();
         stats.typesFound = GenDB.it.types.all().size();
         App.print("Processed " + stats.linesOfTypes + " lines of input, found " + stats.typesFound + " types in " + stats.types);
+    }
+
+    void parseTypeNames() {
+        while (!isEmpty()) {
+            var p = sliceLine();
+            TypeDeclaration.parseModifiers(p);
+            GenDB.it.names.addAliasDef(GenDB.it.names.type(p.take().toString()));
+        }
     }
 
     /**
@@ -774,13 +767,7 @@ class Parser {
 
         while (!isEmpty()) {
             var q = sliceLine();
-            var r = q.copy();
-            var found = false; // we are looking for a "typealias" keyword, ignore the other aliases
-            while (!r.isEmpty()) { // if we don't do this, we will create broken typenames
-                var tok = r.take();
-                if (tok.is("typ") && r.take().is("alias")) found = true;
-            }
-            if (!found) continue;
+            if (!q.copy().foldToString("").contains("typalias")) continue;
             var a = TypeAlias.parseAlias(q);
             if (a != null) aliases.addParsed(a.tn(), a.sig());
         }
@@ -788,6 +775,15 @@ class Parser {
         stats.aliases.stop();
         stats.aliasesFound = GenDB.it.types.all().size();
         App.print("Processed " + stats.linesOfAliases + " lines of input, found " + stats.aliasesFound + " types in " + stats.aliases);
+    }
+
+    void parseAliasNames() {
+        while (!isEmpty()) {
+            var q = sliceLine();
+            if (!q.copy().foldToString("").contains("typalias")) continue;
+            q.take("const");
+            GenDB.it.names.addAliasDef(GenDB.it.names.type(q.take().toString()));
+        }
     }
 
     final Stats stats = new Stats();
@@ -1012,26 +1008,18 @@ class Parser {
     }
 }
 
-/**
- * An early form of Julia Type coming from the Parser.
- *
- * @author jan
- */
+/** An early form of Julia Type coming from the Parser. */
 interface Ty {
 
-    final static Ty Any = new TyInst(GenDB.it.names.makeShort("Any"), List.of());
+    final static Ty Any = new TyInst(GenDB.it.names.any(), List.of());
     final static Ty None = new TyUnion(List.of());
 
-    /**
-     * @return the Any Ty
-     */
+    /** @return the Any Ty */
     static Ty any() {
         return Any;
     }
 
-    /**
-     * @return the None Ty, ie. Union{}
-     */
+    /** @return the None Ty, ie. Union{} */
     static Ty none() {
         return None;
     }
@@ -1069,9 +1057,7 @@ record TyInst(TypeName nm, List<Ty> tys) implements Ty, Serializable {
         return nm + (tys.isEmpty() ? "" : "{" + args + "}");
     }
 
-    /**
-     * After this call we have a valid TyInst or TyVar, or a TyCon or a Ty.None.
-     */
+    /** After this call we have a valid TyInst or TyVar, or a TyCon or None. */
     @Override
     public Ty fixUp(List<TyVar> bounds) {
         var varOrNull = bounds.stream().filter(v -> v.nm().equals(nm().toString())).findFirst();
@@ -1079,7 +1065,6 @@ record TyInst(TypeName nm, List<Ty> tys) implements Ty, Serializable {
             if (tys.isEmpty()) return varOrNull.get();
             throw new RuntimeException("Type " + nm() + " is a variable used as a type.");
         }
-        if (nm.likelyConstant()) return new TyCon(nm.toString());
         var args = new ArrayList<Ty>();
         var vars = new ArrayList<TyVar>();
         var newBounds = new ArrayList<TyVar>(bounds);
@@ -1097,19 +1082,14 @@ record TyInst(TypeName nm, List<Ty> tys) implements Ty, Serializable {
         for (var v : vars)
             t = new TyExist(v, t);
         return t;
-
     }
 
-    /**
-     * @return true if the given var is in the list of bounds.
-     */
+    /** @return true if the given var is in the list of bounds. */
     private static boolean inList(TyVar tv, List<TyVar> bounds) {
         return bounds.stream().anyMatch(b -> b.nm().equals(tv.nm()));
     }
 
-    /**
-     * The TyInst becomes an Inst with all parameters recurisvely converted.
-     */
+    /** TyInst becomes an Inst with all parameters recurisvely converted. */
     @Override
     public Type toType(List<Bound> env) {
         return new Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
@@ -1139,9 +1119,7 @@ record TyVar(String nm, Ty low, Ty up) implements Ty, Serializable {
         throw new RuntimeException("Variable " + nm + " not found in environment");
     }
 
-    /**
-     * Recursively fix up the bounds.
-     */
+    /** Recursively fix up the bounds. */
     @Override
     public Ty fixUp(List<TyVar> bounds) {
         return new TyVar(nm, low.fixUp(bounds), up.fixUp(bounds));
@@ -1149,10 +1127,7 @@ record TyVar(String nm, Ty low, Ty up) implements Ty, Serializable {
 
 }
 
-/**
- * A constant such as 5 or a symbol or a typeof. The value of the constant is
- * kept as its original string representation.
- */
+/** A constant represented as a string. */
 record TyCon(String nm) implements Ty, Serializable {
 
     @Override
@@ -1267,8 +1242,8 @@ record TyExist(Ty v, Ty ty) implements Ty, Serializable {
 }
 
 /**
- * A type declaration has modifiers, a name, type expression and a parent type.
- * We also keep the source text for debugging purposes.
+ * A type declaration has modifiers, a name, type expression, a parent type, and
+ * source text.
  */
 record TyDecl(String mod, TypeName nm, Ty ty, Ty parent, String src) implements Serializable {
 
@@ -1287,10 +1262,9 @@ record TyDecl(String mod, TypeName nm, Ty ty, Ty parent, String src) implements 
      * where lhs has the form T{X} and T is a type name, X is a variable, and rhs
      * has the form S{Ty} where S is a type name and Ty is a Ty expression. This
      * method fixes up X and rhs. It also wraps LHS into TyExists.
-     *
-     * @return a new TyDecl with all elements recurisvely fixed up
      */
-    TyDecl fixUp() {
+    public TyDecl(String mod, TypeName nm, Ty ty, Ty parent, String src) {
+
         var lhs = (TyInst) ty;
         var rhs = (TyInst) parent;
         var fixedArgs = new ArrayList<TyVar>();
@@ -1310,9 +1284,13 @@ record TyDecl(String mod, TypeName nm, Ty ty, Ty parent, String src) implements 
         Ty t = new TyInst(lhs.nm(), args);
         for (var arg : fixedArgs.reversed())
             t = new TyExist(arg, t);
-        return new TyDecl(mod, nm, t, fixedRHS, src);
-    }
 
+        this.ty = t;
+        this.parent = fixedRHS;
+        this.src = src;
+        this.mod = mod;
+        this.nm = nm;
+    }
 }
 
 /**
@@ -1331,10 +1309,7 @@ record TySig(FuncName nm, Ty ty, List<String> argnms, int kwPos, String src) imp
         return "function " + nm + " " + ty + CodeColors.comment("\n# " + src);
     }
 
-    /**
-     * Fixes up the signatures of the method.
-     */
-    TySig fixUp(List<TyVar> bounds) {
-        return new TySig(nm, ty.fixUp(bounds), argnms, kwPos, src);
+    TySig fixUp() {
+        return new TySig(nm, ty.fixUp(new ArrayList<>()), argnms, kwPos, src);
     }
 }

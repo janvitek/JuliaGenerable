@@ -124,24 +124,8 @@ class Orchestrator {
             else
                 App.output("  " + a);
         }
-        App.print("Note: Tuple should show as abstract, it is a weird case.");
-
         JuliaUtils.runConcretenessSanityChecks(ctxt.imports, ctxt.root.resolve("sanity.jl"), abstracts, concretes);
     }
-
-    /*
-    boolean hasLower(Type t) {
-    if (t instanceof Tuple tup) {
-        return tup.tys().stream().anyMatch(this::hasLower);
-    } else if (t instanceof Union u) {
-        return u.tys().stream().anyMatch(this::hasLower);
-    } else if (t instanceof TypeVar tv) {
-        return tv.lower().isPresent();
-    } else {
-        return false;
-    }
-    }
-    */
 
     /**
      * A context remembers where this generator is writing to. We assume there will
@@ -339,7 +323,7 @@ class Orchestrator {
         var tests = new ArrayList<Test>();
         var seen = new HashSet<String>();
         for (var s : it.sigs.allSigs()) {
-            //    if (!s.nm().toString().contains("image")) continue; //TODO REMOVE
+            //     if (!s.nm().toString().endsWith("cholmod_l_copy_sparse")) continue; //TODO TODO //..////REMOVE TODO used to filter what tests are generated during debugging
 
             var signameArity = s.nm().toString() + s.arity();
             if (seen.contains(signameArity)) continue;
@@ -448,7 +432,7 @@ class Orchestrator {
             App.print("Function " + m.sig.nm() + " not in DB. Odd that a test was generated for it");
             return;
         }
-        var foundsigs = siginfo.stream().filter(sig -> sig.equalsSig(m.originPackageAndFile)).collect(Collectors.toList());
+        var foundsigs = siginfo.stream().filter(sig -> sig.equalsSigFromCWT(m.sig, m.originPackageAndFile)).collect(Collectors.toList());
         if (foundsigs.size() == 0)
             App.print("No match for " + m.sig + ". This can happen if processing a susbet of methods.");
         else if (foundsigs.size() > 1) {

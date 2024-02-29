@@ -24,10 +24,13 @@ import prlprg.Parser.MethodInformation.RegAssign;
  * and signatures of methods.
  */
 class GenDB implements Serializable {
+    /** User defined aliases. */
     class Aliases implements Serializable {
+
         final private HashMap<TypeName, Alias> db = new HashMap<>(); // maps TypeName to alias
         final private HashMap<String, List<Alias>> shortNames = new HashMap<>(); // maps type without prefix to alias
 
+        /** An alias has a name and a type. */
         class Alias implements Serializable {
             TypeName nm;
             Ty pre_patched;
@@ -54,13 +57,12 @@ class GenDB implements Serializable {
         }
 
         Alias get(TypeName tn) {
-            tn = TypeName.resolve(tn);
             var alias = db.get(tn);
             if (alias != null) return alias;
             var aliases = shortNames.get(tn.nm);
             if (aliases == null) return null;
             for (var a : aliases)
-                if (tn.juliaEq(a.nm)) return a;
+                if (tn.equals(a.nm)) return a;
             return null;
         }
 
@@ -120,12 +122,12 @@ class GenDB implements Serializable {
              */
             Info(TypeDeclaration ty) {
                 nm = ty.nm();
-                patched = ty.toTy().fixUp();
+                patched = ty.toTy();
                 if (isAny()) {
                     parentName = nm;
                     parent = this;
                     var tany = new Tuple(List.of(any, any));
-                    decl = new Decl("abstract type", names.makeShort("Any"), tany, null, "");
+                    decl = new Decl("abstract type", names.any(), tany, null, "");
                 }
             }
 
@@ -195,7 +197,7 @@ class GenDB implements Serializable {
             if (infos == null) return null;
             var eqs = new ArrayList<Info>();
             for (var i : infos)
-                if (i.nm.juliaEq(tn)) eqs.add(i); //semantic equality not syntactic.
+                if (i.nm.equals(tn)) eqs.add(i); //semantic equality not syntactic.
             return eqs.size() == 1 ? eqs.get(0) : null;
         }
 
@@ -254,7 +256,7 @@ class GenDB implements Serializable {
          */
         void printHierarchy() {
             App.output("\nType hierarchy (Green is abstract )");
-            printHierarchy(get(names.makeShort("Any")), 0);
+            printHierarchy(get(names.any()), 0);
         }
 
         /**
@@ -290,14 +292,12 @@ class GenDB implements Serializable {
         }
 
         /**
-         * Represents a method. The name is the full method name, the pre_patched and
-         * patched are intermediary states coming from the Parser, and the sig is the
-         * final form.
+         * Represents a method. The name is the full method name, the tysig is an
+         * intermediary state from the Parser, and the sig is the final form.
          */
         class Info implements Serializable {
             FuncName nm;
-            TySig pre_patched;
-            TySig patched;
+            TySig tysig;
             Sig sig;
             ArrayList<Result> results = new ArrayList<>();
 
@@ -307,7 +307,7 @@ class GenDB implements Serializable {
 
             @Override
             public String toString() {
-                return nm + " " + (sig == null ? "missing" : "defined");
+                return nm + " " + (sig == null ? "missing" : "");
             }
 
             /**
@@ -321,43 +321,62 @@ class GenDB implements Serializable {
                 results.add(new Result(argTy, retTy));
             }
 
-            boolean equalsSig(String other) {
+            /**
+             * Compare a signature read from the TypeDiscover generated file with a
+             * signature that comes from code_warntype. We are looking to see if they have
+             * the same origin file and line number.
+             * 
+             * Soem functions are compiler-generated for example:
+             * 
+             * <pre>
+             * " "var"#s138#262" (Any,Any,Any,Any,Any)" from var"#s138#262"(an, bn, ::Any, a, b) @ Core.Compiler none:0"  // Discovery
+             * "function Core.Compiler.var"#s138#262"(an, bn, ::Core.Any, a, b)  [generic] // Code_warntype
+             * </pre>
+             * 
+             * For those we comapre names and arguments.
+             */
+            boolean equalsSigFromCWT(Sig s, String other) {
                 // There is a silly format mistmatch in the way the parser represents 
                 // source info in methods read from code_warntype
+                // Plus the paths can differ. So compare only the filenames. 
                 int idx = other.indexOf(" ");
-                var split = idx != -1 ? other.substring(idx + 1) : other;
-                var res = split.replaceAll(" ", "");
-                return equalsSrc("@ " + res + "]");
+                other = idx != -1 ? other.substring(idx + 1) : other;
+                other = "@ " + other.replaceAll(" ", "") + "]";
+                var cmp = compareSources(tysig.src(), other);
+                return cmp == 1 ? true : (cmp == 0 ? false : sig.equals(s));
             }
 
+            /** Compare sigs coming from TypeDiscovery. True if same file+line number. */
             boolean equalsSTyig(TySig other) {
-                return equalsSrc(other.src());
+                var cmp = compareSources(tysig.src(), other.src());
+                return cmp == 1 ? true : (cmp == 0 ? false : tysig.equals(other));
             }
 
-            private boolean equalsSrc(String a) {
+            /** -1 == don't know, 0 == no, 1 == yes */
+            private int compareSources(String a, String b) {
                 // The src field contains the entire signature ending with the file name. 
                 // "function Base.*(x::T, y::T) where T<:Union{Core.Int128, Core.UInt128}  [generic @ int.jl:1027]"
                 // What we want to compare is the int.jl:1027 part.
                 // Sometimes there is no @
                 // "function SHA.var"#s972#1"(::Core.Any, context)  [generic]"
-                var aa = a.lastIndexOf('@') == -1 ? a : a.substring(a.lastIndexOf('@'));
-                var b = pre_patched.src();
-                var bb = b.lastIndexOf('@') == -1 ? b : b.substring(b.lastIndexOf('@'));
-                return aa.equals(bb);
+                    if (a.contains("[generic]") || b.contains("[generic]")) return a.contains("[generic]") && b.contains("[generic]") ? -1 : 0;
+                var idx_a = a.lastIndexOf('@');
+                a = idx_a != -1 ? a.substring(idx_a + 1) : a;
+                var idx_b = b.lastIndexOf('@');
+                b = idx_b != -1 ? b.substring(idx_b + 1) : b;
+                idx_a = a.lastIndexOf('/');
+                a = idx_a != -1 ? a.substring(idx_a + 1) : a;
+                idx_b = b.lastIndexOf('/');
+                b = idx_b != -1 ? b.substring(idx_b + 1) : b;
+                return a.equals(b) ? 1 : 0;
             }
+
         }
 
-        /**
-         * The DB is a map from operation names to a list of methods.
-         */
+        /** The DB is a map from operation names to a list of methods. */
         final private HashMap<String, List<Info>> db = new HashMap<>();
 
-        /**
-         * Return the list of signatures for a name. If the name is not in the DB,
-         * create an empty list.
-         *
-         * @return a list (never null)
-         */
+        /** Return list of Infos for a name. If not in the DB, create an empty list. */
         List<Info> get(String opName) {
             var res = db.get(opName);
             if (res == null) db.put(opName, res = new ArrayList<>());
@@ -403,7 +422,7 @@ class GenDB implements Serializable {
         void toSigAll() {
             for (var nm : allNames())
                 for (var s : get(nm)) {
-                    var n = s.patched;
+                    var n = s.tysig;
                     try {
                         s.sig = new Sig(n.nm(), n.ty().toType(new ArrayList<>()), n.argnms(), n.kwPos(), n.src()).expandAliases();
                     } catch (Exception e) {
@@ -433,7 +452,7 @@ class GenDB implements Serializable {
     Aliases aliases = new Aliases();
     Types types = new Types();
     Signatures sigs = new Signatures();
-    Inst any = new Inst(names.makeShort("Any"), List.of());
+    Inst any = new Inst(names.any(), List.of());
     Union none = new Union(List.of());
     HashSet<String> seenMissing = new HashSet<>();
 
@@ -507,7 +526,7 @@ class GenDB implements Serializable {
         var nm = sig.nm().operationName();
         if (nm.equals("kwcall")) return;
         if (sig.kwPos() >= 0) return;
-        if (sigs.find(sig) == null) sigs.make(sig.nm()).pre_patched = sig;
+        if (sigs.find(sig) == null) sigs.make(sig.nm()).tysig = sig;
     }
 
     /**
@@ -516,16 +535,35 @@ class GenDB implements Serializable {
      */
     public void cleanUp() {
         aliases.db.values().forEach(a -> a.fixUp());
-        for (var name : sigs.allNames())
-            for (var sig : sigs.get(name))
-                sig.patched = sig.pre_patched.fixUp(new ArrayList<>());
-
         types.all().forEach(i -> i.fixUpParent());
-        types.get(names.makeShort("Any")).toDecl();
+        types.get(names.any()).toDecl();
         for (var i : types.all())
             i.decl = i.decl.expandAliases();
         types.printHierarchy();
         sigs.toSigAll();
+
+        for (var sig : sigs.allSigs()) {
+            var args = sig.ty();
+            if (hasLower(args)) App.output("Lower bound in " + sig);
+        }
+    }
+
+    boolean hasLower(Type t) {
+        if (t instanceof Tuple tup) {
+            return tup.tys().stream().anyMatch(this::hasLower);
+        } else if (t instanceof Union u) {
+            return u.tys().stream().anyMatch(this::hasLower);
+        } else if (t instanceof Inst inst) {
+            return inst.tys().stream().anyMatch(this::hasLower);
+        } else if (t instanceof Exist e) {
+            Bound bound = e.b();
+            if (!bound.low().isEmpty())
+                return true;
+            else
+                return hasLower(bound.up()) || hasLower(e.ty());
+        } else {
+            return false;
+        }
     }
 
 }
@@ -630,7 +668,7 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
 
     @Override
     public String toString() {
-        var name = nm.pkg.equals("Core") ? nm.nm : nm.toString(); // This will shorten the printing of Any
+        var name = nm.toString(); //nm.pkg.equals("Core") ? nm.nm : nm.toString(); // This will shorten the printing of Any
         var args = tys.stream().map(Type::toString).collect(Collectors.joining(","));
         return name + (tys.isEmpty() ? "" : "{" + args + "}");
     }
@@ -643,7 +681,7 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
     @Override
     public boolean structuralEquals(Type t) {
         if (t instanceof Inst i) {
-            if (!nm.juliaEq(i.nm) || tys.size() != i.tys.size()) return false;
+            if (!nm.equals(i.nm) || tys.size() != i.tys.size()) return false;
 
             for (int j = 0; j < tys.size(); j++) {
                 if (!tys.get(j).structuralEquals(i.tys.get(j))) return false;
@@ -907,6 +945,27 @@ record Con(String nm) implements Type, Serializable {
     @Override
     public List<Bound> getBounds(List<Bound> bs) {
         return bs;
+    }
+
+    /**
+     * Equality between two constants. This is made more painful because when
+     * comparing function signatures coming from TypeDiscovery and code_warntype,
+     * there irrelevant differences such as `typeof(+)` and `typeof(Base.+)` which
+     * should be considered equal. The problem is that the parser does not interpret
+     * these constants, so we don't get an opportunity to normalize the names. One
+     * solution would be to extend the parser to handle values. Or, hack up this
+     * method.
+     */
+    @Override
+    public boolean equals(Object obj) {
+        if (obj instanceof Con c) {
+            if (nm.equals(c.nm)) return true;
+            if (nm.startsWith("typeof") && c.nm.startsWith("typeof")) {
+                App.print(this + " ==? " + c);
+            }
+            return true;
+        } else
+            return false;
     }
 }
 
@@ -1261,9 +1320,7 @@ class Method implements Serializable {
     /**
      * A function call. The field tgt is the possibly null variable the result is
      * assigned to, this can be a temporary %1 or a local variable. The args contain
-     * the argumets passed.
-     *
-     * Since our parser is approximate, this may be wrong.
+     * the argumets passed. Since our parser is approximate, this may be wrong.
      */
     record Calls(String tgt, List<String> args, Sig called) {
 
@@ -1282,27 +1339,22 @@ class Method implements Serializable {
     Method(MethodInformation mi, String filename) {
         this.sig = mi.decl.expandAliases();
         this.filename = filename;
-        this.originSig = mi.originDecl;
+        this.originSig = mi.originDecl.expandAliases();
         this.returnType = Type.expandAliasesFixpoint(mi.returnType);
         this.originPackageAndFile = mi.src;
-        for (var v : mi.arguments) {
-            argNames.add(v.nm());
-            var ty = v.ty().toTy().fixUp(new ArrayList<>());
-            env.put(v.nm(), Type.expandAliasesFixpoint(ty.toType(new ArrayList<>())));
-        }
-        for (var v : mi.locals) {
-            var ty = v.ty().toTy().fixUp(new ArrayList<>());
-            env.put(v.nm(), Type.expandAliasesFixpoint(ty.toType(new ArrayList<>())));
-        }
+        this.argNames = mi.argnames;
+        for (int i = 0; i < mi.argnames.size(); i++)
+            env.put(mi.argnames.get(i), Type.expandAliasesFixpoint(mi.arguments.get(i)));
+        for (int i = 0; i < mi.locals.size(); i++)
+            env.put(mi.locnames.get(i), Type.expandAliasesFixpoint(mi.locals.get(i)));
         for (var oper : mi.ops)
-            if (oper instanceof RegAssign op) {
-                if (op.tgt() != null && op.ret() != null) {
-                    if (!env.containsKey(op.tgt())) {
-                        var ty = op.ret().toTy().fixUp(new ArrayList<>());
-                        env.put(op.tgt(), Type.expandAliasesFixpoint(ty.toType(new ArrayList<>())));
-                    }
+            if (oper instanceof RegAssign op && op.tgt() != null && op.ret() != null) {
+                if (!env.containsKey(op.tgt())) {
+                    var ty = op.ret().toTy().fixUp(new ArrayList<>());
+                    env.put(op.tgt(), Type.expandAliasesFixpoint(ty.toType(new ArrayList<>())));
                 }
             }
+
         for (var oper : mi.ops) {
             if (oper instanceof RegAssign op) {
                 if (op.op().toString().equals("Core.Const") || op.op().toString().equals("Core.NewvarNode")) continue;
@@ -1312,21 +1364,21 @@ class Method implements Serializable {
                         tys.add(env.get(arg));
                     } else {
                         if (arg.charAt(0) == '\"') {
-                            tys.add(new Inst(GenDB.it.names.makeShort("String"), List.of()));
+                            tys.add(new Inst(GenDB.it.names.string(), List.of()));
                         } else if (arg.charAt(0) == ':') {
-                            tys.add(new Inst(GenDB.it.names.makeShort("Symbol"), List.of()));
+                            tys.add(new Inst(GenDB.it.names.symbol(), List.of()));
                         } else if (arg.charAt(0) >= '0' && arg.charAt(0) <= '9') {
-                            tys.add(new Inst(GenDB.it.names.makeShort("Int64"), List.of()));
+                            tys.add(new Inst(GenDB.it.names.int64(), List.of()));
                         } else if (arg.equals("false") || arg.equals("true")) {
-                            tys.add(new Inst(GenDB.it.names.makeShort("Bool"), List.of()));
+                            tys.add(new Inst(GenDB.it.names.bool(), List.of()));
                         } else if (arg.equals("nothing")) {
-                            tys.add(new Inst(GenDB.it.names.makeShort("Nothing"), List.of()));
+                            tys.add(new Inst(GenDB.it.names.nothing(), List.of()));
                         } else {
                             if (!GenDB.it.seenMissing.contains(arg)) {
                                 GenDB.it.seenMissing.add(arg);
                                 App.output("Missing type for " + arg);
                             }
-                            tys.add(GenDB.it.types.get(GenDB.it.names.makeShort("Any")).decl.ty());
+                            tys.add(GenDB.it.types.get(GenDB.it.names.any()).decl.ty());
                         }
                     }
                 }

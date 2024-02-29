@@ -65,14 +65,15 @@ public class App {
         if (!GenDB.readDB()) { // If we did not find a DB, do god's work...
 
             printSeparator();
+            new Parser().withFile(Options.aliasesPath).parseAliasNames();
+            new Parser().withFile(Options.typesPath).parseTypeNames();
+
             print("Reading aliases from " + Options.aliasesPath);
             new Parser().withFile(Options.aliasesPath).parseAliases();
 
             printSeparator();
             print("Reading types from " + Options.typesPath);
             new Parser().withFile(Options.typesPath).parseTypes();
-
-            NameUtils.TypeName.freeze();
 
             printSeparator();
             print("Reading sigs from " + Options.functionsPath);
