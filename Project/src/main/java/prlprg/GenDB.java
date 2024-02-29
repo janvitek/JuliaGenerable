@@ -877,7 +877,15 @@ record Bound(String nm, Type low, Type up) implements Serializable {
      * transformation only.
      */
     public String toJulia() {
-        return (!low.isEmpty() ? low.toJulia() + "<:" : "") + nm + (!up.isAny() ? "<:" + up.toJulia() : "");
+        if (low.isEmpty() && up.isAny()) {
+            return nm;
+        } else if (low.isEmpty() && !up.isAny()) {
+            return nm + "<:" + up.toJulia();
+        } else if (!low.isEmpty() && up.isAny()) {
+            return nm + ">:" + low.toJulia();
+        } else {
+            return low.toJulia() + "<:" + nm + "<:" + up.toJulia();
+        }
     }
 
     Bound expandAliases(HashMap<Bound, Bound> bs) {
