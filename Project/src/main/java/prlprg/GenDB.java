@@ -19,68 +19,65 @@ import prlprg.Parser.MethodInformation;
 import prlprg.Parser.TypeDeclaration;
 import prlprg.Parser.MethodInformation.RegAssign;
 
-/**
- * A database containing all the information that we have acquired about types
- * and signatures of methods.
- */
+/** A database containing all information about types and method signatures. */
 class GenDB implements Serializable {
     /** User defined aliases. */
     class Aliases implements Serializable {
 
-        final private HashMap<TypeName, Alias> db = new HashMap<>(); // maps TypeName to alias
-        final private HashMap<String, List<Alias>> shortNames = new HashMap<>(); // maps type without prefix to alias
+        final private HashMap<TypeName, Alias> db = new HashMap<>(); // maps TypeName to alias        
 
-        /** An alias has a name and a type. */
+        /**
+         * An alias has a name and a type. The type may have top level existentials, in
+         * which case we can apply arguments to it,
+         */
         class Alias implements Serializable {
-            TypeName nm;
-            Ty pre_patched;
-            Ty patched;
-            Type ty;
 
+            TypeName nm; // type name
+            Ty parsed_ty; // type from parser, aliases are not expanded 
+            Type ty; // useable type
+
+            /** Create an empty allias */
             Alias(TypeName tn) {
                 nm = tn;
             }
 
+            /** Print to string */
             @Override
             public String toString() {
-                return "alias " + nm + " = " + ty == null ? pre_patched.toString() : ty.toString();
+                return "alias " + nm + " = " + ty == null ? parsed_ty.toString() : ty.toString();
             }
 
+            /** Call once we have processed all definitions. It populates this.ty. */
             void fixUp() {
                 try {
-                    patched = pre_patched.fixUp(new ArrayList<>());
-                } catch (Exception e) {
-                    App.print("Error: " + nm + " " + e.getMessage());
+                    parsed_ty = parsed_ty.fixUp(new ArrayList<>());
+                } catch (Exception e) { // Check if this is still needed, there was a time when fixUp could fail.
+                    App.print("Error: " + nm + " " + e.getMessage()); // That was many commits ago.
                 }
-                ty = patched.toType(new ArrayList<>());
+                ty = parsed_ty.toType(new ArrayList<>()); // convert to Type and expand aliases
             }
         }
 
+        /** Return an alias or null. */
         Alias get(TypeName tn) {
-            var alias = db.get(tn);
-            if (alias != null) return alias;
-            var aliases = shortNames.get(tn.nm);
-            if (aliases == null) return null;
-            for (var a : aliases)
-                if (tn.equals(a.nm)) return a;
-            return null;
+            return db.get(tn);
         }
 
+        /** Add a freshly parsed alias. */
         void addParsed(TypeName tn, Ty sig) {
             if (db.get(tn) != null) throw new RuntimeException("Alias already defined");
             var alias = new Alias(tn);
-            alias.pre_patched = sig;
+            alias.parsed_ty = sig;
             db.put(tn, alias);
-            var names = shortNames.get(tn.nm);
-            if (names == null) shortNames.put(tn.nm, names = new ArrayList<>());
-            names.add(alias);
         }
 
+        /** Debug representation */
         @Override
         public String toString() {
             return "GenDB.Aliases( " + db.size() + " )";
         }
 
+        /** Return all aliases. */
         List<Alias> all() {
             return new ArrayList<>(db.values());
         }
@@ -109,7 +106,7 @@ class GenDB implements Serializable {
         class Info implements Serializable {
 
             TypeName nm; //name of the type
-            TyDecl patched; // the type declaration after patching
+            TyDecl tydecl; // the type declaration after patching
             Decl decl; // the final form of the type declaration, this is used for subtype generation
             List<TypeName> subtypes = List.of(); // names of direct subtypes
             Info parent = null; // the parent of this type
@@ -122,7 +119,7 @@ class GenDB implements Serializable {
              */
             Info(TypeDeclaration ty) {
                 nm = ty.nm();
-                patched = ty.toTy();
+                tydecl = ty.toTy();
                 if (isAny()) {
                     parentName = nm;
                     parent = this;
@@ -140,36 +137,28 @@ class GenDB implements Serializable {
             }
 
             /**
-             * This method fixes up types coming from the parser. This results in populating
-             * the patched fields of Info objects. Some types that are referenced but for
-             * which we have no definition are added to the GenDB.
-             *
-             * The pre_patched field retains the type as it came from the parser, the
-             * patched field is the new one with variables corrected (see the Type.fixUp()
-             * documentation for details).
-             *
-             * The method also adds children to the parent in the children field of Info.
-             *
-             * This also sets the parentName and parent fields of Info. For 'Any' the parent
-             * is itself.
+             * This method fixes up types coming from the parser. The method also adds
+             * children to the parent in the children field of Info. This also sets the
+             * parentName and parent fields of Info. For 'Any' the parent is itself.
              */
             void fixUpParent() {
                 if (isAny()) return;
                 var env = new ArrayList<Bound>();
-                var t = patched.ty().toType(env);
+                var t = tydecl.ty().toType(env);
                 var bounds = t.getBounds(env);
-                var parinst = patched.parent().toType(bounds);
+                var parinst = tydecl.parent().toType(bounds);
                 while (t instanceof Exist e)
                     t = e.ty();
                 t = new Tuple(List.of(t, parinst));
                 while (!bounds.isEmpty())
                     t = new Exist(bounds.removeLast(), t);
-                decl = new Decl(patched.mod(), nm, t, null, patched.src()).expandAliases();
+                decl = new Decl(tydecl.mod(), nm, t, null, tydecl.src()).expandAliases();
                 parentName = decl.parentTy().nm();
                 parent = get(parentName);
                 parent.children.add(this);
             }
 
+            /** Finishes processing the declaration and populates the decl field. */
             void toDecl() {
                 decl = new Decl(decl.mod(), decl.nm(), decl.ty(), parent.decl, decl.src());
                 subtypes = children.stream().map(c -> c.nm).collect(Collectors.toList());
@@ -182,16 +171,12 @@ class GenDB implements Serializable {
             }
         } /// End of Info //////////////////////////////////////////////////////////////////////
 
-        /**
-         * Return all types in the DB.
-         */
+        /** Return all types in the DB. */
         List<Info> all() {
             return new ArrayList<>(db.values()).stream().flatMap(List::stream).collect(Collectors.toList());
         }
 
-        /**
-         * Return the type info for a type name. Null if not found.
-         */
+        /** Return the type info for a type name. Null if not found. */
         Info get(TypeName tn) {
             var infos = db.get(tn.nm); // use the trailing part of the name
             if (infos == null) return null;
@@ -211,9 +196,7 @@ class GenDB implements Serializable {
             return info == null ? null : info.subtypes;
         }
 
-        /**
-         * Add a freshly parsed type declaration to the DB. Called from the parser.
-         */
+        /** Add a freshly parsed type declaration to the DB. Called from the parser. */
         void addParsed(TypeDeclaration ty) {
             var tn = ty.nm();
             var infos = db.get(tn.nm);
@@ -240,9 +223,7 @@ class GenDB implements Serializable {
                     i.decl != null && !i.decl.isAbstract() && i.decl.argCount() == passedArgs;
         }
 
-        /**
-         * A comparator for sorting types by name alphabetically.
-         */
+        /** A comparator for sorting types by name alphabetically. */
         static class NameOrder implements Comparator<Types.Info> {
 
             @Override
@@ -251,17 +232,13 @@ class GenDB implements Serializable {
             }
         }
 
-        /**
-         * Print the type hierarchy. This is a top down traversal of the type hierarchy.
-         */
+        /** Print type hierarchy. This is a top down traversal of the type hierarchy. */
         void printHierarchy() {
             App.output("\nType hierarchy (Green is abstract )");
             printHierarchy(get(names.any()), 0);
         }
 
-        /**
-         * Helper method for printing the type hierarchy
-         */
+        /** Helper method for printing the type hierarchy */
         private void printHierarchy(Info n, int pos) {
             var str = n.decl == null || n.decl.isAbstract() ? CodeColors.abstractType(n.nm.toString()) : n.nm.toString();
             str = n.decl.mod().contains("missing") ? ("? " + CodeColors.abstractType(str)) : str;
@@ -278,9 +255,8 @@ class GenDB implements Serializable {
     }
 
     /**
-     * This class holds data for every Julia function. A function is implemented by
-     * a set of methods. The internal Info class represent a single method
-     * definition. The db can be queried by opertion name.
+     * Data for every Julia function and ever methods. The internal Info class
+     * represent a single method definition. The db is queried by operation name.
      */
     static class Signatures implements Serializable {
 
@@ -359,7 +335,7 @@ class GenDB implements Serializable {
                 // What we want to compare is the int.jl:1027 part.
                 // Sometimes there is no @
                 // "function SHA.var"#s972#1"(::Core.Any, context)  [generic]"
-                    if (a.contains("[generic]") || b.contains("[generic]")) return a.contains("[generic]") && b.contains("[generic]") ? -1 : 0;
+                if (a.contains("[generic]") || b.contains("[generic]")) return a.contains("[generic]") && b.contains("[generic]") ? -1 : 0;
                 var idx_a = a.lastIndexOf('@');
                 a = idx_a != -1 ? a.substring(idx_a + 1) : a;
                 var idx_b = b.lastIndexOf('@');
@@ -1349,6 +1325,9 @@ class Method implements Serializable {
         this.filename = filename;
         this.originSig = mi.originDecl.expandAliases();
         this.returnType = Type.expandAliasesFixpoint(mi.returnType);
+
+        if (returnType.toString().contains("NTuple")) App.print("!!!!!!!!!!!!!! +" + returnType); //TODO
+
         this.originPackageAndFile = mi.src;
         this.argNames = mi.argnames;
         for (int i = 0; i < mi.argnames.size(); i++)
