@@ -436,7 +436,7 @@ class Orchestrator {
      * discarding the information from code_warntype.
      */
     private void readOneSigResult(Method m) {
-        // App.print(m.sig + " -> " + m.returnType); // Print all signatures    
+        //App.print(m.sig + " -> " + m.returnType); // Print all signatures  
         var siginfo = it.sigs.get(m.sig.nm().operationName());
         if (siginfo == null) {
             App.print("Function " + m.sig.nm() + " not in DB. Odd that a test was generated for it");

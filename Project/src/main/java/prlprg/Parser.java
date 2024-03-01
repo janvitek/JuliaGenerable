@@ -33,6 +33,9 @@ class Parser {
         static TypeName parseTypeName(Parser p) {
             var nm = p.take().toString();
             if (nm.isEmpty()) p.failAt("Missing type name", p.peek());
+            if (OKREMOVEMETODO && nm.equals("Vector")) {
+                System.out.println("nm: " + nm);
+            }
             return GenDB.it.names.type(nm);
         }
 
@@ -422,6 +425,8 @@ class Parser {
         }
     }
 
+    static boolean OKREMOVEMETODO = false;
+
     /**
      * Holds the information obtained from code_warntype, this is slightly more raw
      * than needed, we then build the Method class from this.
@@ -447,6 +452,9 @@ class Parser {
 
         /** Parse a method information block as returned by code_warntype. **/
         static List<Method> parse(Parser p, String filename) {
+
+            OKREMOVEMETODO = true;
+
             var ms = new ArrayList<Method>();
             while (!p.isEmpty()) {
                 var mi = new MethodInformation();
@@ -753,7 +761,7 @@ class Parser {
         while (!isEmpty()) {
             var p = sliceLine();
             TypeDeclaration.parseModifiers(p);
-            GenDB.it.names.addAliasDef(GenDB.it.names.type(p.take().toString()));
+            GenDB.it.names.addTypeDef(GenDB.it.names.type(p.take().toString()));
         }
     }
 
@@ -783,7 +791,7 @@ class Parser {
     void parseAliasNames() {
         while (!isEmpty()) {
             var q = sliceLine();
-            if (!q.copy().foldToString(" ").contains("typa lias")) continue;
+            if (!q.copy().foldToString(" ").contains("typ alias")) continue;
             q.take("const");
             GenDB.it.names.addAliasDef(GenDB.it.names.type(q.take().toString()));
         }
