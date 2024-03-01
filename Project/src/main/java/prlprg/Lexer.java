@@ -142,7 +142,6 @@ class Line {
     if (ch != '\"' || atEnd(pos)) return ret; // does not start with a double quote or at end just after
     while (!atEnd(pos)) {
       ch = charAt(pos);
-      var c = (char) ch;
       pos += increment(pos);
       if (ch == '\"') return pos;
       if (ch == '\\' && !atEnd(pos)) pos += increment(pos);

@@ -5,6 +5,7 @@ import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -32,7 +33,7 @@ class Parser {
         static TypeName parseTypeName(Parser p) {
             var nm = p.take().toString();
             if (nm.isEmpty()) p.failAt("Missing type name", p.peek());
-            return GenDB.it.names.type(nm).resolve();
+            return GenDB.it.names.type(nm);
         }
 
         /** Function names are dotted identifiers. */
@@ -50,7 +51,7 @@ class Parser {
         static ParsedType parse(Parser p) {
             var constant = Constant.parseConstant(p);
             if (constant != null) return constant;
-            var name = ParsedType.parseTypeName(p);
+            var name = ParsedType.parseTypeName(p).resolve(); // Resolve will deal with soft imports...
             if (!p.has("{")) return new TypeInst(name, null); // null denotes absence of type params.
             List<ParsedType> params = new ArrayList<>();
             var q = p.sliceMatchedDelims("{", "}");
@@ -276,7 +277,7 @@ class Parser {
         static TypeDeclaration parse(Parser p) {
             NameUtils.reset(); // reset the fresh variable generator
             var modifiers = parseModifiers(p);
-            var name = ParsedType.parseTypeName(p);
+            var name = ParsedType.parseTypeName(p); // do not call resolve
             var src = p.last.getLine();
             var ps = new ArrayList<ParsedType>();
             var q = p.sliceMatchedDelims("{", "}");
@@ -412,7 +413,7 @@ class Parser {
         static TypeAlias parseAlias(Parser p) {
             NameUtils.reset();
             try {
-                var name = ParsedType.parseTypeName(p.take("const"));
+                var name = ParsedType.parseTypeName(p.take("const")); // do not call resolves
                 var uai = UnionAllInst.parse(p.take("="));
                 return new TypeAlias(name, uai.toTy()); // There are leftover that we ignore
             } catch (Exception e) {
@@ -652,8 +653,15 @@ class Parser {
     }
 
     Tok last; // for debugging purposes, we try to keep the last token, so we can remember where an error occured
-    Lexer lex = new Lexer();
+    private Lexer lex = new Lexer();
     List<Tok> toks = new ArrayList<>();
+    private List<String> sourceText = new ArrayList<>();
+
+    /** Add lines of input to the parser. */
+    Parser withLines(String[] lines) {
+        sourceText.addAll(Arrays.asList(lines));
+        return this;
+    }
 
     /**
      * Initialiszes the parser with data held in a file.
@@ -661,24 +669,28 @@ class Parser {
     Parser withFile(Object pathobj) {
         var path = pathobj.toString();
         try {
-            List<String> ls = Files.readAllLines(Path.of(path));
-            lex = new Lexer(ls.toArray(new String[0]));
-            toks = lex.next();
-            stats.lines = ls.size();
+            sourceText.addAll(Files.readAllLines(Path.of(path)));
             return this;
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
 
-    /**
-     * Return a copy of this parser.
-     */
+    /** Run the lexer. Call when all the input has been provided */
+    Parser lex() {
+        lex = new Lexer(sourceText.toArray(new String[0]));
+        toks = lex.next();
+        stats.lines = sourceText.size();
+        return this;
+    }
+
+    /** Return a copy of this parser with the current line and an empty lexer. */
     Parser copy() {
         var p = new Parser();
         p.lex = lex;
         p.toks = new ArrayList<>(toks);
         p.last = last;
+        p.sourceText = sourceText;
         return p;
     }
 
@@ -728,18 +740,6 @@ class Parser {
         stats.linesOfTypes = stats.lines;
         stats.types.start();
 
-        var nu = GenDB.it.names;
-        var tn = nu.type("Core.Union");
-        var tnany = nu.type("Core.Any");
-        var any = new TypeInst(tnany, List.of());
-        var decl = new TypeDeclaration("abstract type", tn, List.of(), any, "Builtin");
-        GenDB.it.types.addParsed(decl);
-
-        // TODO: this should have `Core.TypeofVararg` as the parent...
-        tn = nu.type("Core.Vararg");
-        decl = new TypeDeclaration("abstract type", tn, List.of(), any, "Builtin");
-        GenDB.it.types.addParsed(decl);
-
         while (!isEmpty())
             GenDB.it.types.addParsed(TypeDeclaration.parse(sliceLine()));
 
@@ -748,6 +748,7 @@ class Parser {
         App.print("Processed " + stats.linesOfTypes + " lines of input, found " + stats.typesFound + " types in " + stats.types);
     }
 
+    /** First pass on the type declaration file, only read the type names. s */
     void parseTypeNames() {
         while (!isEmpty()) {
             var p = sliceLine();
@@ -767,7 +768,8 @@ class Parser {
 
         while (!isEmpty()) {
             var q = sliceLine();
-            if (!q.copy().foldToString("").contains("typalias")) continue;
+            var ln = q.copy().foldToString(" ");
+            if (!ln.contains("typ alias")) continue;
             var a = TypeAlias.parseAlias(q);
             if (a != null) aliases.addParsed(a.tn(), a.sig());
         }
@@ -777,10 +779,11 @@ class Parser {
         App.print("Processed " + stats.linesOfAliases + " lines of input, found " + stats.aliasesFound + " types in " + stats.aliases);
     }
 
+    /** First pass on the Alias file, read only the name of aliases. */
     void parseAliasNames() {
         while (!isEmpty()) {
             var q = sliceLine();
-            if (!q.copy().foldToString("").contains("typalias")) continue;
+            if (!q.copy().foldToString(" ").contains("typa lias")) continue;
             q.take("const");
             GenDB.it.names.addAliasDef(GenDB.it.names.type(q.take().toString()));
         }
@@ -788,6 +791,7 @@ class Parser {
 
     final Stats stats = new Stats();
 
+    /** Various statistics for reporting information on the command line. */
     class Stats {
         int lines;
         int linesOfSigs;
@@ -967,10 +971,12 @@ class Parser {
         return this;
     }
 
+    /** Report an error at the position of the provided token. */
     void failAt(String msg, Tok last) {
         throw new RuntimeException(last == null ? "Huh?" : last.errorAt(msg));
     }
 
+    /** Fail if there are leftover tokens. */
     void failIfEmpty(String msg, Tok last) {
         if (isEmpty()) failAt(msg, last);
     }
@@ -1000,19 +1006,25 @@ class Parser {
         return peek().getLine();
     }
 
+    /**
+     * Used for debugging, put the name of a file that contains the output of
+     * code_warntype, and run the parser on it. Our current parser is best effort in
+     * that we don't complelly care about accuracy in the body of the mthod. When
+     * there is a missparse we just turn the line into a string.
+     */
     public static void main(String[] args) {
         // GenDB.readDB();
         var p = new Parser();
         var file = "/tmp/jl_112553/out.0/t8465.tst";
-        MethodInformation.parse(p.withFile(file), file.toString());
+        MethodInformation.parse(p.withFile(file).lex(), file.toString());
     }
 }
 
 /** An early form of Julia Type coming from the Parser. */
 interface Ty {
 
-    final static Ty Any = new TyInst(GenDB.it.names.any(), List.of());
-    final static Ty None = new TyUnion(List.of());
+    final static Ty Any = new TyInst(GenDB.it.names.any(), List.of()); // cache the singleton
+    final static Ty None = new TyUnion(List.of()); // cache the singleton
 
     /** @return the Any Ty */
     static Ty any() {
@@ -1296,11 +1308,8 @@ record TyDecl(String mod, TypeName nm, Ty ty, Ty parent, String src) implements 
 /**
  * The representation of a method with a name and type signature (a tuple
  * possibly wrapped in existentials). The source information is retained for
- * debugging purposes.
- * 
- * argnms hold the argument names, handy for keword arguments
- * 
- * kwpos holds the position of the first keywork argument, or -1 if none.
+ * debugging purposes.`argnms` hold the argument names.`kwpos` holds the
+ * position of the first keywork argument, or -1 if none.
  */
 record TySig(FuncName nm, Ty ty, List<String> argnms, int kwPos, String src) implements Serializable {
 

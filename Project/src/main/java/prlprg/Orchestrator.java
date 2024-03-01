@@ -56,21 +56,24 @@ class Orchestrator {
     void orchestrate() {
         var ctxt = new Context();
 
+        // Create tests for all *functions* with different arities. Send `Any` to each argument.
         Timer t = new Timer().start();
         createPkgs(ctxt);
-        //        createGroundTests(ctxt, testsForGroundSigs());
-        createGroundTests(ctxt, testsForAllFuns());
+        createInitialTests(ctxt, testsForAllFuns());
         App.print("Created " + ctxt.count + " tests in " + t.stop());
 
+        // Get Julia to run all the tests
         t = new Timer().start();
         JuliaUtils.runTests(ctxt.tests, ctxt.tmp);
         App.printSeparator();
         App.print("Executed " + ctxt.count + " tests in " + t.stop());
 
+        // Recover the results from files in the target directory
         t = new Timer().start();
         readResults(ctxt);
         App.print("Read " + ctxt.count + " results in " + t.stop());
 
+        // Summarize results
         App.printSeparator();
         var count = 0;
         var tot = 0;
@@ -79,6 +82,12 @@ class Orchestrator {
         var nothings = 0;
         var concretes = new HashSet<String>();
         var abstracts = new HashSet<String>();
+
+        for (var s : it.sigs.allSigs()) {
+            if (s.kwPos() != -1) {
+                App.print("Skipping " + s + " because it has a keyword argument");
+            }
+        }
 
         for (var inf : it.sigs.allInfos()) {
             tot++;
@@ -255,7 +264,7 @@ class Orchestrator {
      * the requested tests succeeded. (They could fail if there is a bug in our code
      * and that results in a Julia error.)
      */
-    void createGroundTests(Context ctxt, List<Test> tests) {
+    void createInitialTests(Context ctxt, List<Test> tests) {
         try {
             try (var w = new BufferedWriter(new FileWriter(ctxt.tests.toString()))) {
                 w.write(HEADER);
@@ -323,7 +332,7 @@ class Orchestrator {
         var tests = new ArrayList<Test>();
         var seen = new HashSet<String>();
         for (var s : it.sigs.allSigs()) {
-            //     if (!s.nm().toString().endsWith("cholmod_l_copy_sparse")) continue; //TODO TODO //..////REMOVE TODO used to filter what tests are generated during debugging
+            // if (!s.nm().toString().endsWith("Pkg.Resolve.apply_maxsum_trace!")) continue; //TODO (comment out) used to filter what tests are generated during debugging
 
             var signameArity = s.nm().toString() + s.arity();
             if (seen.contains(signameArity)) continue;
@@ -402,7 +411,7 @@ class Orchestrator {
      */
     private boolean readFile(File file) {
         try {
-            var ms = MethodInformation.parse(new Parser().withFile(file), file.toString());
+            var ms = MethodInformation.parse(new Parser().withFile(file).lex(), file.toString());
             if (ms.isEmpty()) return false;
             for (var m : ms)
                 readOneSigResult(m);
@@ -427,6 +436,7 @@ class Orchestrator {
      * discarding the information from code_warntype.
      */
     private void readOneSigResult(Method m) {
+        // App.print(m.sig + " -> " + m.returnType); // Print all signatures    
         var siginfo = it.sigs.get(m.sig.nm().operationName());
         if (siginfo == null) {
             App.print("Function " + m.sig.nm() + " not in DB. Odd that a test was generated for it");

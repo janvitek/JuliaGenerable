@@ -1263,8 +1263,9 @@ record Sig(FuncName nm, Type ty, List<String> argnms, int kwPos, String src) imp
      * Returns the number of arguments of this function. The encoding has a number
      * of existentials wrapping a tuple, so we unwrap the existentials and return
      * the tuple's arity.
+     * 
+     * NOTE This ignores Varargs.
      */
-    // TODO: varargs
     int arity() {
         var t = ty;
         while (t instanceof Exist e)
@@ -1325,8 +1326,6 @@ class Method implements Serializable {
         this.filename = filename;
         this.originSig = mi.originDecl.expandAliases();
         this.returnType = Type.expandAliasesFixpoint(mi.returnType);
-
-        if (returnType.toString().contains("NTuple")) App.print("!!!!!!!!!!!!!! +" + returnType); //TODO
 
         this.originPackageAndFile = mi.src;
         this.argNames = mi.argnames;
