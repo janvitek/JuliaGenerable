@@ -500,8 +500,8 @@ class GenDB implements Serializable {
      */
     final void addSig(TySig sig) {
         var nm = sig.nm().operationName();
-        if (nm.equals("kwcall")) return;
-        if (sig.kwPos() >= 0) return;
+        if (nm.equals("kwcall")) return; // ignore kwcalls
+        if (sig.kwPos() >= 0) return; // ignore keyword arguments 
         if (sigs.find(sig) == null) sigs.make(sig.nm()).tysig = sig;
     }
 

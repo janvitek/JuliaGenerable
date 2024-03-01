@@ -332,8 +332,7 @@ class Orchestrator {
         var tests = new ArrayList<Test>();
         var seen = new HashSet<String>();
         for (var s : it.sigs.allSigs()) {
-            // if (!s.nm().toString().endsWith("Pkg.Resolve.apply_maxsum_trace!")) continue; //TODO (comment out) used to filter what tests are generated during debugging
-
+           // if (!s.nm().toString().endsWith("Base.count!")) continue; //TODO (comment out) used to filter what tests are generated during debugging            
             var signameArity = s.nm().toString() + s.arity();
             if (seen.contains(signameArity)) continue;
             seen.add(signameArity);

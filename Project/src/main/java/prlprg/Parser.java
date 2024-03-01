@@ -33,9 +33,6 @@ class Parser {
         static TypeName parseTypeName(Parser p) {
             var nm = p.take().toString();
             if (nm.isEmpty()) p.failAt("Missing type name", p.peek());
-            if (OKREMOVEMETODO && nm.equals("Vector")) {
-                System.out.println("nm: " + nm);
-            }
             return GenDB.it.names.type(nm);
         }
 
@@ -387,7 +384,7 @@ class Parser {
                 var r = q.sliceNextCommaOrSemi();
                 if (r.isEmpty()) break;
                 var tok = r.peek();
-                if (semiOrNull != null && semiOrNull.adjacent(tok) && firstKeyword == -1) firstKeyword = params.size();
+                if (semiOrNull != null && semiOrNull.start() < tok.start() && firstKeyword == -1) firstKeyword = params.size();
                 params.add(Param.parse(r));
             }
             var wheres = parseWhere(p);
@@ -425,8 +422,6 @@ class Parser {
         }
     }
 
-    static boolean OKREMOVEMETODO = false;
-
     /**
      * Holds the information obtained from code_warntype, this is slightly more raw
      * than needed, we then build the Method class from this.
@@ -452,9 +447,6 @@ class Parser {
 
         /** Parse a method information block as returned by code_warntype. **/
         static List<Method> parse(Parser p, String filename) {
-
-            OKREMOVEMETODO = true;
-
             var ms = new ArrayList<Method>();
             while (!p.isEmpty()) {
                 var mi = new MethodInformation();
