@@ -262,7 +262,8 @@ Base.show(io::IO, d::TypeDiscovery) = begin
         show(io, d.type)
     elseif d.tag == Closure || d.tag == Typ
         print(io,
-            if isabstracttype(d.type)
+            #= specialcase Tuple because `isabstracttype(Tuple)` returns false =#
+            if isabstracttype(d.type) || d.type === Tuple
                 "abstract type"
             elseif isstructtype(d.type)
                 ismutabletype(d.type) ? "mutable struct" : "struct"
