@@ -27,17 +27,26 @@ class NameUtils implements Serializable {
 
     private final HashSet<TypeName> typeDefs = new HashSet<>();
     private final HashSet<TypeName> aliasDefs = new HashSet<>();
-    private final HashSet<TypeName> unknowns = new HashSet<>();
     private final HashMap<String, HashSet<TypeName>> toLongs = new HashMap<>();
 
     void addTypeDef(TypeName tn) {
         if (tn == null || tn.isShort()) throw new RuntimeException("Need a full name");
         typeDefs.add(tn);
+        addToLong(tn.nm, tn);
+        packages.add(tn.pkg);
     }
 
     void addAliasDef(TypeName tn) {
         if (tn == null || tn.isShort()) throw new RuntimeException("Need a full name");
         aliasDefs.add(tn);
+        addToLong(tn.nm, tn);
+    }
+
+    private void addToLong(String nm, TypeName tn) {
+        if (tn.isShort()) throw new RuntimeException("Need a full name");
+        var tls = toLongs.get(nm);
+        if (tls == null) toLongs.put(nm, tls = new HashSet<TypeName>());
+        tls.add(tn);
     }
 
     /** From a string make a type name. */
@@ -52,6 +61,7 @@ class NameUtils implements Serializable {
      */
     FuncName function(String exp) {
         var pre = prefix(exp);
+        if (pre != null) packages.add(pre);
         return new FuncName(pre == null ? "" : pre, suffix(exp));
     }
 
@@ -115,28 +125,19 @@ class NameUtils implements Serializable {
             this.pkg = pkg;
             if (nm.equals("")) throw new RuntimeException("Empty name is not allowed");
             this.nm = nm;
-            if (!pkg.equals("")) {
-                packages.add(pkg);
-                var tls = toLongs.get(nm);
-                if (tls == null) toLongs.put(nm, tls = new HashSet<TypeName>());
-                tls.add(this);
-            }
         }
 
         TypeName resolve() {
             var tn = this;
             if (aliasDefs.contains(tn) || typeDefs.contains(tn)) return tn;
             var longs = toLongs.get(tn.nm);
-            if (longs == null) {
-                unknowns.add(tn);
-                return tn;
-            }
+            if (longs == null) return tn;
             var bases = longs.stream().filter(t -> (aliasDefs.contains(t) || typeDefs.contains(t)) && t.isBasic()).toList();
             if (bases.size() == 0)
                 return tn;
             else if (bases.size() == 1)
                 return bases.getFirst();
-            else {                
+            else {
                 //    App.print("Ambiguous name " + tn + " could be " + bases);
                 // Ambiguous name Pair could be [Core.Pair, Base.Pair]
                 return bases.getFirst(); // Randomly pick one ...  

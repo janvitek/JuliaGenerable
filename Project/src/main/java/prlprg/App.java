@@ -28,8 +28,7 @@ public class App {
     }
 
     static String[] defaultArgs = { "-c=NONE", // color the output : DARK, LIGHT, NONE
-            "-r=/Users/jan/Library/CloudStorage/Dropbox/j/write/JuliaGenerable/", // root directory of the project
-            //           "-r=..", // root directory of the project
+            "-r=.", // root directory of the project
             "-f=stdf.jlg", // file with function signatures
             "-t=stdt.jlg", // file with type declarations
             "-a=stda.jlg", // file with alias declarations
@@ -65,19 +64,26 @@ public class App {
         if (!GenDB.readDB()) { // If we did not find a DB, do god's work...
 
             printSeparator();
-            new Parser().withFile(Options.aliasesPath).parseAliasNames();
-            new Parser().withFile(Options.typesPath).parseTypeNames();
+            String[] tds = { //
+                    "abstract type Core.Union end", // This is used when Union occurs without arguments
+                    "abstract type Core.Vararg end", // Missing in discovery
+                    "struct Core.DataType <: Core.Type{T} end", // Missing in discovery
+                    "struct Core.Colon <: Core.Function end" };// Missing in discovery
+
+            // Reading nanes only to initialize NameUtils                    
+            new Parser().withFile(Options.aliasesPath).lex().parseAliasNames();
+            new Parser().withLines(tds).withFile(Options.typesPath).lex().parseTypeNames();
 
             print("Reading aliases from " + Options.aliasesPath);
-            new Parser().withFile(Options.aliasesPath).parseAliases();
+            new Parser().withFile(Options.aliasesPath).lex().parseAliases();
 
             printSeparator();
             print("Reading types from " + Options.typesPath);
-            new Parser().withFile(Options.typesPath).parseTypes();
+            new Parser().withLines(tds).withFile(Options.typesPath).lex().parseTypes();
 
             printSeparator();
             print("Reading sigs from " + Options.functionsPath);
-            new Parser().withFile(Options.functionsPath).parseSigs(Options.MAX_SIGS_TO_READ);
+            new Parser().withFile(Options.functionsPath).lex().parseSigs(Options.MAX_SIGS_TO_READ);
 
             printSeparator();
             print("Building DB...");
@@ -100,6 +106,8 @@ public class App {
         Orchestrator gen = new Orchestrator();
         gen.orchestrate();
 
+        quit(0); // TODO REMOVE
+
         // What follows will be moved to orchestrator  or GenDB.
         var sub = new Subtyper();
         var cnt = 0;
@@ -115,7 +123,6 @@ public class App {
 
         print("Generated " + cnt + " types");
 
-        if (cnt != -1) return; // TODO REMOVE
         for (var nm : GenDB.it.sigs.allNames()) {
             for (var me : GenDB.it.sigs.get(nm)) {
                 var m = me.sig;
