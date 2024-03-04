@@ -323,7 +323,7 @@ struct Core.StackOverflowError <: Core.Exception end  @soft  [typ @ Core.StackOv
 mutable struct Core.String <: Core.AbstractString end  @soft  [typ @ Core.String]
 mutable struct Core.Symbol end  @soft  [typ @ Core.Symbol]
 mutable struct Core.Task end  @soft  [typ @ Core.Task]
-struct Core.Tuple end  @soft  [typ @ Core.Tuple]
+abstract type Core.Tuple end  @soft  [typ @ Core.Tuple]
 abstract type Core.Type{T} end  @soft  [typ @ Core.Type]
 struct Core.TypeError <: Core.Exception end  @soft  [typ @ Core.TypeError]
 mutable struct Core.TypeMapEntry end  [typ @ Core.TypeMapEntry]
