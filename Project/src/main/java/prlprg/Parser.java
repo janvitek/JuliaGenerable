@@ -614,24 +614,17 @@ class LineParser {
         // E.g. |   %15 = Core.Compiler.getglobal(top, name)::Any
         // E.g. │   %16 = (f === %15)::Bool
         private Op parseRegisterAssign(LineParser p) {
-            var s = p.copy().foldToString(" ");
+            var s = p.copy().foldToString(" "); // for debugging puroses 
             var reg = p.take().toString();
             if (p.take("=").has("(")) {
                 try {
                     var q = p.sliceMatchedDelims("(", ")");
                     var op = q.take().toString();
-                    q = q.sliceMatchedDelims("(", ")");
+                    q = p.sliceMatchedDelims("(", ")");
                     var args = callArglist(q);
                     var ret = UnionAllInst.parse(p.take("::"));
                     var func = GenDB.it.names.function(op);
                     return new RegAssign(reg, func, args, ret);
-                    /*       op = q.take().toString();
-                        var r = q.take().toString();
-                        var func = GenDB.it.names.function(op);
-                        if (!q.isEmptyLine()) throw new RuntimeException("Leftovers " + q);
-                        var ret = UnionAllInst.parse(p.take("::"));
-                        return new RegAssign(reg, func, List.of(l, r), ret);*/
-
                 } catch (RuntimeException e) {
                     App.output("Error parsing register assign: " + s);
                     return new Other(s);
@@ -1041,7 +1034,7 @@ class LineParser {
     public static void main(String[] args) {
         // GenDB.readDB();
         var p = new Parser();
-        var file = "/tmp/jl_162639/out.0/t100.tst";
+        var file = "/tmp/jl_170424/out.0/t150.tst";
         MethodInformation.parse(p.withFile(file).lex(), file.toString());
     }
 }

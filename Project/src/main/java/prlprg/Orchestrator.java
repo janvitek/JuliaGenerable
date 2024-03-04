@@ -19,10 +19,11 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Collections;
 
 import prlprg.App.Timer;
 import prlprg.LineParser.MethodInformation;
-import java.util.Collections;
+import prlprg.GenDB.Signatures;
 
 /**
  * Class for orchestrating the generation of type stability tests.
@@ -76,23 +77,21 @@ class Orchestrator {
         // Summarize results
         App.printSeparator();
         var count = 0;
-        var tot = 0;
+
         var weird = 0;
         var concrete = 0;
         var nothings = 0;
+        var ground = 0;
+        var groundConcrete = 0;
         var concretes = new HashSet<String>();
         var abstracts = new HashSet<String>();
-
-        for (var s : it.sigs.allSigs()) {
-            if (s.kwPos() != -1) {
-                App.print("Skipping " + s + " because it has a keyword argument");
-            }
-        }
-
-        for (var inf : it.sigs.allInfos()) {
-            tot++;
+        var unstable = new HashSet<Signatures.Info>();
+        var allsigInfos = it.sigs.allInfos();
+        var tot = allsigInfos.size();
+        for (var inf : allsigInfos)
             if (!inf.results.isEmpty()) {
                 count++;
+                if (inf.sig.isGround()) ground++;
                 if (inf.results.size() > 1)
                     weird++;
                 else if (inf.results.size() == 1) {
@@ -101,18 +100,28 @@ class Orchestrator {
                         nothings++;
                     else if (rty.isConcrete()) {
                         concrete++;
+                        if (inf.sig.isGround()) groundConcrete++;
                         concretes.add(rty.toJulia());
-                    } else
+                    } else {
+                        unstable.add(inf);
                         abstracts.add(rty.toJulia());
+                    }
                 }
             }
-        }
 
-        var s = "Got " + tot + " methods. " + count + " methods have results";
-        s = weird > 0 ? s + " and " + weird + " methods had more than one result" : s;
+        var s = "Got " + tot + " methods, " + count + " methods have results";
+        s += weird > 0 ? ", and " + weird + " methods had more than one result." : ".";
         App.print(s);
         App.print("Found " + concrete + " stable methods, with " + concretes.size() + " unique return types");
         App.print("Found " + (count - concrete) + " un-stable methods with " + abstracts.size() + " unique return types. " + nothings + " methods that returned Union{}.");
+        App.print("Found " + ground + " methods with only concrete types arguments and " + groundConcrete + " of them are stable.");
+
+        var argcnt = new int[20];
+        for (var inf : unstable) {
+            var c = inf.sig.arity();
+            if (c < argcnt.length) argcnt[c]++;
+        }
+        App.print("Methods with unstable return types by arity: " + java.util.Arrays.toString(argcnt));
 
         App.printSeparator();
         App.print("Abstract types: (printing the first few on terminal, remaining in the log file)");

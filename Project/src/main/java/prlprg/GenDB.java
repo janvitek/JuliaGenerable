@@ -693,6 +693,7 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
     @Override
     public boolean isConcrete() {
         var name = this.nm.nm;
+        if (name.equals("Vararg")) return tys.size() == 2 ? tys.get(0).isConcrete() : false;
         if (name.equals("Tuple") || name.equals("Union")) {
             if (tys.size() != 0) throw new RuntimeException("Should be represented by class" + nm());
             return false;
