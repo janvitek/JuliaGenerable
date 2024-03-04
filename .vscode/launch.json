@@ -6,6 +6,13 @@
   "configurations": [
     {
       "type": "java",
+      "name": "LineParser",
+      "request": "launch",
+      "mainClass": "prlprg.LineParser",
+      "projectName": "JuliaGenerable2"
+    },
+    {
+      "type": "java",
       "name": "App",
       "request": "launch",
       "mainClass": "prlprg.App",

@@ -16,7 +16,7 @@ class Lexer {
 
   /** Testing/debuging */
   public static void main(String[] args) {
-    System.out.println(new Line("Mn/.nv", 1));
+    // System.out.println(new Line("Mn/.nv", 1));
   }
 
   /** The source text. */
@@ -35,13 +35,12 @@ class Lexer {
 
   /** Returns the next list of tokens, or an empty list if there are no more. */
   List<Tok> next() {
-    if (lines.isEmpty()) return new ArrayList<>();
-    var line = lines.removeFirst();
-    while (line.tokens.isEmpty() && !lines.isEmpty())
-      line = lines.removeFirst();
-    return line.tokens;
+    return lines.isEmpty() ? new ArrayList<>() : lines.removeFirst().tokens;
   }
 
+  boolean isEmpty() {
+    return lines.isEmpty();
+  }
 }
 
 /** One line of the original input. */

@@ -221,7 +221,7 @@ class NameUtils implements Serializable {
         /** Create a function name from a package and a suffix. */
         FuncName(String pkg, String nm) {
             this.pkg = pkg == null ? "" : pkg;
-            if (nm.equals("")) throw new RuntimeException("Name cannot be empty");
+            if (nm.equals("")) nm = "%EMPTY%";
             this.nm = nm;
             if (!pkg.equals("")) packages.add(pkg);
         }
