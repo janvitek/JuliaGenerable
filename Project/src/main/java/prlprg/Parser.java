@@ -91,14 +91,14 @@ class LineParser {
         /** Creates a type in a simpler format */
         Ty toTy();
 
-        /** Read a type name. */
+        /** Read a type name and record the name in the DB's NameUtils. */
         static TypeName parseTypeName(LineParser p) {
             var nm = p.take().toString();
             if (nm.isEmpty()) p.failAt("Missing type name", p.peek());
             return GenDB.it.names.type(nm);
         }
 
-        /** Function names are dotted identifiers. */
+        /** Function names are dotted identifiers. Read one and record it in the DB */
         static FuncName parseFunctionName(LineParser p) {
             var str = p.take().toString();
             if (str.isEmpty()) p.failAt("Missing function name", p.peek());
@@ -109,9 +109,13 @@ class LineParser {
     /** An instance of a datatype constructor (not a union all or bound var). */
     record TypeInst(TypeName nm, List<ParsedType> ps) implements ParsedType {
 
-        /** Either returns a type or a constant */
+        /**
+         * Either returns a type or a constant. As we are parsing may encounter either,
+         * and they are not syntactically distinguishable. We use a heuristic that is
+         * biased to treat things as types.
+         */
         static ParsedType parse(LineParser p) {
-            var constant = Constant.parseConstant(p);
+            var constant = Constant.parseConstant(p); // Is it a constant?
             if (constant != null) return constant;
             var name = ParsedType.parseTypeName(p).resolve(); // Resolve will deal with soft imports...
             if (!p.has("{")) return new TypeInst(name, null); // null denotes absence of type params.
@@ -150,26 +154,28 @@ class LineParser {
 
     }
 
+    /** Constant are values that can appear in type term position. */
     record Constant(String val) implements ParsedType {
 
+        /** Returns a constant or null. */
         static Constant parseConstant(LineParser p) {
-            var tryit = tryParse(p.copy());
-            return tryit == null ? null : tryParse(p);
+            var tryit = tryParse(p.copy()); // Copy the line parse, try to parse, if null give up. And leave the original parser untouched.
+            return tryit == null ? null : tryParse(p); // If the first parse succeeded, try again on the original line parser.  
         }
 
         private static Constant tryParse(LineParser p) {
             var tok = p.take();
-            if (tok.isNumber() || tok.isString())
+            if (tok.isNumber() || tok.isString()) // Numbers and strings are constants. 
                 return new Constant(tok.toString());
-            else if (tok.isIdent()) {
+            else if (tok.isIdent()) { // Identifiers can be constants
                 var s = tok.toString();
                 if (s.equals("true") || s.equals("false") || s.equals("missing") || s.equals("nothing"))
                     return new Constant(s);
-                else if (p.has("("))
+                else if (p.has("(")) // Parenthized "things" are identifers
                     return new Constant(s + "(" + p.sliceMatchedDelims("(", ")").foldToString("") + ")");
                 else
                     return null;
-            } else if (tok.isChar(':')) {
+            } else if (tok.isChar(':')) { // Colon is a prefix for a symbol that may be parenthized
                 var s = tok.toString();
                 if (p.has("("))
                     s += "(" + p.sliceMatchedDelims("(", ")").foldToString("") + ")";
@@ -177,9 +183,10 @@ class LineParser {
                     s += p.take();
                 return new Constant(s);
             } else
-                return null;
+                return null; // Not a constant
         }
 
+        /** Nothing to do, just pack the string. */
         public Ty toTy() {
             return new TyCon(val);
         }
@@ -751,7 +758,7 @@ class LineParser {
         var p = this;
         while (!(p = p.nextLine()).isEmptyLine() && max-- > 0) {
             var s = Function.parse(p).toTy().fixUp();
-            //  if (!s.nm().toString().contains("_legacy_dispatch_entr")) continue; // TODO remove parse fileter
+            //if (!s.nm().toString().contains("setprotocol!")) continue; // remove parse fileter
             GenDB.it.addSig(s);
         }
         //   while (!isEmpty() && max-- > 0)
@@ -1126,6 +1133,10 @@ record TyInst(TypeName nm, List<Ty> tys) implements Ty, Serializable {
         return new Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
     }
 
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyInst t ? nm.equals(t.nm) && tys.equals(t.tys) : false;
+    }
 }
 
 record TyVar(String nm, Ty low, Ty up) implements Ty, Serializable {
@@ -1156,6 +1167,11 @@ record TyVar(String nm, Ty low, Ty up) implements Ty, Serializable {
         return new TyVar(nm, low.fixUp(bounds), up.fixUp(bounds));
     }
 
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyVar t ? nm.equals(t.nm) && low.equals(t.low) && up.equals(t.up) : false;
+    }
+
 }
 
 /** A constant represented as a string. */
@@ -1175,6 +1191,11 @@ record TyCon(String nm) implements Ty, Serializable {
     public Ty fixUp(List<TyVar> bounds) {
         return this;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyCon t ? nm.equals(t.nm) : false;
+    }
 }
 
 record TyTuple(List<Ty> tys) implements Ty, Serializable {
@@ -1192,6 +1213,11 @@ record TyTuple(List<Ty> tys) implements Ty, Serializable {
     @Override
     public Ty fixUp(List<TyVar> bounds) {
         return new TyTuple(tys.stream().map(t -> t.fixUp(bounds)).collect(Collectors.toList()));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyTuple t ? tys.equals(t.tys) : false;
     }
 
 }
@@ -1213,6 +1239,10 @@ record TyUnion(List<Ty> tys) implements Ty, Serializable {
         return new TyUnion(tys.stream().map(t -> t.fixUp(bounds)).collect(Collectors.toList()));
     }
 
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyUnion t ? tys.equals(t.tys) : false;
+    }
 }
 
 record TyExist(Ty v, Ty ty) implements Ty, Serializable {
@@ -1270,6 +1300,11 @@ record TyExist(Ty v, Ty ty) implements Ty, Serializable {
         return new Exist(b, ty().toType(newenv));
     }
 
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyExist t ? v.equals(t.v) && ty.equals(t.ty) : false;
+    }
+
 }
 
 /**
@@ -1322,6 +1357,11 @@ record TyDecl(String mod, TypeName nm, Ty ty, Ty parent, String src) implements 
         this.mod = mod;
         this.nm = nm;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyDecl t ? mod.equals(t.mod) && nm.equals(t.nm) && ty.equals(t.ty) && parent.equals(t.parent) && src.equals(t.src) : false;
+    }
 }
 
 /**
@@ -1339,5 +1379,10 @@ record TySig(FuncName nm, Ty ty, List<String> argnms, int kwPos, String src) imp
 
     TySig fixUp() {
         return new TySig(nm, ty.fixUp(new ArrayList<>()), argnms, kwPos, src);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        return other instanceof TySig that ? nm.equals(that.nm) && ty.equals(that.ty) : false;
     }
 }

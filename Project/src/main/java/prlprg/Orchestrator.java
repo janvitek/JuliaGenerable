@@ -20,6 +20,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.Collections;
+import java.util.HashMap;
 
 import prlprg.App.Timer;
 import prlprg.LineParser.MethodInformation;

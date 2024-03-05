@@ -226,17 +226,19 @@ class NameUtils implements Serializable {
             if (!pkg.equals("")) packages.add(pkg);
         }
 
-        /** Equality of names */
+        /** Equality of names, ignore the packages man! */
         @Override
         public boolean equals(Object o) {
-            if (o instanceof FuncName t) return pkg.equals(t.pkg) && nm.equals(t.nm);
+            if (o instanceof FuncName t) return // pkg.equals(t.pkg) && 
+            nm.equals(t.nm);
             return false;
         }
 
         /** Traditional hash */
         @Override
         public int hashCode() {
-            return pkg.hashCode() + nm.hashCode();
+            return // pkg.hashCode() + 
+            nm.hashCode();
         }
 
         @Override

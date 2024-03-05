@@ -323,7 +323,7 @@ class GenDB implements Serializable {
             }
 
             /** Compare sigs coming from TypeDiscovery. True if same file+line number. */
-            boolean equalsSTyig(TySig other) {
+            boolean equalsTysig(TySig other) {
                 var cmp = compareSources(tysig.src(), other.src());
                 return cmp == 1 ? true : (cmp == 0 ? false : tysig.equals(other));
             }
@@ -417,7 +417,7 @@ class GenDB implements Serializable {
             var infos = db.get(sig.nm().operationName());
             if (infos == null) return null;
             for (var info : infos)
-                if (info.equalsSTyig(sig)) return info;
+                if (info.equalsTysig(sig)) return info;
             return null;
 
         }
