@@ -238,7 +238,7 @@ class Orchestrator {
               quote
                 buffer = IOBuffer()
                 try
-                  code_warntype(IOContext(buffer, :color => false, :module => nothing), $(esc(e1)), $(esc(e2)))
+                  code_warntype(IOContext(buffer, :color => false, :module => nothing, :compact => false), $(esc(e1)), $(esc(e2)))
                 catch e
                   try
                     println(buffer, "Exception occurred: ", e)
