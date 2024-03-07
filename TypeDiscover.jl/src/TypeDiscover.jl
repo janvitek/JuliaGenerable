@@ -138,11 +138,12 @@ discover(report::Function, modules::Vector{Module}) = begin
                 soft = issoftimport(mod, sym)
                 if isalias(mod, sym, val)
                     report(AliasDiscovery(tag, mod, sym, val, soft))
-                end
-                for m in methods(val)
-                    m ∈ methscache && continue
-                    push!(methscache, m)
-                    any(mod -> ismodulenested(m.module, mod), modules) && report(FunctionDiscovery(tag, val, m, soft))
+                else
+                    for m in methods(val)
+                        m ∈ methscache && continue
+                        push!(methscache, m)
+                        any(mod -> ismodulenested(m.module, mod), modules) && report(FunctionDiscovery(tag, val, m, soft))
+                    end
                 end
             end
 
