@@ -111,6 +111,8 @@ class Parser {
                 var s = tok.toString();
                 if (p.has("("))
                     s += "(" + p.sliceMatchedDelims("(", ")").foldToString("") + ")";
+                else if (p.has("."))
+                    s = s + p.take() + p.take();
                 else
                     s += p.take();
                 return new Constant(s);

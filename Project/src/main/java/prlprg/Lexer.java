@@ -395,7 +395,7 @@ class Transformer {
 
 /**
  * The first pass of lexing. This handles delimiters (e.g. '[') as well as "::",
- * "...", numbbers, identifiers.
+ * "...", numbers, identifiers.
  */
 class FirstPass extends Transformer {
   void accept(Tok t1, Tok t2, Visitor v) {
@@ -443,10 +443,10 @@ class FirstPass extends Transformer {
 
 class Operators extends Transformer {
   void accept(Tok t1, Tok t2, Visitor v) {
-    if (t1.adjacent(t2) && t1.isOperator() && t2.isOperator())
+    if (t1.isChar(':'))
+      v.done(t1).revisit(t2);
+    else if (t1.adjacent(t2) && t1.isOperator() && t2.isOperator())
       v.revisit(t1.asOperator().merge(t2));
-    else if (t1.adjacent(t2) && t1.isChar(':') && t2.isIdent())
-      v.revisit(t1.asIdent().merge(t2));
     else
       v.done(t1.isOperator() ? t1.asOperator() : t1).revisit(t2);
   }
@@ -459,10 +459,6 @@ class Dotted extends Transformer {
   void accept(Tok t1, Tok t2, Visitor v) {
     if (t1.adjacent(t2) && (t1.isIdent() || t1.isNumber()) && t2.isChar('.'))
       v.revisit(t1.merge(t2));
-    else if (t1.adjacent(t2) && t1.isChar(':') && t2.isOperator())
-      v.revisit(t1.asIdent().merge(t2));
-    else if (t1.adjacent(t2) && t1.isChar(':') && t2.isChar('.'))
-      v.revisit(t1.asIdent().merge(t2));
     else if (t1.adjacent(t2) && t1.isChar('.') && t2.isNumber()) // .2
       v.done(t1.asNumber().merge(t2));
     else if (t1.adjacent(t2) && t1.isNumber() && t2.isNumber())
