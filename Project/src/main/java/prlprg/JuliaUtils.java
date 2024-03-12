@@ -123,9 +123,9 @@ public class JuliaUtils {
                 Pkg.build()
                 """.formatted(App.Options.projectPath());
             script += """
-                registry = Set();
-                repo = Set();
-                path = Set();
+                registry = Set(); nothing
+                repo = Set(); nothing
+                path = Set(); nothing
                 transitivedeps(deps, all, seen) = begin
                   for (name, uuid) in deps
                     name in seen && continue
@@ -139,12 +139,12 @@ public class JuliaUtils {
                     end
                     transitivedeps(pkginfo.dependencies, all, seen)
                   end
-                end;
-                transitivedeps(Pkg.project().dependencies, Pkg.dependencies(), Set());
+                end; nothing
+                transitivedeps(Pkg.project().dependencies, Pkg.dependencies(), Set()); nothing
                 Pkg.activate("%s"; shared=true)
-                isempty(registry) || Pkg.add(String[p.name for p in registry])
-                isempty(repo) || Pkg.add(Pkg.PackageSpec[Pkg.PackageSpec(url=p.git_source, rev=p.git_revision) for p in repo])
-                isempty(path) || Pkg.develop(Pkg.PackageSpec[Pkg.PackageSpec(path=p.source) for p in path])
+                isempty(registry) || Pkg.add(String[p.name for p in registry]); nothing
+                isempty(repo) || Pkg.add(Pkg.PackageSpec[Pkg.PackageSpec(url=p.git_source, rev=p.git_revision) for p in repo]); nothing
+                isempty(path) || Pkg.develop(Pkg.PackageSpec[Pkg.PackageSpec(path=p.source) for p in path]); nothing
                 Pkg.instantiate()
                 """.formatted(App.Options.juliaEnv);
         }
@@ -159,8 +159,8 @@ public class JuliaUtils {
                 var ret = p.waitFor();
                 if (ret != 0) throw new RuntimeException("Non-zero return code (" + ret + ") from " + pb.command() + "; stdout=`" + output + "'; stderr=`" + error + "'");
                 if (App.Options.verbose) {
-                    App.print("[JuliaUtils.setupEnv] stdout: " + output);
-                    App.print("[JuliaUtils.setupEnv] stderr: " + error);
+                    App.print("[JuliaUtils.setupEnv] stdout:\n" + output + "\n");
+                    App.print("[JuliaUtils.setupEnv] stderr:\n" + error + "\n");
                 }
             } catch (IOException | InterruptedException e) {
                 throw new RuntimeException(e);
@@ -172,9 +172,9 @@ public class JuliaUtils {
         String packages = null;
         {
             var script = """
-                imports = String[]
+                imports = String[]; nothing
                 import Pkg
-                isnothing(Pkg.project().name) || push!(imports, Pkg.project().name)
+                isnothing(Pkg.project().name) || push!(imports, Pkg.project().name); nothing
                 foreach(k -> push!(imports, k), keys(Pkg.project().dependencies))
                 println(join(imports, ", "))
                 """;
@@ -186,8 +186,8 @@ public class JuliaUtils {
                 String error = loadStream(p.getErrorStream());
                 p.waitFor();
                 if (App.Options.verbose) {
-                    App.print("[JuliaUtils.runTypeDiscovery 1/2] stdout: " + output);
-                    App.print("[JuliaUtils.runTypeDiscovery 1/2] stderr: " + error);
+                    App.print("[JuliaUtils.runTypeDiscovery 1/2] stdout:\n " + output + "\n");
+                    App.print("[JuliaUtils.runTypeDiscovery 1/2] stderr:\n" + error + "\n");
                 }
                 packages = output.strip();
             } catch (IOException | InterruptedException e) {
@@ -215,8 +215,8 @@ public class JuliaUtils {
             var ret = p.waitFor();
             if (ret != 0) throw new RuntimeException("Non-zero return code (" + ret + ") from " + pb.command() + "; stdout=`" + output + "'; stderr=`" + error + "'");
             if (App.Options.verbose) {
-                App.print("[JuliaUtils.runTypeDiscovery 2/2] stdout: " + output);
-                App.print("[JuliaUtils.runTypeDiscovery 2/2] stderr: " + error);
+                App.print("[JuliaUtils.runTypeDiscovery 2/2] stdout:\n" + output + "\n");
+                App.print("[JuliaUtils.runTypeDiscovery 2/2] stderr:\n" + error + "\n");
             }
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
@@ -232,8 +232,8 @@ public class JuliaUtils {
             var ret = p.waitFor();
             if (App.Options.verbose) {
                 App.print("[JuliaUtils.runTests] return code: " + ret);
-                App.print("[JuliaUtils.runTests] stdout: " + output);
-                App.print("[JuliaUtils.runTests] stderr: " + error);
+                App.print("[JuliaUtils.runTests] stdout:\n" + output + "\n");
+                App.print("[JuliaUtils.runTests] stderr:\n" + error + "\n");
             }
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
@@ -258,10 +258,7 @@ public class JuliaUtils {
     private static void writeStream(OutputStream s, String what) throws IOException {
         BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(s));
         if (App.Options.verbose) {
-            App.print("[JuliaUtils.writeStream] writing to stdin:");
-            App.print("```");
-            App.print(what);
-            App.print("```");
+            App.print("[JuliaUtils.writeStream] writing to stdin:\n```\n" + what + "```\n");
         }
         bw.write(what);
         bw.close();
