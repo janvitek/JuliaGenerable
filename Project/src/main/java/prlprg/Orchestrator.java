@@ -219,9 +219,18 @@ class Orchestrator {
         }
         try {
             try (var importsf = new BufferedWriter(new FileWriter(ctxt.imports.toString()))) {
-                importsf.write("using Pkg\n");
                 for (var p : pkgs) {
-                    importsf.write("Pkg.add(\"" + p + "\")\nimport " + p + "\n");
+                    /* Silence possible import errors because of package extensions.
+                     * If a package has an extension (ie. a module that gets loaded
+                     * only when a set of other packages is loaded), we get prefixes
+                     * coming from this extension. However, the extension is opaque
+                     * to the user and cannot be imported manually.
+                     * This supresses regular import errors, but those will just
+                     * show later when we cannot find the given module in the test.
+                     */
+                    importsf.write("""
+                        try import %s catch; println("imports.jl: Couldn't import `%s'") end
+                        """.formatted(p, p));
                 }
             }
         } catch (IOException e) {

@@ -8,53 +8,16 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.stream.Collectors;
+
+import prlprg.App.Options;
 
 public class JuliaUtils {
-    private static Path bin;
-    private static Path depot;
-    private static Path typeDiscover;
-    private static List<String> packages;
-    private static boolean includeLoaded;
-
-    /**
-     * Test that we have a working julia. Make sure we also have a shared
-     * environment that contains the TypeDiscover.jl package.
-     */
-    public static void setup() {
-        bin = Paths.get(App.Options.juliaBin);
-        depot = Paths.get(App.Options.juliaDepot);
-        typeDiscover = Paths.get(App.Options.root).resolve(App.Options.typeDiscover);
-
-        if (!Files.isDirectory(depot)) {
-            if (!depot.toFile().mkdirs()) throw new RuntimeException("Couldn't create depot directory " + depot);
-        }
-        if (!Files.isDirectory(typeDiscover)) {
-            throw new RuntimeException("Couldn't find the TypeDiscover.jl package at " + typeDiscover);
-        }
-        
-        var pf = Paths.get(App.Options.root).resolve(App.Options.inputs).resolve(App.Options.juliaPkgsFile);
-        if (Files.notExists(pf)) {
-            throw new RuntimeException("Couldn't find the packages file at " + pf);
-        }
-        try {
-            var ps = Files.readAllLines(pf);
-            includeLoaded = ps.contains("@LOADED");
-            packages = ps.stream().filter((p) -> !p.equals("@LOADED")).toList();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
-        testJulia();
-        setupSharedEnv();
-    }
 
     /**
      * Builder for a julia command. Start by calling `julia()`, add args, finalize
@@ -71,7 +34,15 @@ public class JuliaUtils {
             wd = null;
             env = new HashMap<>();
 
-            arg(bin.toString()).env("JULIA_DEPOT_PATH", depot.toString());
+            arg(Paths.get(App.Options.juliaBin).toString());
+
+            env("JULIA_LOAD_PATH", ":@" + App.Options.juliaEnv);
+
+            if (App.Options.juliaDepot != null)
+                env("JULIA_DEPOT_PATH", App.Options.depotPath().toString());
+
+            if (App.Options.juliaProject != null)
+                arg("--project=" + App.Options.projectPath());
         }
 
         JuliaScriptBuilder arg(String arg) {
@@ -108,10 +79,18 @@ public class JuliaUtils {
         return new JuliaScriptBuilder();
     }
 
-    private static void testJulia() {
-        var pb = julia().args("-e", "println(\"Using julia v$VERSION with depot `$(only(DEPOT_PATH))'\")").go();
+    public static void checkJulia() {
+        var script = """
+            println("┌ Hello from Julia!")
+            println("│   Version: $VERSION")
+            println("│   Project: $(Base.active_project())")
+            println("│   Depot: $DEPOT_PATH")
+            println("└   Load path: $LOAD_PATH")
+            """;
+        var pb = julia().go();
         try {
             var p = pb.start();
+            writeStream(p.getOutputStream(), script);
             String output = loadStream(p.getInputStream());
             String error = loadStream(p.getErrorStream());
             var ret = p.waitFor();
@@ -121,60 +100,141 @@ public class JuliaUtils {
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
+        setupEnv();
     }
 
-    private static void setupSharedEnv() {
-        var pkgList = packages.stream().map((s) -> "\"" + s + "\"").collect(Collectors.joining(", "));
-        var pb = julia().go();
-        try {
-            var p = pb.start();
-            writeStream(
-                p.getOutputStream(),
-                """
+    private static void setupEnv() {
+        var script = "";
+
+        if (Options.runTypeDiscovery) {
+            script += """
                 import Pkg
-                Pkg.activate("jgextra"; shared=true)
-                Pkg.add([%s])
-                Pkg.add("MethodAnalysis")
+                Pkg.activate("%s"; shared=true)
                 Pkg.develop(path="%s")
                 Pkg.instantiate()
-                Pkg.status()
-                """.formatted(pkgList, typeDiscover));
-            String output = loadStream(p.getInputStream());
-            String error = loadStream(p.getErrorStream());
-            var ret = p.waitFor();
-            if (ret != 0) throw new RuntimeException("Non-zero return code (" + ret + ") from " + pb.command() + "; stdout=`" + output + "'; stderr=`" + error + "'");
-            App.print(output);
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException(e);
+                """.formatted(App.Options.juliaEnv, App.Options.typeDiscoverPath());
+        }
+
+        if (App.Options.juliaProject != null) {
+            script += """
+                import Pkg
+                Pkg.activate("%s")
+                Pkg.instantiate()
+                Pkg.build()
+                """.formatted(App.Options.projectPath());
+            script += """
+                registry = Set();
+                repo = Set();
+                path = Set();
+                transitivedeps(deps, all, seen) = begin
+                  for (name, uuid) in deps
+                    name in seen && continue
+                    push!(seen, name)
+                    pkginfo = all[uuid]
+                    if !pkginfo.is_direct_dep
+                      pkginfo.is_tracking_path ? push!(path, pkginfo) :
+                      pkginfo.is_tracking_registry ? push!(registry, pkginfo) :
+                      pkginfo.is_tracking_repo ? push!(repo, pkginfo) :
+                      error("package $name isn't tracking anything")
+                    end
+                    transitivedeps(pkginfo.dependencies, all, seen)
+                  end
+                end;
+                transitivedeps(Pkg.project().dependencies, Pkg.dependencies(), Set());
+                Pkg.activate("%s"; shared=true)
+                isempty(registry) || Pkg.add(String[p.name for p in registry])
+                isempty(repo) || Pkg.add(Pkg.PackageSpec[Pkg.PackageSpec(url=p.git_source, rev=p.git_revision) for p in repo])
+                isempty(path) || Pkg.develop(Pkg.PackageSpec[Pkg.PackageSpec(path=p.source) for p in path])
+                Pkg.instantiate()
+                """.formatted(App.Options.juliaEnv);
+        }
+
+        if (!script.isEmpty()) {
+            var pb = julia().go();
+            try {
+                var p = pb.start();
+                writeStream(p.getOutputStream(), script);
+                String output = loadStream(p.getInputStream());
+                String error = loadStream(p.getErrorStream());
+                var ret = p.waitFor();
+                if (ret != 0) throw new RuntimeException("Non-zero return code (" + ret + ") from " + pb.command() + "; stdout=`" + output + "'; stderr=`" + error + "'");
+                if (App.Options.verbose) {
+                    App.print("[JuliaUtils.setupEnv] stdout: " + output);
+                    App.print("[JuliaUtils.setupEnv] stderr: " + error);
+                }
+            } catch (IOException | InterruptedException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
     public static void runTypeDiscovery() {
-        var pkgList = packages.stream().collect(Collectors.joining(", "));
+        String packages = null;
+        {
+            var script = """
+                imports = String[]
+                import Pkg
+                isnothing(Pkg.project().name) || push!(imports, Pkg.project().name)
+                foreach(k -> push!(imports, k), keys(Pkg.project().dependencies))
+                println(join(imports, ", "))
+                """;
+            var pb = julia().go();
+            try {
+                var p = pb.start();
+                writeStream(p.getOutputStream(), script);
+                String output = loadStream(p.getInputStream());
+                String error = loadStream(p.getErrorStream());
+                p.waitFor();
+                if (App.Options.verbose) {
+                    App.print("[JuliaUtils.runTypeDiscovery 1/2] stdout: " + output);
+                    App.print("[JuliaUtils.runTypeDiscovery 1/2] stderr: " + error);
+                }
+                packages = output.strip();
+            } catch (IOException | InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        if (packages == null) throw new RuntimeException("Couldn't get the list of packages for project");
+
+        var script = """
+                import TypeDiscover
+                %s
+                TypeDiscover.typediscover(; funcfile="%s", typefile="%s", aliasfile="%s")
+                """.formatted(
+                    packages.isEmpty() ? "" : "import " + packages,
+                    App.Options.functionsPath(),
+                    App.Options.typesPath(),
+                    App.Options.aliasesPath());
+
         var pb = julia().go();
         try {
             var p = pb.start();
-            writeStream(
-                p.getOutputStream(),
-                """
-                push!(LOAD_PATH, "@jgextra")
-                using TypeDiscover
-                using %s
-                typediscover(append!([%s], %s ? Base.loaded_modules_array() : []); funcfile="%s", typefile="%s", aliasfile="%s")
-                """.formatted(pkgList, pkgList, includeLoaded ? "true" : "false", App.Options.functionsPath, App.Options.typesPath, App.Options.aliasesPath));
+            writeStream(p.getOutputStream(), script);
             String output = loadStream(p.getInputStream());
             String error = loadStream(p.getErrorStream());
             var ret = p.waitFor();
             if (ret != 0) throw new RuntimeException("Non-zero return code (" + ret + ") from " + pb.command() + "; stdout=`" + output + "'; stderr=`" + error + "'");
+            if (App.Options.verbose) {
+                App.print("[JuliaUtils.runTypeDiscovery 2/2] stdout: " + output);
+                App.print("[JuliaUtils.runTypeDiscovery 2/2] stderr: " + error);
+            }
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
     }
 
     public static void runTests(Path tests, Path tmp) {
-        var pb = julia().directory(tmp).args(tests.toString()).go();
+        var pb = julia().directory(tmp).arg(tests.toString()).go();
         try {
-            pb.start().waitFor();
+            var p = pb.start();
+            String output = loadStream(p.getInputStream());
+            String error = loadStream(p.getErrorStream());
+            var ret = p.waitFor();
+            if (App.Options.verbose) {
+                App.print("[JuliaUtils.runTests] return code: " + ret);
+                App.print("[JuliaUtils.runTests] stdout: " + output);
+                App.print("[JuliaUtils.runTests] stderr: " + error);
+            }
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -197,6 +257,12 @@ public class JuliaUtils {
      */
     private static void writeStream(OutputStream s, String what) throws IOException {
         BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(s));
+        if (App.Options.verbose) {
+            App.print("[JuliaUtils.writeStream] writing to stdin:");
+            App.print("```");
+            App.print(what);
+            App.print("```");
+        }
         bw.write(what);
         bw.close();
     }
@@ -204,25 +270,38 @@ public class JuliaUtils {
     public static void runConcretenessSanityChecks(Path imports, Path out, HashSet<String> abstracts, HashSet<String> concretes) {
         try {
             try (var w = new BufferedWriter(new FileWriter(out.toString()))) {
-                w.write("include(\"" + imports + "\")\n");
-                for (var a : abstracts) {
-                    w.write("try isconcretetype(" + a + ") && println(\"  Should be concrete: $(" + a + ")\") catch _ end\n");
-                }
-                for (var a : concretes) {
-                    w.write("try isconcretetype(" + a + ") || println(\"  Should be abstract: $(" + a + ")\") catch _ end\n");
-                }
-            }
-        } catch (IOException e) {
-            throw new Error(e);
-        }
+                w.write("""
+                    include("%s")
+                    io = IOContext(stdout, :module => nothing, :compact => false)
+                    check(io, kind::Symbol, @nospecialize(t::Type)) = begin
+                      try
+                        @assert kind in [:abstract, :concrete]
+                        if (kind === :abstract && isconcretetype(t)) || (kind === :concrete && !isconcretetype(t))
+                          println(io, "  Should not be $kind: ", t)
+                        end
+                      catch e
+                        println(io, e)
+                      end
+                      nothing
+                    end
 
-        var pb = julia().args(out.toString()).go();
-        try {
+                    """.formatted(imports));
+                for (var a : abstracts) {
+                    w.write("check(io, :abstract, %s)\n".formatted(a));
+                }
+                for (var c : concretes) {
+                    w.write("check(io, :concrete, %s)\n".formatted(c));
+                }
+                w.write("println(\"Checked %s types\")\n".formatted(abstracts.size() + concretes.size()));
+            }
+
+            var pb = julia().args(out.toString()).go();
             var p = pb.start();
             String output = loadStream(p.getInputStream());
             p.waitFor();
             App.print("Sanity checks from " + out + ":");
             App.print(output);
+
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }

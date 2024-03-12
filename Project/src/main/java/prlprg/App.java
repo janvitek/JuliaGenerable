@@ -3,7 +3,6 @@ package prlprg;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -15,28 +14,60 @@ import prlprg.Subtyper.Fuel;
 public class App {
 
     public static class Options {
-        static int MAX_SIGS_TO_READ = 100;
-        static String root;
-        static String types, functions, aliases;
-        static String juliaBin, juliaDepot, juliaPkgsFile;
-        static boolean regen;
         static final String inputs = "Inputs";
         static final String typeDiscover = "TypeDiscover.jl";
-        static Path aliasesPath;
-        static Path typesPath;
-        static Path functionsPath;
+        static final String juliaEnv = "extras";
+
+        static int MAX_SIGS_TO_READ = 100;
+
+        static String root = null;
+        static String functions = null;
+        static String types = null;
+        static String aliases = null;
+
+        static String juliaBin = null;
+        static String juliaDepot = null;
+        static String juliaProject = null;
+
+        static boolean runTypeDiscovery = false;
+        static boolean verbose = false;
+
+        public static Path functionsPath() {
+            return Paths.get(Options.root).resolve(Options.inputs).resolve(Options.functions).toAbsolutePath().normalize();
+        }
+
+        public static Path typesPath() {
+            return Paths.get(Options.root).resolve(Options.inputs).resolve(Options.types).toAbsolutePath().normalize();
+        }
+
+        public static Path aliasesPath() {
+            return Paths.get(Options.root).resolve(Options.inputs).resolve(Options.aliases).toAbsolutePath().normalize();
+        }
+
+        public static Path typeDiscoverPath() {
+            return Paths.get(Options.root).resolve(Options.typeDiscover).toAbsolutePath().normalize();
+        }
+
+        public static Path depotPath() {
+            return juliaDepot == null ? null : Paths.get(juliaDepot).toAbsolutePath().normalize();
+        }
+
+        public static Path projectPath() {
+            return juliaProject == null ? null : Paths.get(juliaProject).toAbsolutePath().normalize();
+        }
     }
 
     static String[] defaultArgs = { "-c=NONE", // color the output : DARK, LIGHT, NONE
+            "-m=0", // max number of sigs to read (0 = all)
             "-r=.", // root directory of the project
             "-f=stdf.jlg", // file with function signatures
             "-t=stdt.jlg", // file with type declarations
             "-a=stda.jlg", // file with alias declarations
-            "-m=0", // max number of sigs to read (0 = all)
             "-julia=julia", // path to the julia binary to use
             "-depot=/tmp/JuliaGenerableDepot", // what depot to run julia with
-            "-regen=FALSE", // should regenerate input files even if they exist?
-            "-pkgs=pkgs.txt", // file with the list of packages to check, one per line, use `@LOADED` to include all loaded modules in the VM
+            // "-project=@", // if set, run all julia processes with the given Project.toml
+            "-discovery=FALSE", // set to TRUE to run TypeDiscover.jl to regenerate input files
+            "-verbose=FALSE",
     };
 
     static int FUEL = 1;
@@ -45,16 +76,27 @@ public class App {
         parseArgs(defaultArgs); // set default values
         parseArgs(args); // override them with command line arguments
 
-        Options.aliasesPath = Paths.get(Options.root).resolve(Options.inputs).resolve(Options.aliases);
-        Options.typesPath = Paths.get(Options.root).resolve(Options.inputs).resolve(Options.types);
-        Options.functionsPath = Paths.get(Options.root).resolve(Options.inputs).resolve(Options.functions);
+        var aliasesPath = Options.aliasesPath();
+        var typesPath = Options.typesPath();
+        var functionsPath = Options.functionsPath();
 
         printSeparator();
-        print("Setting up Julia");
-        JuliaUtils.setup();
-        if (Options.regen || Files.notExists(Options.aliasesPath) || Files.notExists(Options.typesPath) || Files.notExists(Options.functionsPath)) {
-            print("Discovering types and signatures");
+        {
+            print("Checking Julia...");
+            Timer t = new Timer();
+            t.start();
+            JuliaUtils.checkJulia();
+            t.stop();
+            print("Done in " + t);
+        }
+
+        if (Options.runTypeDiscovery) {
+            print("Running TypeDiscovery");
+            Timer t = new Timer();
+            t.start();
             JuliaUtils.runTypeDiscovery();
+            t.stop();
+            print("Done in " + t);
         }
 
         printSeparator();
@@ -71,19 +113,19 @@ public class App {
                     "struct Core.Colon <: Core.Function end" };// Missing in discovery
 
             // Reading nanes only to initialize NameUtils                    
-            new Parser().withFile(Options.aliasesPath).lex().parseAliasNames();
-            new Parser().withLines(tds).withFile(Options.typesPath).lex().parseTypeNames();
+            new Parser().withFile(aliasesPath).lex().parseAliasNames();
+            new Parser().withLines(tds).withFile(typesPath).lex().parseTypeNames();
 
-            print("Reading aliases from " + Options.aliasesPath);
-            new Parser().withFile(Options.aliasesPath).lex().parseAliases();
-
-            printSeparator();
-            print("Reading types from " + Options.typesPath);
-            new Parser().withLines(tds).withFile(Options.typesPath).lex().parseTypes();
+            print("Reading aliases from " + aliasesPath);
+            new Parser().withFile(aliasesPath).lex().parseAliases();
 
             printSeparator();
-            print("Reading sigs from " + Options.functionsPath);
-            new Parser().withFile(Options.functionsPath).lex().parseSigs(Options.MAX_SIGS_TO_READ);
+            print("Reading types from " + typesPath);
+            new Parser().withLines(tds).withFile(typesPath).lex().parseTypes();
+
+            printSeparator();
+            print("Reading sigs from " + functionsPath);
+            new Parser().withFile(functionsPath).lex().parseSigs(Options.MAX_SIGS_TO_READ);
 
             printSeparator();
             print("Building DB...");
@@ -145,37 +187,50 @@ public class App {
 
     static void parseArgs(String[] args) {
         for (var arg : args) {
-            if (arg.startsWith("-julia")) {
-                Options.juliaBin = arg.substring(7).strip();
-            } else if (arg.startsWith("-depot")) {
-                Options.juliaDepot = arg.substring(7).strip();
-            } else if (arg.startsWith("-regen")) {
-                Options.regen = switch (arg.substring(7).strip()) {
-                case "TRUE" -> true;
-                case "FALSE" -> false;
-                default -> false;
-                };
-            } else if (arg.startsWith("-pkgs")) {
-                Options.juliaPkgsFile = arg.substring(6).strip();
-            } else if (arg.startsWith("-r")) { // root directory
-                Options.root = arg.substring(3).strip();
-            } else if (arg.startsWith("-t")) {
-                Options.types = arg.substring(3).strip();
-            } else if (arg.startsWith("-a")) {
-                Options.aliases = arg.substring(3).strip();
-            } else if (arg.startsWith("-f")) {
-                Options.functions = arg.substring(3).strip();
-            } else if (arg.startsWith("-m")) { // max number of sigs to read
-                var s = arg.substring(3).strip();
-                Options.MAX_SIGS_TO_READ = s.equals("0") ? Integer.MAX_VALUE : Integer.parseInt(s);
-            } else if (arg.startsWith("-c")) { // Color mode
-                CodeColors.mode = switch (arg.substring(3).strip()) {
-                case "DARK" -> CodeColors.Mode.DARK;
-                case "LIGHT" -> CodeColors.Mode.LIGHT;
+            var parts = arg.split("=", 2);
+            if (parts.length != 2) {
+                die("Invalid argument format `" + arg + "'");
+            }
+            var key = parts[0].strip();
+            var val = parts[1].strip();
+
+            if (key.equalsIgnoreCase("-c")) { // Color mode
+                CodeColors.mode = switch (val.toLowerCase()) {
+                case "dark" -> CodeColors.Mode.DARK;
+                case "light" -> CodeColors.Mode.LIGHT;
                 default -> CodeColors.Mode.NONE;
                 };
+            } else if (key.equalsIgnoreCase("-m")) { // max number of sigs to read
+                var s = val;
+                Options.MAX_SIGS_TO_READ = s.equals("0") ? Integer.MAX_VALUE : Integer.parseInt(s);
+            } else if (key.equalsIgnoreCase("-r")) { // root directory
+                Options.root = val;
+            } else if (key.equalsIgnoreCase("-f")) {
+                Options.functions = val;
+            } else if (key.equalsIgnoreCase("-t")) {
+                Options.types = val;
+            } else if (key.equalsIgnoreCase("-a")) {
+                Options.aliases = val;
+            } else if (key.equalsIgnoreCase("-julia")) {
+                Options.juliaBin = val;
+            } else if (key.equalsIgnoreCase("-depot")) {
+                Options.juliaDepot = val;
+            } else if (key.equalsIgnoreCase("-project")) {
+                Options.juliaProject = val;
+            } else if (key.equalsIgnoreCase("-discovery")) {
+                Options.runTypeDiscovery = switch (val.toLowerCase()) {
+                case "true" -> true;
+                case "false" -> false;
+                default -> false;
+                };
+            } else if (key.equalsIgnoreCase("-verbose")) {
+                Options.verbose = switch (val.toLowerCase()) {
+                case "true" -> true;
+                case "false" -> false;
+                default -> false;
+                };
             } else
-                die("Unknown argument: " + arg);
+                die("Unknown argument `" + key + "'");
         }
     }
 
