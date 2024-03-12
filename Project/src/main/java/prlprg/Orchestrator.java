@@ -133,6 +133,7 @@ class Orchestrator {
             else
                 App.output("  " + a);
         }
+        App.printSeparator();
         JuliaUtils.runConcretenessSanityChecks(ctxt.imports, ctxt.root.resolve("sanity.jl"), abstracts, concretes);
     }
 
