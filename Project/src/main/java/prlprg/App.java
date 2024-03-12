@@ -108,7 +108,7 @@ public class App {
             printSeparator();
             String[] tds = { //
                     "abstract type Core.Union end", // This is used when Union occurs without arguments
-                    "abstract type Core.Vararg end", // Missing in discovery
+                    "struct Core.Vararg{T,N} end", // Missing in discovery
                     "struct Core.DataType <: Core.Type{T} end", // Missing in discovery
                     "struct Base.Colon <: Core.Function end" };// Missing in discovery
 

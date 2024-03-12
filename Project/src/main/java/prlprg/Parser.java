@@ -14,10 +14,72 @@ import prlprg.NameUtils.FuncName;
 import prlprg.NameUtils.TypeName;
 
 /**
- * Parser for Julia type and method signatures, and files from code_warntype.
- * The inputs are well-behaved records, one per line.
+ * Top level parser, since the work is line oriented, it returns a LineParser
+ * that deals with a single line of input.
  */
 class Parser {
+    Tok last; // for debugging purposes keep the last token to remember where an error occured
+    private Lexer lex = new Lexer();
+    private List<String> sourceText = new ArrayList<>();
+    final Stats stats = new Stats();
+
+    /** Add lines of input to the parser. */
+    Parser withLines(String[] lines) {
+        sourceText.addAll(Arrays.asList(lines));
+        return this;
+    }
+
+    /** Initialiszes the parser with data held in a file. */
+    Parser withFile(Object pathobj) {
+        var path = pathobj.toString();
+        try {
+            sourceText.addAll(Files.readAllLines(Path.of(path)));
+            return this;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** Run the lexer. Call when all the input has been provided */
+
+    LineParser lex() {
+        lex = new Lexer(sourceText.toArray(new String[0]));
+        stats.lines = sourceText.size();
+        return new LineParser(this);
+    }
+
+    /** Advance to the next line, dropping any leftover tokens. Return this. */
+    LineParser nextLine() {
+        var lp = new LineParser(this);
+        lp.toks = lex.next();
+        return lp;
+    }
+
+    boolean isEmpty() {
+        return lex.isEmpty();
+    }
+}
+
+/** Various statistics for reporting information on the command line. */
+class Stats {
+    int lines;
+    int linesOfSigs;
+    int sigsFound;
+    int funsFound;
+    int linesOfTypes;
+    int typesFound;
+    int aliasesFound;
+    int linesOfAliases;
+    Timer aliases = new Timer();
+    Timer sigs = new Timer();
+    Timer types = new Timer();
+}
+
+/**
+ * Parser for Julia types,d method signatures, and files from code_warntype.
+ * Inputs are well-behaved records. One per line.
+ */
+class LineParser {
 
     /**
      * Interface for types as read by the parser. As it can't differentiate types
@@ -29,15 +91,15 @@ class Parser {
         /** Creates a type in a simpler format */
         Ty toTy();
 
-        /** Read a type name. */
-        static TypeName parseTypeName(Parser p) {
+        /** Read a type name and record the name in the DB's NameUtils. */
+        static TypeName parseTypeName(LineParser p) {
             var nm = p.take().toString();
             if (nm.isEmpty()) p.failAt("Missing type name", p.peek());
             return GenDB.it.names.type(nm);
         }
 
-        /** Function names are dotted identifiers. */
-        static FuncName parseFunctionName(Parser p) {
+        /** Function names are dotted identifiers. Read one and record it in the DB */
+        static FuncName parseFunctionName(LineParser p) {
             var str = p.take().toString();
             if (str.isEmpty()) p.failAt("Missing function name", p.peek());
             return GenDB.it.names.function(str);
@@ -47,15 +109,19 @@ class Parser {
     /** An instance of a datatype constructor (not a union all or bound var). */
     record TypeInst(TypeName nm, List<ParsedType> ps) implements ParsedType {
 
-        /** Either returns a type or a constant */
-        static ParsedType parse(Parser p) {
-            var constant = Constant.parseConstant(p);
+        /**
+         * Either returns a type or a constant. As we are parsing may encounter either,
+         * and they are not syntactically distinguishable. We use a heuristic that is
+         * biased to treat things as types.
+         */
+        static ParsedType parse(LineParser p) {
+            var constant = Constant.parseConstant(p); // Is it a constant?
             if (constant != null) return constant;
             var name = ParsedType.parseTypeName(p).resolve(); // Resolve will deal with soft imports...
             if (!p.has("{")) return new TypeInst(name, null); // null denotes absence of type params.
             List<ParsedType> params = new ArrayList<>();
             var q = p.sliceMatchedDelims("{", "}");
-            while (!q.isEmpty())
+            while (!q.isEmptyLine())
                 params.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
             return new TypeInst(name, params);
         }
@@ -88,26 +154,28 @@ class Parser {
 
     }
 
+    /** Constant are values that can appear in type term position. */
     record Constant(String val) implements ParsedType {
 
-        static Constant parseConstant(Parser p) {
-            var tryit = tryParse(p.copy());
-            return tryit == null ? null : tryParse(p);
+        /** Returns a constant or null. */
+        static Constant parseConstant(LineParser p) {
+            var tryit = tryParse(p.copy()); // Copy the line parse, try to parse, if null give up. And leave the original parser untouched.
+            return tryit == null ? null : tryParse(p); // If the first parse succeeded, try again on the original line parser.  
         }
 
-        private static Constant tryParse(Parser p) {
+        private static Constant tryParse(LineParser p) {
             var tok = p.take();
-            if (tok.isNumber() || tok.isString())
+            if (tok.isNumber() || tok.isString()) // Numbers and strings are constants. 
                 return new Constant(tok.toString());
-            else if (tok.isIdent()) {
+            else if (tok.isIdent()) { // Identifiers can be constants
                 var s = tok.toString();
                 if (s.equals("true") || s.equals("false") || s.equals("missing") || s.equals("nothing"))
                     return new Constant(s);
-                else if (p.has("("))
+                else if (p.has("(")) // Parenthized "things" are identifers
                     return new Constant(s + "(" + p.sliceMatchedDelims("(", ")").foldToString("") + ")");
                 else
                     return null;
-            } else if (tok.isChar(':')) {
+            } else if (tok.isChar(':')) { // Colon is a prefix for a symbol that may be parenthized
                 var s = tok.toString();
                 if (p.has("("))
                     s += "(" + p.sliceMatchedDelims("(", ")").foldToString("") + ")";
@@ -117,9 +185,10 @@ class Parser {
                     s += p.take();
                 return new Constant(s);
             } else
-                return null;
+                return null; // Not a constant
         }
 
+        /** Nothing to do, just pack the string. */
         public Ty toTy() {
             return new TyCon(val);
         }
@@ -149,7 +218,7 @@ class Parser {
          *    >: L             ==> return BoundVar(fresh(), L, null)
          * </pre>
          */
-        static ParsedType parse(Parser p) {
+        static ParsedType parse(LineParser p) {
             if (p.has("<:") || p.has(">:")) {
                 var lt = p.has("<:");
                 var t = UnionAllInst.parse(p.drop());
@@ -160,7 +229,7 @@ class Parser {
                 var u = UnionAllInst.parse(p.drop());
                 return p.has("<:") ? new BoundVar(UnionAllInst.parse(p.drop()).toString(), t, u) : new BoundVar(t.toString(), null, u);
             } else if (p.has(">:")) {
-                return p.isEmpty() ? new BoundVar(NameUtils.fresh(), t, null) : new BoundVar(t.toString(), UnionAllInst.parse(p.drop()), null);
+                return p.isEmptyLine() ? new BoundVar(NameUtils.fresh(), t, null) : new BoundVar(t.toString(), UnionAllInst.parse(p.drop()), null);
             } else
                 return t;
         }
@@ -219,16 +288,16 @@ class Parser {
          * 
          * these too can be ignored.
          */
-        static ParsedType parse(Parser p) {
+        static ParsedType parse(LineParser p) {
             if (p.has("(")) {
                 p = p.sliceMatchedDelims("(", ")");
-                if (p.isEmpty()) return new TypeInst(GenDB.it.names.tuple(), new ArrayList<>());
+                if (p.isEmptyLine()) return new TypeInst(GenDB.it.names.tuple(), new ArrayList<>());
             }
             var type = TypeInst.parse(p);
             if (!p.has("where")) return type;
             if (p.take("where").has("{")) p = p.sliceMatchedDelims("{", "}");
             var boundVars = new ArrayList<ParsedType>();
-            while (!p.isEmpty()) {
+            while (!p.isEmptyLine()) {
                 boundVars.add(BoundVar.parse(p));
                 if (p.has(","))
                     p.drop().failIfEmpty("Missing type parameter", p.peek());
@@ -266,7 +335,7 @@ class Parser {
          * Parse the modifiers, such as abstract, primitive, etc. This does not sanity
          * check them, we expect well formed input.
          */
-        static String parseModifiers(Parser p) {
+        static String parseModifiers(LineParser p) {
             var str = "";
             while (p.has("abstract") || p.has("primitive") || p.has("struct") || p.has("type") || p.has("mutable"))
                 str += p.take().toString() + " ";
@@ -276,14 +345,14 @@ class Parser {
         /**
          * Parses a declaration. The format comes from the ouput of the JanJ's tool.
          */
-        static TypeDeclaration parse(Parser p) {
+        static TypeDeclaration parse(LineParser p) {
             NameUtils.reset(); // reset the fresh variable generator
             var modifiers = parseModifiers(p);
             var name = ParsedType.parseTypeName(p); // do not call resolve
             var src = p.last.getLine();
             var ps = new ArrayList<ParsedType>();
             var q = p.sliceMatchedDelims("{", "}");
-            while (!q.isEmpty())
+            while (!q.isEmptyLine())
                 ps.add(BoundVar.parse(q.sliceNextCommaOrSemi()));
 
             TypeInst parent = p.has("<:") ? (TypeInst) TypeInst.parse(p.drop()) : new TypeInst(GenDB.it.names.any(), new ArrayList<>());
@@ -316,7 +385,7 @@ class Parser {
     record Param(String nm, ParsedType ty, boolean varargs) {
 
         // can be:  x   |  x :: T   |  :: T   |   x...  |   :: T...
-        static Param parse(Parser p) {
+        static Param parse(LineParser p) {
             var nm = p.has("::") ? "?NA" : p.take().toString();
             var tok = p.take();
             var type = tok.is("::") ? UnionAllInst.parse(p) : null;
@@ -360,11 +429,11 @@ class Parser {
      */
     record Function(FuncName nm, List<Param> ps, List<ParsedType> wheres, int kwPos, String src) {
 
-        static List<ParsedType> parseWhere(Parser p) {
+        static List<ParsedType> parseWhere(LineParser p) {
             var wheres = new ArrayList<ParsedType>();
             if (!p.has("where")) return wheres;
             if (p.take("where").has("{")) p = p.sliceMatchedDelims("{", "}"); // we only need to read the where clause
-            while (!p.isEmpty()) {
+            while (!p.isEmptyLine()) {
                 wheres.add(BoundVar.parse(p));
                 if (p.has(","))
                     p.drop().failIfEmpty("Missing type parameter", p.peek());
@@ -373,7 +442,7 @@ class Parser {
             return wheres;
         }
 
-        static Function parse(Parser p) {
+        static Function parse(LineParser p) {
             NameUtils.reset();
             if (p.has("function")) p.drop();// keyword is optional
             var name = ParsedType.parseFunctionName(p);
@@ -382,9 +451,9 @@ class Parser {
             var params = new ArrayList<Param>();
             var semiOrNull = q.getSemi();
             var firstKeyword = -1;
-            while (!q.isEmpty()) {
+            while (!q.isEmptyLine()) {
                 var r = q.sliceNextCommaOrSemi();
-                if (r.isEmpty()) break;
+                if (r.isEmptyLine()) break;
                 var tok = r.peek();
                 if (semiOrNull != null && semiOrNull.start() < tok.start() && firstKeyword == -1) firstKeyword = params.size();
                 params.add(Param.parse(r));
@@ -412,7 +481,7 @@ class Parser {
 
     record TypeAlias(TypeName tn, Ty sig) {
 
-        static TypeAlias parseAlias(Parser p) {
+        static TypeAlias parseAlias(LineParser p) {
             NameUtils.reset();
             try {
                 var name = ParsedType.parseTypeName(p.take("const")); // do not call resolves
@@ -448,23 +517,24 @@ class Parser {
         List<TySig> sigs = new ArrayList<>();
 
         /** Parse a method information block as returned by code_warntype. **/
-        static List<Method> parse(Parser p, String filename) {
+        static List<Method> parse(LineParser p, String filename) {
             var ms = new ArrayList<Method>();
-            while (!p.isEmpty()) {
+            while (!(p = p.nextLine()).isEmptyLine()) {
                 var mi = new MethodInformation();
                 mi.parseHeader(p);
                 mi.parseBody(p);
                 ms.add(new Method(mi, filename));
+                if (!(p = p.nextLine()).isEmptyLine()) break;
             }
             return ms;
         }
 
-        private void parseHeader(Parser p) {
+        private void parseHeader(LineParser p) {
             p.take("MethodInstance").take("for");
-            this.decl = parseFun(p.sliceLine());
-            var q = p.sliceLine().take("from");
-            this.originDecl = parseFun(q.sliceUpToLast("@"));
-            this.src = q.foldToString(" ").trim();
+            this.decl = parseFun(p);
+            this.originDecl = parseFun((p = p.nextLine()).take("from").sliceUpToLast("@"));
+            this.src = p.foldToString(" ").trim();
+            p = p.nextLine();
             try {
                 // This section starts with "Static Parameters" and then introduces one type
                 // variable per line. To return a List of Type object is slightly awkward
@@ -472,9 +542,8 @@ class Parser {
                 // existential type -- this is a hack.
                 var bs = new ArrayList<Type>();
                 if (p.has("Static")) {
-                    p.nextLine();
-                    while (!p.isEmpty() && !p.has("Arguments") && !p.has("Locals") && !p.has("Body")) {
-                        var ty = BoundVar.parse(p.sliceLine()).toTy().fixUp(new ArrayList<>());
+                    while (!(p = p.nextLine()).isEmptyLine() && !p.has("Arguments") && !p.has("Locals") && !p.has("Body")) {
+                        var ty = BoundVar.parse(p).toTy().fixUp(new ArrayList<>());
                         bs.add(new TyExist(ty, Ty.any()).toType(new ArrayList<>()));
                     }
                 }
@@ -486,9 +555,8 @@ class Parser {
                 var partys = new ArrayList<Type>();
                 var parnms = new ArrayList<String>();
                 if (p.has("Arguments")) {
-                    p.nextLine();
-                    while (!p.isEmpty() && !p.has("Locals") && !p.has("Body")) {
-                        var param = Param.parse(p.sliceLine());
+                    while (!(p = p.nextLine()).isEmptyLine() && !p.has("Locals") && !p.has("Body")) {
+                        var param = Param.parse(p);
                         partys.add(param.toTy().fixUp(new ArrayList<>()).toType(new ArrayList<>()));
                         parnms.add(param.nm());
                     }
@@ -501,11 +569,9 @@ class Parser {
             try {
                 var partys = new ArrayList<Type>();
                 var parnms = new ArrayList<String>();
-
                 if (p.has("Locals")) {
-                    p.nextLine();
-                    while (!p.isEmpty() && !p.has("Body")) {
-                        var param = Param.parse(p.sliceLine());
+                    while (!(p = p.nextLine()).isEmptyLine() && !p.has("Body")) {
+                        var param = Param.parse(p);
                         partys.add(param.toTy().fixUp(new ArrayList<>()).toType(new ArrayList<>()));
                         parnms.add(param.nm());
                     }
@@ -524,49 +590,54 @@ class Parser {
             }
         }
 
-        private Sig parseFun(Parser p) {
+        private Sig parseFun(LineParser p) {
             var d = Function.parse(p).toTy().fixUp();
             return new Sig(d.nm(), d.ty().toType(new ArrayList<>()), d.argnms(), d.kwPos(), d.src());
         }
 
-        private Op parseOp(Parser p) {
+        private Op parseOp(LineParser p) {
             if (p.has("(")) {
                 var q = p.sliceMatchedDelims("(", ")");
-                if (p.has("(")) {
+                if (q.has("(")) {
                     // Using a register as the function name
                     var nm = q.take().toString();
-                    var args = callArglist(p.sliceMatchedDelims("(", ")"));
+                    var args = callArglist(q.sliceMatchedDelims("(", ")"));
                     return new RegAssign(nm, GenDB.it.names.function(nm.toString()), args, null);
                 } else {
                     // E.g. │         (tn = Core.Compiler.getproperty(%3, :name))
-                    var tgt = p.take().toString();
-                    var op = normalCall(p.take("="));
+                    var tgt = q.take().toString();
+                    var op = normalCall(q.take("="));
                     return new RegAssign(tgt, op.op, op.args, op.ret);
                 }
             } else
                 return p.peek().toString().startsWith("%") ? parseRegisterAssign(p) : normalCall(p);
         }
 
-        private List<String> callArglist(Parser p) {
+        private List<String> callArglist(LineParser p) {
             var args = new ArrayList<String>();
-            while (!p.isEmpty())
+            while (!p.isEmptyLine())
                 args.add(p.sliceNextCommaOrSemi().take().toString());
             return args;
         }
 
         // E.g. |   %15 = Core.Compiler.getglobal(top, name)::Any
         // E.g. │   %16 = (f === %15)::Bool
-        private Op parseRegisterAssign(Parser p) {
+        private Op parseRegisterAssign(LineParser p) {
+            var s = p.copy().foldToString(" "); // for debugging puroses 
             var reg = p.take().toString();
             if (p.take("=").has("(")) {
-                var q = p.sliceMatchedDelims("(", ")");
-                var l = q.take().toString();
-                var op = q.take().toString();
-                var r = q.take().toString();
-                var func = GenDB.it.names.function(op);
-                if (!q.isEmpty()) throw new RuntimeException("Leftovers " + q);
-                var ret = UnionAllInst.parse(p.take("::"));
-                return new RegAssign(reg, func, List.of(l, r), ret);
+                try {
+                    var q = p.sliceMatchedDelims("(", ")");
+                    var op = q.take().toString();
+                    q = p.sliceMatchedDelims("(", ")");
+                    var args = callArglist(q);
+                    var ret = UnionAllInst.parse(p.take("::"));
+                    var func = GenDB.it.names.function(op);
+                    return new RegAssign(reg, func, args, ret);
+                } catch (RuntimeException e) {
+                    App.output("Error parsing register assign: " + s);
+                    return new Other(s);
+                }
             } else {
                 var op = normalCall(p);
                 return new RegAssign(reg, op.op, op.args, op.ret);
@@ -574,7 +645,7 @@ class Parser {
         }
 
         // E.g. │         Core.NewvarNode(:(top))
-        private Call normalCall(Parser p) {
+        private Call normalCall(LineParser p) {
             var nm = ParsedType.parseFunctionName(p);
             var q = p.sliceMatchedDelims("(", ")");
             var args = callArglist(q);
@@ -611,33 +682,31 @@ class Parser {
             }
         }
 
-        private void parseBody(Parser p) {
-            while (!p.isEmpty()) {
+        private void parseBody(LineParser p) {
+            while (!(p = p.nextLine()).isEmptyLine()) {
                 if (p.has("MethodInstance")) return; // there can be more than one MethodInstance per file
                 // when code_warntype is given arguments such as Any that may cover multiple methods.
-                var q = p.sliceLine();
-                var last = q.peek();
+                var last = p.peek();
                 try {
                     // Start by dropping the decoration that is added for legivility by code_warntype
-                    if (q.peek().isNumber())
-                        q.drop().drop();
-                    else if (q.peek().is("│"))
-                        q.drop();
-                    else if (q.peek().toString().startsWith("└"))
-                        q.drop();
-                    else if (q.peek().is("@") || q.peek().is("["))
+                    if (p.peek().isNumber())
+                        p.drop().drop();
+                    else if (p.peek().is("│"))
+                        p.drop();
+                    else if (p.peek().toString().startsWith("└"))
+                        p.drop();
+                    else if (p.peek().is("@") || p.peek().is("["))
                         continue;
                     else {
-                        ops.add(new Other("Unparsed :: " + q.peek().getLine()));
+                        ops.add(new Other("Unparsed :: " + p.peek().getLine()));
                         continue;
                     }
-                    q.failIfEmpty("Expected more...", last);
-
-                    var tok = q.peek();
+                    p.failIfEmpty("Expected more...", last);
+                    var tok = p.peek();
                     if (tok.is("goto") || tok.is("return") || tok.is("nothing"))
-                        ops.add(new Other(q.take().toString()));
+                        ops.add(new Other(p.take().toString()));
                     else
-                        ops.add(parseOp(q));
+                        ops.add(parseOp(p));
                 } catch (Throwable e) {
                     App.output("Error parsing op: " + last.getLine());
                 }
@@ -654,45 +723,26 @@ class Parser {
 
     }
 
+    final Parser parser;
+    final Stats stats;
     Tok last; // for debugging purposes, we try to keep the last token, so we can remember where an error occured
-    private Lexer lex = new Lexer();
     List<Tok> toks = new ArrayList<>();
-    private List<String> sourceText = new ArrayList<>();
 
-    /** Add lines of input to the parser. */
-    Parser withLines(String[] lines) {
-        sourceText.addAll(Arrays.asList(lines));
-        return this;
+    LineParser(Parser p) {
+        this.last = p.last;
+        this.parser = p;
+        this.stats = p.stats;
     }
 
-    /**
-     * Initialiszes the parser with data held in a file.
-     */
-    Parser withFile(Object pathobj) {
-        var path = pathobj.toString();
-        try {
-            sourceText.addAll(Files.readAllLines(Path.of(path)));
-            return this;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /** Run the lexer. Call when all the input has been provided */
-    Parser lex() {
-        lex = new Lexer(sourceText.toArray(new String[0]));
-        toks = lex.next();
-        stats.lines = sourceText.size();
-        return this;
+    LineParser nextLine() {
+        return parser.nextLine();
     }
 
     /** Return a copy of this parser with the current line and an empty lexer. */
-    Parser copy() {
-        var p = new Parser();
-        p.lex = lex;
+    LineParser copy() {
+        var p = new LineParser(parser);
         p.toks = new ArrayList<>(toks);
         p.last = last;
-        p.sourceText = sourceText;
         return p;
     }
 
@@ -707,31 +757,19 @@ class Parser {
     void parseSigs(int max) {
         stats.linesOfSigs = stats.lines;
         stats.sigs.start();
-
-        while (!isEmpty() && max-- > 0)
-            GenDB.it.addSig(Function.parse(sliceLine()).toTy().fixUp());
+        var p = this;
+        while (!(p = p.nextLine()).isEmptyLine() && max-- > 0) {
+            var s = Function.parse(p).toTy().fixUp();
+            //if (!s.nm().toString().contains("setprotocol!")) continue; // remove parse fileter
+            GenDB.it.addSig(s);
+        }
+        //   while (!isEmpty() && max-- > 0)
+        //      GenDB.it.addSig(Function.parse(sliceLine()).toTy().fixUp());
 
         stats.sigs.stop();
         stats.sigsFound = GenDB.it.sigs.allSigs().size();
         stats.funsFound = GenDB.it.sigs.allNames().size();
         App.print("Processed " + stats.linesOfSigs + " lines of input, found " + stats.sigsFound + " sigs for " + stats.funsFound + " generic functions in " + stats.sigs);
-    }
-
-    /**
-     * Split current parser into one with the current line, the old one has the rest
-     * of the tokens.
-     */
-    Parser sliceLine() {
-        var p = new Parser();
-        p.toks = toks;
-        toks = lex.next();
-        return p;
-    }
-
-    /** Advance to the next line, dropping any leftover tokens. Return this. */
-    Parser nextLine() {
-        toks = lex.next();
-        return this;
     }
 
     /**
@@ -741,10 +779,9 @@ class Parser {
     void parseTypes() {
         stats.linesOfTypes = stats.lines;
         stats.types.start();
-
-        while (!isEmpty())
-            GenDB.it.types.addParsed(TypeDeclaration.parse(sliceLine()));
-
+        var p = this;
+        while (!(p = p.nextLine()).isEmptyLine())
+            GenDB.it.types.addParsed(TypeDeclaration.parse(p));
         stats.types.stop();
         stats.typesFound = GenDB.it.types.all().size();
         App.print("Processed " + stats.linesOfTypes + " lines of input, found " + stats.typesFound + " types in " + stats.types);
@@ -752,8 +789,8 @@ class Parser {
 
     /** First pass on the type declaration file, only read the type names. s */
     void parseTypeNames() {
-        while (!isEmpty()) {
-            var p = sliceLine();
+        var p = this;
+        while (!(p = p.nextLine()).isEmptyLine()) {
             TypeDeclaration.parseModifiers(p);
             GenDB.it.names.addTypeDef(GenDB.it.names.type(p.take().toString()));
         }
@@ -767,12 +804,11 @@ class Parser {
         stats.linesOfAliases = stats.lines;
         stats.aliases.start();
         var aliases = GenDB.it.aliases;
-
-        while (!isEmpty()) {
-            var q = sliceLine();
-            var ln = q.copy().foldToString(" ");
+        var p = this;
+        while (!(p = p.nextLine()).isEmptyLine()) {
+            var ln = p.copy().foldToString(" ");
             if (!ln.contains("typ alias")) continue;
-            var a = TypeAlias.parseAlias(q);
+            var a = TypeAlias.parseAlias(p);
             if (a != null) aliases.addParsed(a.tn(), a.sig());
         }
 
@@ -783,29 +819,11 @@ class Parser {
 
     /** First pass on the Alias file, read only the name of aliases. */
     void parseAliasNames() {
-        while (!isEmpty()) {
-            var q = sliceLine();
-            if (!q.copy().foldToString(" ").contains("typ alias")) continue;
-            q.take("const");
-            GenDB.it.names.addAliasDef(GenDB.it.names.type(q.take().toString()));
+        var p = this;
+        while (!(p = p.nextLine()).isEmptyLine()) {
+            if (!p.copy().foldToString(" ").contains("typ alias")) continue;
+            GenDB.it.names.addAliasDef(GenDB.it.names.type(p.take("const").take().toString()));
         }
-    }
-
-    final Stats stats = new Stats();
-
-    /** Various statistics for reporting information on the command line. */
-    class Stats {
-        int lines;
-        int linesOfSigs;
-        int sigsFound;
-        int funsFound;
-        int linesOfTypes;
-        int typesFound;
-        int aliasesFound;
-        int linesOfAliases;
-        Timer aliases = new Timer();
-        Timer sigs = new Timer();
-        Timer types = new Timer();
     }
 
     /**
@@ -828,8 +846,8 @@ class Parser {
      * 
      * The matching delims are elided. This is smart enough to deal with nesting.
      */
-    Parser sliceMatchedDelims(String s, String e) {
-        var p = new Parser();
+    LineParser sliceMatchedDelims(String s, String e) {
+        var p = new LineParser(parser);
         if (!has(s)) return p; // empty slice
 
         drop();
@@ -857,10 +875,10 @@ class Parser {
      * THis makes sense after one has sliced the "(" and ")" around an argument
      * list.
      */
-    Parser sliceNextCommaOrSemi() {
-        var p = new Parser();
+    LineParser sliceNextCommaOrSemi() {
+        var p = new LineParser(parser);
         var count = 0;
-        while (!isEmpty()) {
+        while (!isEmptyLine()) {
             var tok = take();
             p.add(tok);
             if (tok.is("(") || tok.is("{")) {
@@ -884,7 +902,7 @@ class Parser {
     Tok getSemi() {
         var p = copy();
         var count = 0;
-        while (!p.isEmpty()) {
+        while (!p.isEmptyLine()) {
             var tok = p.take();
             if (tok.is("(") || tok.is("{"))
                 count++;
@@ -906,9 +924,9 @@ class Parser {
      * 
      * Fail if there is no occurence of `s`
      */
-    Parser sliceUpToLast(String s) {
-        var p = new Parser();
-        if (isEmpty()) return p;
+    LineParser sliceUpToLast(String s) {
+        var p = new LineParser(parser);
+        if (isEmptyLine()) return p;
         int pos = lastIndexOf(s);
         if (pos == -1) throw new RuntimeException("Failed to slice " + s + " not found");
         while (pos-- > 0)
@@ -928,9 +946,17 @@ class Parser {
         return -1;
     }
 
-    /** True if there are no more tokens in this parser. */
-    boolean isEmpty() {
+    /**
+     * True if there are no more tokens in this parser on the current line. This new
+     * design entails that there may be token in the lexer. For other lines of
+     * input.
+     */
+    boolean isEmptyLine() {
         return toks.isEmpty() || (toks.size() == 1 && toks.get(0).isEOF());
+    }
+
+    boolean isEmpty() {
+        return isEmptyLine() && parser.isEmpty();
     }
 
     /** Is string `s` the current value. */
@@ -949,7 +975,7 @@ class Parser {
     }
 
     /** Consume a token, return current parser. */
-    Parser drop() {
+    LineParser drop() {
         toks.remove(0);
         return this;
     }
@@ -960,15 +986,15 @@ class Parser {
     }
 
     /** Consume current token, fail if not `s`. */
-    Parser take(String s) {
-        if (isEmpty()) throw new RuntimeException("Expected " + s + " but got nothing");
+    LineParser take(String s) {
+        if (isEmptyLine()) throw new RuntimeException("Expected " + s + " but got nothing");
         var t = take();
         if (!t.is(s)) throw new RuntimeException("Expected " + s + " but got " + t);
         return this;
     }
 
     /** Add a token at the end. Return this. */
-    private Parser add(Tok t) {
+    private LineParser add(Tok t) {
         toks.addLast(t);
         return this;
     }
@@ -980,13 +1006,13 @@ class Parser {
 
     /** Fail if there are leftover tokens. */
     void failIfEmpty(String msg, Tok last) {
-        if (isEmpty()) failAt(msg, last);
+        if (isEmptyLine()) failAt(msg, last);
     }
 
     /** Return contents of the parser as a string. */
     String foldToString(String sep) {
         var sb = new StringBuilder();
-        while (!isEmpty()) { // Recall that there is an EOF token at the end of the list
+        while (!isEmptyLine()) { // Recall that there is an EOF token at the end of the list
             sb.append(take().toString()); // Can't quite use streams.
             sb.append(sep);
         }
@@ -996,7 +1022,7 @@ class Parser {
     /** Print debug info. */
     @Override
     public String toString() {
-        var head = isEmpty() ? "EOF" : toks.getFirst().toString();
+        var head = isEmptyLine() ? "EOF" : toks.getFirst().toString();
         var rest = "";
         for (int i = 1; i < toks.size() && i < 5; i++)
             rest += toks.get(i).toString();
@@ -1017,7 +1043,7 @@ class Parser {
     public static void main(String[] args) {
         // GenDB.readDB();
         var p = new Parser();
-        var file = "/tmp/jl_112553/out.0/t8465.tst";
+        var file = "/tmp/jl_170424/out.0/t150.tst";
         MethodInformation.parse(p.withFile(file).lex(), file.toString());
     }
 }
@@ -1109,6 +1135,10 @@ record TyInst(TypeName nm, List<Ty> tys) implements Ty, Serializable {
         return new Inst(nm, tys.stream().map(tt -> tt.toType(env)).collect(Collectors.toList()));
     }
 
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyInst t ? nm.equals(t.nm) && tys.equals(t.tys) : false;
+    }
 }
 
 record TyVar(String nm, Ty low, Ty up) implements Ty, Serializable {
@@ -1139,6 +1169,11 @@ record TyVar(String nm, Ty low, Ty up) implements Ty, Serializable {
         return new TyVar(nm, low.fixUp(bounds), up.fixUp(bounds));
     }
 
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyVar t ? nm.equals(t.nm) && low.equals(t.low) && up.equals(t.up) : false;
+    }
+
 }
 
 /** A constant represented as a string. */
@@ -1158,6 +1193,11 @@ record TyCon(String nm) implements Ty, Serializable {
     public Ty fixUp(List<TyVar> bounds) {
         return this;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyCon t ? nm.equals(t.nm) : false;
+    }
 }
 
 record TyTuple(List<Ty> tys) implements Ty, Serializable {
@@ -1175,6 +1215,11 @@ record TyTuple(List<Ty> tys) implements Ty, Serializable {
     @Override
     public Ty fixUp(List<TyVar> bounds) {
         return new TyTuple(tys.stream().map(t -> t.fixUp(bounds)).collect(Collectors.toList()));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyTuple t ? tys.equals(t.tys) : false;
     }
 
 }
@@ -1196,6 +1241,10 @@ record TyUnion(List<Ty> tys) implements Ty, Serializable {
         return new TyUnion(tys.stream().map(t -> t.fixUp(bounds)).collect(Collectors.toList()));
     }
 
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyUnion t ? tys.equals(t.tys) : false;
+    }
 }
 
 record TyExist(Ty v, Ty ty) implements Ty, Serializable {
@@ -1253,6 +1302,11 @@ record TyExist(Ty v, Ty ty) implements Ty, Serializable {
         return new Exist(b, ty().toType(newenv));
     }
 
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyExist t ? v.equals(t.v) && ty.equals(t.ty) : false;
+    }
+
 }
 
 /**
@@ -1305,6 +1359,11 @@ record TyDecl(String mod, TypeName nm, Ty ty, Ty parent, String src) implements 
         this.mod = mod;
         this.nm = nm;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof TyDecl t ? mod.equals(t.mod) && nm.equals(t.nm) && ty.equals(t.ty) && parent.equals(t.parent) && src.equals(t.src) : false;
+    }
 }
 
 /**
@@ -1322,5 +1381,10 @@ record TySig(FuncName nm, Ty ty, List<String> argnms, int kwPos, String src) imp
 
     TySig fixUp() {
         return new TySig(nm, ty.fixUp(new ArrayList<>()), argnms, kwPos, src);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        return other instanceof TySig that ? nm.equals(that.nm) && ty.equals(that.ty) : false;
     }
 }

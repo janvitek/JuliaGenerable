@@ -221,22 +221,24 @@ class NameUtils implements Serializable {
         /** Create a function name from a package and a suffix. */
         FuncName(String pkg, String nm) {
             this.pkg = pkg == null ? "" : pkg;
-            if (nm.equals("")) throw new RuntimeException("Name cannot be empty");
+            if (nm.equals("")) nm = "%EMPTY%";
             this.nm = nm;
             if (!pkg.equals("")) packages.add(pkg);
         }
 
-        /** Equality of names */
+        /** Equality of names, ignore the packages man! */
         @Override
         public boolean equals(Object o) {
-            if (o instanceof FuncName t) return pkg.equals(t.pkg) && nm.equals(t.nm);
+            if (o instanceof FuncName t) return // pkg.equals(t.pkg) && 
+            nm.equals(t.nm);
             return false;
         }
 
         /** Traditional hash */
         @Override
         public int hashCode() {
-            return pkg.hashCode() + nm.hashCode();
+            return // pkg.hashCode() + 
+            nm.hashCode();
         }
 
         @Override

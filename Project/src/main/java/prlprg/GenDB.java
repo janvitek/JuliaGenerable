@@ -15,9 +15,9 @@ import java.util.stream.Collectors;
 
 import prlprg.NameUtils.FuncName;
 import prlprg.NameUtils.TypeName;
-import prlprg.Parser.MethodInformation;
-import prlprg.Parser.TypeDeclaration;
-import prlprg.Parser.MethodInformation.RegAssign;
+import prlprg.LineParser.MethodInformation;
+import prlprg.LineParser.TypeDeclaration;
+import prlprg.LineParser.MethodInformation.RegAssign;
 
 /** A database containing all information about types and method signatures. */
 class GenDB implements Serializable {
@@ -323,7 +323,7 @@ class GenDB implements Serializable {
             }
 
             /** Compare sigs coming from TypeDiscovery. True if same file+line number. */
-            boolean equalsSTyig(TySig other) {
+            boolean equalsTysig(TySig other) {
                 var cmp = compareSources(tysig.src(), other.src());
                 return cmp == 1 ? true : (cmp == 0 ? false : tysig.equals(other));
             }
@@ -335,7 +335,7 @@ class GenDB implements Serializable {
                 // What we want to compare is the int.jl:1027 part.
                 // Sometimes there is no @
                 // "function SHA.var"#s972#1"(::Core.Any, context)  [generic]"
-                if (a.contains("[generic]") || b.contains("[generic]")) return a.contains("[generic]") && b.contains("[generic]") ? -1 : 0;
+                if (a.contains("[generic]") || b.contains("[generic]")) return -1;
                 var idx_a = a.lastIndexOf('@');
                 a = idx_a != -1 ? a.substring(idx_a + 1) : a;
                 var idx_b = b.lastIndexOf('@');
@@ -417,7 +417,7 @@ class GenDB implements Serializable {
             var infos = db.get(sig.nm().operationName());
             if (infos == null) return null;
             for (var info : infos)
-                if (info.equalsSTyig(sig)) return info;
+                if (info.equalsTysig(sig)) return info;
             return null;
 
         }
@@ -627,6 +627,8 @@ interface Type {
         return newty;
     }
 
+    boolean _eq(Type t, HashMap<Bound, Integer> l, HashMap<Bound, Integer> r);
+
 }
 
 /**
@@ -690,7 +692,9 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
      */
     @Override
     public boolean isConcrete() {
-        if (nm.toString().equals("Tuple") || nm.toString().equals("Union")) {
+        var name = this.nm.nm;
+        if (name.equals("Vararg")) return tys.size() == 2 ? tys.get(0).isConcrete() : false;
+        if (name.equals("Tuple") || name.equals("Union")) {
             if (tys.size() != 0) throw new RuntimeException("Should be represented by class" + nm());
             return false;
         }
@@ -744,6 +748,17 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
     @Override
     public List<Bound> getBounds(List<Bound> bs) {
         return bs;
+    }
+
+    @Override
+    public boolean _eq(Type t, HashMap<Bound, Integer> l, HashMap<Bound, Integer> r) {
+        if (t instanceof Inst i) {
+            if (!nm.equals(i.nm) || tys.size() != i.tys.size()) return false;
+            for (int j = 0; j < tys.size(); j++)
+                if (!tys.get(j)._eq(i.tys.get(j), l, r)) return false;
+            return true;
+        }
+        return false;
     }
 }
 
@@ -810,6 +825,11 @@ record Var(Bound b) implements Type, Serializable {
     public List<Bound> getBounds(List<Bound> bs) {
         return bs;
     }
+
+    @Override
+    public boolean _eq(Type t, HashMap<Bound, Integer> l, HashMap<Bound, Integer> r) {
+        return t instanceof Var v ? l.get(b).equals(r.get(v.b)) : false;
+    }
 }
 
 /**
@@ -870,6 +890,10 @@ record Bound(String nm, Type low, Type up) implements Serializable {
 
     Bound reduce(List<Type> args, HashMap<Bound, Type> replacements, HashMap<Bound, Bound> bounds) {
         return new Bound(nm, low.reduce(args, replacements, bounds), up.reduce(args, replacements, bounds));
+    }
+
+    public boolean _eq(Bound b, HashMap<Bound, Integer> l, HashMap<Bound, Integer> r) {
+        return this.low._eq(b.low, l, r) && this.up._eq(b.up, l, r);
     }
 }
 
@@ -951,6 +975,11 @@ record Con(String nm) implements Type, Serializable {
         } else
             return false;
     }
+
+    @Override
+    public boolean _eq(Type t, HashMap<Bound, Integer> l, HashMap<Bound, Integer> r) {
+        return t instanceof Con c && nm.equals(c.nm);
+    }
 }
 
 /**
@@ -1022,6 +1051,22 @@ record Exist(Bound b, Type ty) implements Type, Serializable {
     public List<Bound> getBounds(List<Bound> bs) {
         bs.addLast(b);
         return ty.getBounds(bs);
+    }
+
+    @Override
+    public boolean _eq(Type t, HashMap<Bound, Integer> l, HashMap<Bound, Integer> r) {
+        if (t instanceof Exist e) {
+            var max = 0;
+            if (!b._eq(e.b, l, r)) return false;
+            for (var v = l.values().iterator(); v.hasNext();)
+                max = Math.max(max, v.next());
+            var lc = new HashMap<>(l);
+            var rc = new HashMap<>(r);
+            lc.put(this.b, max + 1);
+            rc.put(e.b, max + 1);
+            return ty._eq(e.ty, lc, rc);
+        }
+        return false;
     }
 }
 
@@ -1097,6 +1142,17 @@ record Union(List<Type> tys) implements Type, Serializable {
         return bs;
     }
 
+    @Override
+    public boolean _eq(Type t, HashMap<Bound, Integer> l, HashMap<Bound, Integer> r) {
+        if (t instanceof Union u) {
+            if (tys.size() != u.tys.size()) return false;
+            for (int i = 0; i < tys.size(); i++)
+                if (!tys.get(i)._eq(u.tys.get(i), l, r)) return false;
+            return true;
+        }
+        return false;
+    }
+
 }
 
 /**
@@ -1167,6 +1223,17 @@ record Tuple(List<Type> tys) implements Type, Serializable {
         return bs;
     }
 
+    @Override
+    public boolean _eq(Type t, HashMap<Bound, Integer> l, HashMap<Bound, Integer> r) {
+        if (t instanceof Tuple tu) {
+            if (tys.size() != tu.tys.size()) return false;
+            for (int i = 0; i < tys.size(); i++)
+                if (!tys.get(i)._eq(tu.tys.get(i), l, r)) return false;
+            return true;
+        }
+        return false;
+    }
+
 }
 
 /**
@@ -1228,6 +1295,11 @@ record Decl(String mod, TypeName nm, Type ty, Decl parent, String src) implement
         var newty = Type.expandAliasesFixpoint(ty);
         return new Decl(mod, nm, newty, parent, src);
     }
+
+    @Override
+    public boolean equals(Object obj) {
+        return obj instanceof Decl d ? nm.equals(d.nm) && ty._eq(d.ty, new HashMap<>(), new HashMap<>()) : false;
+    }
 }
 
 /**
@@ -1237,7 +1309,7 @@ record Decl(String mod, TypeName nm, Type ty, Decl parent, String src) implement
  */
 record Sig(FuncName nm, Type ty, List<String> argnms, int kwPos, String src) implements Serializable {
 
-    // we say a method signature is "ground" if all of its arguments are concrete
+    /** A signature is ground if all of its members are concrete. */
     boolean isGround() {
         return ty instanceof Tuple tup ? tup.isConcrete() : false;
     }
@@ -1273,19 +1345,19 @@ record Sig(FuncName nm, Type ty, List<String> argnms, int kwPos, String src) imp
         return t instanceof Tuple tup ? tup.tys().size() : 0;
     }
 
+    Sig expandAliases() {
+        var newty = Type.expandAliasesFixpoint(ty);
+        return new Sig(nm, newty, argnms, kwPos, src);
+    }
+
     /**
      * Structural equality means two signatures have the same syntactic structure
      * and the same operation names. (We ignore package names as they may be
      * abbreviated)
      */
-    boolean structuralEquals(Sig other) {
-        if (!nm.operationName().equals(other.nm().operationName())) return false;
-        return ty.structuralEquals(other.ty());
-    }
-
-    Sig expandAliases() {
-        var newty = Type.expandAliasesFixpoint(ty);
-        return new Sig(nm, newty, argnms, kwPos, src);
+    @Override
+    public boolean equals(Object obj) {
+        return obj instanceof Sig s ? nm.operationName().equals(s.nm.operationName()) && ty._eq(s.ty, new HashMap<>(), new HashMap<>()) : false;
     }
 }
 
@@ -1349,22 +1421,26 @@ class Method implements Serializable {
                     if (env.containsKey(arg)) {
                         tys.add(env.get(arg));
                     } else {
-                        if (arg.charAt(0) == '\"') {
-                            tys.add(new Inst(GenDB.it.names.string(), List.of()));
-                        } else if (arg.charAt(0) == ':') {
-                            tys.add(new Inst(GenDB.it.names.symbol(), List.of()));
-                        } else if (arg.charAt(0) >= '0' && arg.charAt(0) <= '9') {
-                            tys.add(new Inst(GenDB.it.names.int64(), List.of()));
-                        } else if (arg.equals("false") || arg.equals("true")) {
-                            tys.add(new Inst(GenDB.it.names.bool(), List.of()));
-                        } else if (arg.equals("nothing")) {
-                            tys.add(new Inst(GenDB.it.names.nothing(), List.of()));
-                        } else {
-                            if (!GenDB.it.seenMissing.contains(arg)) {
-                                GenDB.it.seenMissing.add(arg);
-                                App.output("Missing type for " + arg);
+                        try {
+                            if (arg.charAt(0) == '\"') {
+                                tys.add(new Inst(GenDB.it.names.string(), List.of()));
+                            } else if (arg.charAt(0) == ':') {
+                                tys.add(new Inst(GenDB.it.names.symbol(), List.of()));
+                            } else if (arg.charAt(0) >= '0' && arg.charAt(0) <= '9') {
+                                tys.add(new Inst(GenDB.it.names.int64(), List.of()));
+                            } else if (arg.equals("false") || arg.equals("true")) {
+                                tys.add(new Inst(GenDB.it.names.bool(), List.of()));
+                            } else if (arg.equals("nothing")) {
+                                tys.add(new Inst(GenDB.it.names.nothing(), List.of()));
+                            } else {
+                                if (!GenDB.it.seenMissing.contains(arg)) {
+                                    GenDB.it.seenMissing.add(arg);
+                                    App.output("Missing type for " + arg);
+                                }
+                                tys.add(GenDB.it.types.get(GenDB.it.names.any()).decl.ty());
                             }
-                            tys.add(GenDB.it.types.get(GenDB.it.names.any()).decl.ty());
+                        } catch (Exception e) {
+                            App.output("Messy up type for " + arg);
                         }
                     }
                 }

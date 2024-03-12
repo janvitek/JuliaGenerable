@@ -19,10 +19,12 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Collections;
+import java.util.HashMap;
 
 import prlprg.App.Timer;
-import prlprg.Parser.MethodInformation;
-import java.util.Collections;
+import prlprg.LineParser.MethodInformation;
+import prlprg.GenDB.Signatures;
 
 /**
  * Class for orchestrating the generation of type stability tests.
@@ -76,23 +78,21 @@ class Orchestrator {
         // Summarize results
         App.printSeparator();
         var count = 0;
-        var tot = 0;
+
         var weird = 0;
         var concrete = 0;
         var nothings = 0;
+        var ground = 0;
+        var groundConcrete = 0;
         var concretes = new HashSet<String>();
         var abstracts = new HashSet<String>();
-
-        for (var s : it.sigs.allSigs()) {
-            if (s.kwPos() != -1) {
-                App.print("Skipping " + s + " because it has a keyword argument");
-            }
-        }
-
-        for (var inf : it.sigs.allInfos()) {
-            tot++;
+        var unstable = new HashSet<Signatures.Info>();
+        var allsigInfos = it.sigs.allInfos();
+        var tot = allsigInfos.size();
+        for (var inf : allsigInfos)
             if (!inf.results.isEmpty()) {
                 count++;
+                if (inf.sig.isGround()) ground++;
                 if (inf.results.size() > 1)
                     weird++;
                 else if (inf.results.size() == 1) {
@@ -101,18 +101,28 @@ class Orchestrator {
                         nothings++;
                     else if (rty.isConcrete()) {
                         concrete++;
+                        if (inf.sig.isGround()) groundConcrete++;
                         concretes.add(rty.toJulia());
-                    } else
+                    } else {
+                        unstable.add(inf);
                         abstracts.add(rty.toJulia());
+                    }
                 }
             }
-        }
 
-        var s = "Got " + tot + " methods. " + count + " methods have results";
-        s = weird > 0 ? s + " and " + weird + " methods had more than one result" : s;
+        var s = "Got " + tot + " methods, " + count + " methods have results";
+        s += weird > 0 ? ", and " + weird + " methods had more than one result." : ".";
         App.print(s);
         App.print("Found " + concrete + " stable methods, with " + concretes.size() + " unique return types");
         App.print("Found " + (count - concrete) + " un-stable methods with " + abstracts.size() + " unique return types. " + nothings + " methods that returned Union{}.");
+        App.print("Found " + ground + " methods with only concrete types arguments and " + groundConcrete + " of them are stable.");
+
+        var argcnt = new int[20];
+        for (var inf : unstable) {
+            var c = inf.sig.arity();
+            if (c < argcnt.length) argcnt[c]++;
+        }
+        App.print("Methods with unstable return types by arity: " + java.util.Arrays.toString(argcnt));
 
         App.printSeparator();
         App.print("Abstract types: (printing the first few on terminal, remaining in the log file)");
@@ -342,7 +352,7 @@ class Orchestrator {
         var tests = new ArrayList<Test>();
         var seen = new HashSet<String>();
         for (var s : it.sigs.allSigs()) {
-           // if (!s.nm().toString().endsWith("Base.count!")) continue; //TODO (comment out) used to filter what tests are generated during debugging            
+            // if (!s.nm().toString().endsWith("Base.count!")) continue; //TODO (comment out) used to filter what tests are generated during debugging            
             var signameArity = s.nm().toString() + s.arity();
             if (seen.contains(signameArity)) continue;
             seen.add(signameArity);
@@ -399,7 +409,7 @@ class Orchestrator {
             }
             Collections.sort(strings);
             for (var s : strings)
-                App.print("  " + s);
+                App.print("  " + trim(s));
             Collections.sort(empties);
             for (var s : empties)
                 App.print("  " + s);
@@ -453,11 +463,30 @@ class Orchestrator {
         }
         var foundsigs = siginfo.stream().filter(sig -> sig.equalsSigFromCWT(m.sig, m.originPackageAndFile)).collect(Collectors.toList());
         if (foundsigs.size() == 0)
-            App.print("No match for " + m.sig + ". This can happen if processing a susbet of methods.");
+            App.print("No match for " + trim(m.sig));
+        /* No match can hapen for several reasons: (1) we fail to recognize that a method returned by code_warntype
+         * is the same as the Sig we have in the DB. This can come around because either the method name, the source
+         * info or the typed are munged by code_warntype in a way that we did not expect. (2) Methods with keyword arguments
+         * are compiled into a triple of methods. We throw away two of them and only retain the version that has no kwcall
+         * and no keyword arguments. But we may exercise some of the methods we have thrown away by accident. 
+         * <pre>
+         *   met( x :: String ; y = 1)
+         *   met( x :: Int )
+         * </pre>
+         * When we call the second method with `code_warntype(met,[Any])` this will also call the first method with the
+         * default value of the keyword argument. We do not have a method for the first case (instead we have something like
+         * `metvar"#s23`. (3) If we process only a subset of the methods, a method that we did not load into the DB can
+         * be exercised by accident.
+         */
         else if (foundsigs.size() > 1) {
-            App.print("Found " + foundsigs.size() + " matches for " + m.sig + ". This sounds like a bug.");
+            App.print("Found " + foundsigs.size() + " matches for " + trim(m.sig) + ". This sounds like a bug.");
         } else
             foundsigs.getFirst().addResult(m.sig.ty(), m.returnType);
+    }
+
+    private String trim(Object o) {
+        var s = o.toString();
+        return s.length() < 120 ? s : s.substring(0, 110) + " . . .";
     }
 
     /** Convert a Sig's name to a Julia name. */
