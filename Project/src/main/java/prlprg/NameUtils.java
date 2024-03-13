@@ -67,14 +67,34 @@ class NameUtils implements Serializable {
 
     /** Return the package part of the name. */
     private String prefix(String s) {
-        var i = s.lastIndexOf(".");
+        var i = lastDot(s);
         return i == -1 ? null : s.substring(0, i);
     }
 
     /** Return the suffix of a name, i.e., the part after the last dot. */
     private String suffix(String s) {
-        var i = s.lastIndexOf(".");
+        var i = lastDot(s);
         return i == -1 ? s : s.substring(i + 1);
+    }
+
+    // Julia has special syntax for symbols that contain non-alpha characters:
+    // var"anything can be here including . and \" and # and so on"
+    // We need to only count the dots in the actual path, not the ones in
+    // symbols
+    private int lastDot(String s) {
+        int dot = -1;
+        boolean inString = false;
+        int i = 0;
+        while (true) {
+            var c = s.charAt(i);
+            if (c == '.' && !inString) dot = i;
+            if (c == '\\' && inString) i++;
+            if (c == '"') inString = !inString;
+            i++;
+            if (i >= s.length()) break;
+        }
+        assert(!inString);
+        return dot;
     }
 
     TypeName any() {
