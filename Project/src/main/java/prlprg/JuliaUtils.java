@@ -150,7 +150,7 @@ public class JuliaUtils {
         }
 
         if (!script.isEmpty()) {
-            var pb = julia().go();
+            var pb = julia().arg("--color=no").go();
             try {
                 var p = pb.start();
                 writeStream(p.getOutputStream(), script);
@@ -178,7 +178,7 @@ public class JuliaUtils {
                 foreach(k -> push!(imports, k), keys(Pkg.project().dependencies))
                 println(join(imports, ", "))
                 """;
-            var pb = julia().go();
+            var pb = julia().arg("--color=no").go();
             try {
                 var p = pb.start();
                 writeStream(p.getOutputStream(), script);
@@ -206,7 +206,7 @@ public class JuliaUtils {
                     App.Options.typesPath(),
                     App.Options.aliasesPath());
 
-        var pb = julia().go();
+        var pb = julia().arg("--color=no").go();
         try {
             var p = pb.start();
             writeStream(p.getOutputStream(), script);
@@ -292,10 +292,16 @@ public class JuliaUtils {
                 w.write("println(\"Checked %s types\")\n".formatted(abstracts.size() + concretes.size()));
             }
 
-            var pb = julia().args(out.toString()).go();
+            var pb = julia().args("--color=no", out.toString()).go();
             var p = pb.start();
             String output = loadStream(p.getInputStream());
-            p.waitFor();
+            String error = loadStream(p.getErrorStream());
+            var ret = p.waitFor();
+            if (App.Options.verbose) {
+                App.print("[JuliaUtils.runConcretenessSanityChecks] return code: " + ret);
+                App.print("[JuliaUtils.runConcretenessSanityChecks] stdout:\n" + output + "\n");
+                App.print("[JuliaUtils.runConcretenessSanityChecks] stderr:\n" + error + "\n");
+            }
             App.print("Sanity checks from " + out + ":");
             App.print(output);
 

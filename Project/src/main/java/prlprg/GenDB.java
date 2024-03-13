@@ -234,7 +234,7 @@ class GenDB implements Serializable {
 
         /** Print type hierarchy. This is a top down traversal of the type hierarchy. */
         void printHierarchy() {
-            App.output("\nType hierarchy (Green is abstract )");
+            App.output("\nType hierarchy (green is abstract)");
             printHierarchy(get(names.any()), 0);
         }
 

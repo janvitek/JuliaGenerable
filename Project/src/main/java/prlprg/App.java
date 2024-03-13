@@ -285,7 +285,9 @@ public class App {
                 throw new RuntimeException("Timer not started/ended");
             }
             long d = end - start;
-            long duration = TimeUnit.NANOSECONDS.toSeconds(d);
+            long duration = TimeUnit.NANOSECONDS.toMinutes(d);
+            if (duration > 0) return duration + " mins";
+            duration = TimeUnit.NANOSECONDS.toSeconds(d);
             if (duration > 0) return duration + " secs";
             duration = TimeUnit.NANOSECONDS.toMillis(d);
             if (duration > 0) return duration + " msecs";
