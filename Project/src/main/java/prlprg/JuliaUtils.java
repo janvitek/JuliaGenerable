@@ -79,6 +79,13 @@ public class JuliaUtils {
         return new JuliaScriptBuilder();
     }
 
+    private static String unsetAnsiColors() {
+        return """    
+            foreach(k -> Base.text_colors[k] = "", keys(Base.text_colors))
+            foreach(k -> Base.disable_text_style[k] = "", keys(Base.disable_text_style))
+            """;
+    }
+
     public static void checkJulia() {
         var script = """
             println("┌ Hello from Julia!")
@@ -104,7 +111,7 @@ public class JuliaUtils {
     }
 
     private static void setupEnv() {
-        var script = "";
+        var script = unsetAnsiColors();
 
         if (Options.runTypeDiscovery) {
             script += """
@@ -171,7 +178,7 @@ public class JuliaUtils {
     public static void runTypeDiscovery() {
         String packages = null;
         {
-            var script = """
+            var script = unsetAnsiColors() + """
                 imports = String[]; nothing
                 import Pkg
                 isnothing(Pkg.project().name) || push!(imports, Pkg.project().name); nothing
@@ -196,15 +203,15 @@ public class JuliaUtils {
         }
         if (packages == null) throw new RuntimeException("Couldn't get the list of packages for project");
 
-        var script = """
-                import TypeDiscover
-                %s
-                TypeDiscover.typediscover(; funcfile="%s", typefile="%s", aliasfile="%s")
-                """.formatted(
-                    packages.isEmpty() ? "" : "import " + packages,
-                    App.Options.functionsPath(),
-                    App.Options.typesPath(),
-                    App.Options.aliasesPath());
+        var script = unsetAnsiColors() + """
+            import TypeDiscover
+            %s
+            TypeDiscover.typediscover(; funcfile="%s", typefile="%s", aliasfile="%s")
+            """.formatted(
+                packages.isEmpty() ? "" : "import " + packages,
+                App.Options.functionsPath(),
+                App.Options.typesPath(),
+                App.Options.aliasesPath());
 
         var pb = julia().arg("--color=no").go();
         try {
@@ -267,7 +274,7 @@ public class JuliaUtils {
     public static void runConcretenessSanityChecks(Path imports, Path out, HashSet<String> abstracts, HashSet<String> concretes) {
         try {
             try (var w = new BufferedWriter(new FileWriter(out.toString()))) {
-                w.write("""
+                w.write(unsetAnsiColors() + """
                     include("%s")
                     io = IOContext(stdout, :module => nothing, :compact => false)
                     check(io, kind::Symbol, @nospecialize(t::Type)) = begin
