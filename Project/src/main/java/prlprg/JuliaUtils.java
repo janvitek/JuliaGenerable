@@ -341,6 +341,7 @@ public class JuliaUtils {
             end
           end
         end
+
         """.formatted(App.Options.juliaImportsFilename, App.Options.juliaImportsFilename);
 
     public static String pkgImport(String p) {
