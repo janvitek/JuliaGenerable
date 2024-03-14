@@ -17,6 +17,8 @@ public class App {
         static final String inputs = "Inputs";
         static final String typeDiscover = "TypeDiscover.jl";
         static final String juliaEnv = "extras";
+        static final String juliaImportsFilename = "imports.jl";
+        static final String juliaTestsFilename = "tests.jl";
 
         static int MAX_SIGS_TO_READ = 100;
 

@@ -41,7 +41,6 @@ class Parser {
     }
 
     /** Run the lexer. Call when all the input has been provided */
-
     LineParser lex() {
         lex = new Lexer(sourceText.toArray(new String[0]));
         stats.lines = sourceText.size();

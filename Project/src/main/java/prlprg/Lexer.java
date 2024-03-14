@@ -156,11 +156,11 @@ class Line {
   /** Return the original line, the parsed one, and a token list for debugging. */
   public String toString() {
     var sb = new StringBuilder(); // sb contains the parsed line without spaces
-    var sb2 = new StringBuilder(); // sb2 has ticks at the end of each token
+    var sb2 = new StringBuilder("|"); // sb2 has ticks at the end of each token
     for (var token : tokens) {
       sb.append(token);
       sb2.append(token);
-      sb2.append("'");
+      sb2.append("|");
     }
     return "orig=|" + line + "|\nlexd=|" + sb.toString() + "|\n" + sb2.toString() + "|\n";
   }

@@ -20,7 +20,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.Collections;
-import java.util.HashMap;
 
 import prlprg.App.Timer;
 import prlprg.LineParser.MethodInformation;
@@ -183,8 +182,8 @@ class Orchestrator {
             } catch (IOException e) {
                 throw new Error(e); // deletion shouold not fail... without a valid context there is not much we can do
             }
-            imports = root.resolve("imports.jl");
-            tests = root.resolve("tests.jl");
+            imports = root.resolve(App.Options.juliaImportsFilename);
+            tests = root.resolve(App.Options.juliaTestsFilename);
         }
 
         /**
@@ -222,7 +221,7 @@ class Orchestrator {
     void createPkgs(Context ctxt) {
         var pkgs = new HashSet<String>();
         for (var p : it.names.packages) {
-            if (p.startsWith("Base.") || p.startsWith("Core.") || p.startsWith("Pkg.") || p.equals("Base") || p.equals("Core") || p.equals("Pkg")) {
+            if (p.startsWith("Base.") || p.startsWith("Core.") || p.equals("Base") || p.equals("Core")) {
                 continue;
             }
             var prefix = p.contains(".") ? p.substring(0, p.indexOf(".")) : p;
@@ -230,48 +229,15 @@ class Orchestrator {
         }
         try {
             try (var importsf = new BufferedWriter(new FileWriter(ctxt.imports.toString()))) {
+                importsf.write(JuliaUtils.IMPORTS_HEADER);
                 for (var p : pkgs) {
-                    /* Silence possible import errors because of package extensions.
-                     * If a package has an extension (ie. a module that gets loaded
-                     * only when a set of other packages is loaded), we get prefixes
-                     * coming from this extension. However, the extension is opaque
-                     * to the user and cannot be imported manually.
-                     * This supresses regular import errors, but those will just
-                     * show later when we cannot find the given module in the test.
-                     */
-                    importsf.write("""
-                        try import %s catch; println("imports.jl: Couldn't import `%s'") end
-                        """.formatted(p, p));
+                    importsf.write(JuliaUtils.pkgImport(p));
                 }
             }
         } catch (IOException e) {
             throw new Error(e);
         }
     }
-
-    private static final String HEADER = """
-            include("imports.jl")
-            using InteractiveUtils
-            InteractiveUtils.highlighting[:warntype] = false
-
-            macro WARNTYPE(e1, e2, f)
-              quote
-                buffer = IOBuffer()
-                try
-                  code_warntype(IOContext(buffer, :color => false, :module => nothing, :compact => false), $(esc(e1)), $(esc(e2)))
-                catch e
-                  try
-                    println(buffer, "Exception occurred: ", e)
-                  catch e
-                  end
-               	end
-               	open($(esc(f)), "w") do file
-                  write(file, String(take!(buffer)))
-               	end
-              end
-            end
-
-            """;
 
     /**
      * Create stability tests for a list of requests. This generates a Julia program
@@ -287,7 +253,7 @@ class Orchestrator {
     void createInitialTests(Context ctxt, List<Test> tests) {
         try {
             try (var w = new BufferedWriter(new FileWriter(ctxt.tests.toString()))) {
-                w.write(HEADER);
+                w.write(JuliaUtils.TESTS_HEADER);
                 int cnt = 0;
                 for (var t : tests) {
                     ctxt.testFiles.add(t.file);

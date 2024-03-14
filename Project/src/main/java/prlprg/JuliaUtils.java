@@ -71,6 +71,12 @@ public class JuliaUtils {
             if (wd != null)
                 pb.directory(wd.toFile());
             pb.environment().putAll(env);
+            if (App.Options.verbose) {
+                StringBuilder sb = new StringBuilder("[JuliaUtils.JuliaScriptBuilder.go] command: ");
+                pb.environment().forEach((k, v) -> sb.append(k + "=" + v));
+                pb.command().forEach(s -> sb.append(" " + s));
+                App.print(sb.toString());
+            }
             return pb;
         }
     }
@@ -315,5 +321,61 @@ public class JuliaUtils {
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /* Deal with package extensions.
+     *
+     * In Julia 1.9 and later, a package extension is a module that is loaded conditionally when
+     * a set of other modules is loaded. These are however opaque to the user and can't be
+     * explicitly imported.
+     * 
+     * We catch import errors, and if the failed import is a package extension, we try to fix
+     * the situation by creating a binding with the extension module retrieved from the array
+     * of all loaded modules.
+     */
+    public static final String IMPORTS_HEADER = """
+        macro IMPORTEXT(p)
+          quote
+            try
+              import $p
+            catch e
+              try
+                global $p = only(filter(m -> "$m" == $(string(p)), Base.loaded_modules_array()))
+                println("%s: Couldn't import `", $(string(p)), "' but found it among the loaded modules")
+              catch _
+                println("%s: Couldn't import `", $(string(p)), "'")
+              end
+            end
+          end
+        end
+        """.formatted(App.Options.juliaImportsFilename, App.Options.juliaImportsFilename);
+
+    public static final String TESTS_HEADER = """
+        include("%s")
+        using InteractiveUtils
+        InteractiveUtils.highlighting[:warntype] = false
+
+        macro WARNTYPE(e1, e2, f)
+            quote
+            buffer = IOBuffer()
+            try
+                code_warntype(IOContext(buffer, :color => false, :module => nothing, :compact => false), $(esc(e1)), $(esc(e2)))
+            catch e
+                try
+                println(buffer, "Exception occurred: ", e)
+                catch e
+                end
+                end
+                open($(esc(f)), "w") do file
+                write(file, String(take!(buffer)))
+                end
+            end
+        end
+
+        """.formatted(App.Options.juliaImportsFilename);
+
+    public static String pkgImport(String p) {
+        // call the custom import macro
+        return "@IMPORTEXT " + p;
     }
 }
