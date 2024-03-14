@@ -283,6 +283,14 @@ record Tok(Line l, Kind k, int start, int end, int length) {
     if (length > 1) throw new RuntimeException("Unexpected length for an Unknown token");
     int ch = getLine().codePointAt(start);
     if (ch == '_') return true;
+    /* TODO: this is a horrible hack...
+     *
+     * The problem is that unicode chars other than isAlphabetic can also be used in identifiers.
+     * Long-term, we should revisit the lexer&parser and possibly have only identifiers (including
+     * weird characters, operators etc.). The parser should then decide what to do with these:
+     * eg. ident.symbol where symbol can be ident or :ident or :(ident) or var"name"...
+     */
+    if (ch == '₁') return true;
     return Character.isAlphabetic(ch);
   }
 

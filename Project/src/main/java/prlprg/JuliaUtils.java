@@ -73,7 +73,7 @@ public class JuliaUtils {
             pb.environment().putAll(env);
             if (App.Options.verbose) {
                 StringBuilder sb = new StringBuilder("[JuliaUtils.JuliaScriptBuilder.go] command: ");
-                pb.environment().forEach((k, v) -> sb.append(k + "=" + v));
+                env.forEach((k, v) -> sb.append(k + "=" + v + " "));
                 pb.command().forEach(s -> sb.append(" " + s));
                 App.print(sb.toString());
             }
@@ -83,13 +83,6 @@ public class JuliaUtils {
 
     public static JuliaScriptBuilder julia() {
         return new JuliaScriptBuilder();
-    }
-
-    private static String unsetAnsiColors() {
-        return """    
-            foreach(k -> Base.text_colors[k] = "", keys(Base.text_colors))
-            foreach(k -> Base.disable_text_style[k] = "", keys(Base.disable_text_style))
-            """;
     }
 
     public static void checkJulia() {
@@ -117,7 +110,7 @@ public class JuliaUtils {
     }
 
     private static void setupEnv() {
-        var script = unsetAnsiColors();
+        var script = unsetAnsiColors;
 
         if (Options.runTypeDiscovery) {
             script += """
@@ -184,7 +177,7 @@ public class JuliaUtils {
     public static void runTypeDiscovery() {
         String packages = null;
         {
-            var script = unsetAnsiColors() + """
+            var script = unsetAnsiColors + """
                 imports = String[]; nothing
                 import Pkg
                 isnothing(Pkg.project().name) || push!(imports, Pkg.project().name); nothing
@@ -209,12 +202,12 @@ public class JuliaUtils {
         }
         if (packages == null) throw new RuntimeException("Couldn't get the list of packages for project");
 
-        var script = unsetAnsiColors() + """
-            import TypeDiscover
-            %s
+        var script = unsetAnsiColors + """
+            import TypeDiscover%s
+
             TypeDiscover.typediscover(; funcfile="%s", typefile="%s", aliasfile="%s")
             """.formatted(
-                packages.isEmpty() ? "" : "import " + packages,
+                packages.isEmpty() ? "" : ", " + packages,
                 App.Options.functionsPath(),
                 App.Options.typesPath(),
                 App.Options.aliasesPath());
@@ -280,7 +273,7 @@ public class JuliaUtils {
     public static void runConcretenessSanityChecks(Path imports, Path out, HashSet<String> abstracts, HashSet<String> concretes) {
         try {
             try (var w = new BufferedWriter(new FileWriter(out.toString()))) {
-                w.write(unsetAnsiColors() + """
+                w.write(unsetAnsiColors + """
                     include("%s")
                     io = IOContext(stdout, :module => nothing, :compact => false)
                     check(io, kind::Symbol, @nospecialize(t::Type)) = begin
@@ -350,32 +343,37 @@ public class JuliaUtils {
         end
         """.formatted(App.Options.juliaImportsFilename, App.Options.juliaImportsFilename);
 
+    public static String pkgImport(String p) {
+        // call the custom import macro
+        return "@IMPORTEXT " + p + "\n";
+    }
+
     public static final String TESTS_HEADER = """
         include("%s")
         using InteractiveUtils
         InteractiveUtils.highlighting[:warntype] = false
 
         macro WARNTYPE(e1, e2, f)
-            quote
+          quote
             buffer = IOBuffer()
             try
-                code_warntype(IOContext(buffer, :color => false, :module => nothing, :compact => false), $(esc(e1)), $(esc(e2)))
+              code_warntype(IOContext(buffer, :color => false, :module => nothing, :compact => false), $(esc(e1)), $(esc(e2)))
             catch e
-                try
+              try
                 println(buffer, "Exception occurred: ", e)
-                catch e
-                end
-                end
-                open($(esc(f)), "w") do file
-                write(file, String(take!(buffer)))
-                end
+              catch e
+              end
             end
+            open($(esc(f)), "w") do file
+              write(file, String(take!(buffer)))
+            end
+          end
         end
 
         """.formatted(App.Options.juliaImportsFilename);
 
-    public static String pkgImport(String p) {
-        // call the custom import macro
-        return "@IMPORTEXT " + p;
-    }
+    private static final String unsetAnsiColors = """    
+        foreach(k -> Base.text_colors[k] = "", keys(Base.text_colors))
+        foreach(k -> Base.disable_text_style[k] = "", keys(Base.disable_text_style))
+        """;
 }

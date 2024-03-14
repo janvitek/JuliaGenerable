@@ -75,7 +75,7 @@ class Stats {
 }
 
 /**
- * Parser for Julia types,d method signatures, and files from code_warntype.
+ * Parser for Julia types, method signatures, and files from code_warntype.
  * Inputs are well-behaved records. One per line.
  */
 class LineParser {
