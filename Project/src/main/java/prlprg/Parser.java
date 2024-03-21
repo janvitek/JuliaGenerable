@@ -108,6 +108,29 @@ class LineParser {
     /** An instance of a datatype constructor (not a union all or bound var). */
     record TypeInst(TypeName nm, List<ParsedType> ps) implements ParsedType {
 
+        static ParsedType tryParseSpecial(TypeName name, LineParser p) {
+            // NamedTuple{names, T<:Tuple}
+            // - names are a tuple of symbols (value, not type)
+            // - T is a Tuple
+            if (name.nm.equals("NamedTuple")) {
+                if (!p.has("{")) return null;
+                List<ParsedType> params = new ArrayList<>();
+                var q = p.sliceMatchedDelims("{", "}");
+                params.add(Constant.makeTupleFrom(q.sliceMatchedDelims("(", ")")));
+                if (!q.isEmptyLine()) {
+                    q.take(",");
+                    params.add(BoundVar.parse(q));
+                }
+                return new TypeInst(name, params);
+            }
+
+            // Possible other specials:
+            // - Array{T, N} - N is an integer
+            // - Vararg{T, N} - N is an integer
+            // - Val{x} - x is a symbol or an `isbits` value
+            return null;
+        }
+
         /**
          * Either returns a type or a constant. As we are parsing may encounter either,
          * and they are not syntactically distinguishable. We use a heuristic that is
@@ -117,6 +140,8 @@ class LineParser {
             var constant = Constant.parseConstant(p); // Is it a constant?
             if (constant != null) return constant;
             var name = ParsedType.parseTypeName(p).resolve(); // Resolve will deal with soft imports...
+            var special = tryParseSpecial(name, p);
+            if (special != null) return special;
             if (!p.has("{")) return new TypeInst(name, null); // null denotes absence of type params.
             List<ParsedType> params = new ArrayList<>();
             var q = p.sliceMatchedDelims("{", "}");
@@ -162,9 +187,14 @@ class LineParser {
             return tryit == null ? null : tryParse(p); // If the first parse succeeded, try again on the original line parser.  
         }
 
+        static Constant makeTupleFrom(LineParser p) {
+            var s = "(" + p.foldToString("") + ")";
+            return new Constant(s);
+        }
+
         private static Constant tryParse(LineParser p) {
             var tok = p.take();
-            if (tok.isNumber() || tok.isString()) // Numbers and strings are constants. 
+            if (tok.isNumber() || tok.isString()) // Numbers and strings are constants.
                 return new Constant(tok.toString());
             else if (tok.isIdent()) { // Identifiers can be constants
                 var s = tok.toString();
@@ -436,14 +466,14 @@ class LineParser {
                 wheres.add(BoundVar.parse(p));
                 if (p.has(","))
                     p.drop().failIfEmpty("Missing type parameter", p.peek());
-                else if (p.has("[")) break;// comment with line/file info
+                else if (p.has("[")) break; // comment with line/file info
             }
             return wheres;
         }
 
         static Function parse(LineParser p) {
             NameUtils.reset();
-            if (p.has("function")) p.drop();// keyword is optional
+            if (p.has("function")) p.drop(); // keyword is optional
             var name = ParsedType.parseFunctionName(p);
             var source = p.last.getLine();
             var q = p.sliceMatchedDelims("(", ")");
@@ -458,7 +488,7 @@ class LineParser {
                 params.add(Param.parse(r));
             }
             var wheres = parseWhere(p);
-            /// There may be leftovers...
+            // There may be leftovers...
             return new Function(name, params, wheres, firstKeyword, source);
         }
 
