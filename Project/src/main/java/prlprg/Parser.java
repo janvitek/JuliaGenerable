@@ -119,7 +119,7 @@ class LineParser {
                 params.add(Constant.makeTupleFrom(q.sliceMatchedDelims("(", ")")));
                 if (!q.isEmptyLine()) {
                     q.take(",");
-                    params.add(TypeInst.parse(q));
+                    params.add(BoundVar.parse(q));
                 }
                 return new TypeInst(name, params);
             }
