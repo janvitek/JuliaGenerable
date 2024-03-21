@@ -34,20 +34,28 @@ public class App {
         static boolean runTypeDiscovery = false;
         static boolean verbose = false;
 
-        public static Path functionsPath() {
-            return Paths.get(Options.root).resolve(Options.inputs).resolve(Options.functions).toAbsolutePath().normalize();
+        static Path inputPath() {
+            return Paths.get(Options.root).resolve(Options.inputs);
         }
 
-        public static Path typesPath() {
-            return Paths.get(Options.root).resolve(Options.inputs).resolve(Options.types).toAbsolutePath().normalize();
+        static Path absolute(Path p, String tail) {
+            return p.resolve(tail).toAbsolutePath().normalize();
         }
 
-        public static Path aliasesPath() {
-            return Paths.get(Options.root).resolve(Options.inputs).resolve(Options.aliases).toAbsolutePath().normalize();
+        static Path functionsPath() {
+            return absolute(inputPath(), Options.functions);
+        }
+
+        static Path typesPath() {
+            return absolute(inputPath(), Options.types);
+        }
+
+        static Path aliasesPath() {
+            return absolute(inputPath(), Options.aliases);
         }
 
         public static Path typeDiscoverPath() {
-            return Paths.get(Options.root).resolve(Options.typeDiscover).toAbsolutePath().normalize();
+            return absolute(Paths.get(Options.root), Options.typeDiscover);
         }
 
         public static Path depotPath() {
@@ -69,8 +77,7 @@ public class App {
             "-depot=/tmp/JuliaGenerableDepot", // what depot to run julia with
             // "-project=@", // if set, run all julia processes with the given Project.toml
             "-discovery=FALSE", // set to TRUE to run TypeDiscover.jl to regenerate input files
-            "-verbose=FALSE",
-    };
+            "-verbose=FALSE", };
 
     static int FUEL = 1;
 

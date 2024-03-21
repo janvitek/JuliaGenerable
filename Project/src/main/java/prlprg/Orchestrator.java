@@ -25,35 +25,24 @@ import prlprg.App.Timer;
 import prlprg.LineParser.MethodInformation;
 import prlprg.GenDB.Signatures;
 
-/**
- * Class for orchestrating the generation of type stability tests.
- *
- * @author jan
- */
+/** Class that orchestrates generation and execution of type stability tests. */
 class Orchestrator {
 
     private static int num = 0; // internal counter for unique names
 
-    /**
-     * Generate a unique number in a possibly concurrent context. These numbers are
-     * used for temproary director names.
-     */
+    /** Get a unique number, used for temproary directory names. */
     static synchronized int nextNum() {
         return num++;
     }
 
     GenDB it; // reference to the GenDB for convenience
 
-    /**
-     * Create an orchestrator for the given GenDB.
-     */
+    /** Create an orchestrator for the given GenDB. */
     Orchestrator() {
         this.it = GenDB.it;
     }
 
-    /**
-     * Generate the tests and run them.
-     */
+    /** Generate the tests and run them. */
     void orchestrate() {
         var ctxt = new Context();
 
@@ -147,13 +136,9 @@ class Orchestrator {
     }
 
     /**
-     * A context remembers where this generator is writing to. We assume there will
-     * be multiple instances working concurrently (at some point).
-     *
-     * If we ever get to multiple concurent tasks running in parallel, then each
-     * should have its own context, with the same root but different tmp
-     * directories. One will have to figure out what is private to each instance and
-     * what can be shared across them.
+     * A context remembers where this generator is writing to. When there are
+     * multiple tasks in parallel, each has its own context, with the same root but
+     * different tmp directories.
      */
     class Context {
 
@@ -165,9 +150,7 @@ class Orchestrator {
         int count = 0; // how many fles we actually see in the /tmp/t0 dir after Julia has run
         ArrayList<String> failures = new ArrayList<>();
 
-        /**
-         * Create a context with a temporary directory.
-         */
+        /** Create a context with a temporary directory. */
         public Context() {
             var dt = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
             try {
@@ -186,15 +169,9 @@ class Orchestrator {
             tests = root.resolve(App.Options.juliaTestsFilename);
         }
 
-        /**
-         * Recursively delete the contents of the directory
-         *
-         * @param path
-         *                 to the directory to delete
-         */
+        /** Recursively delete the contents of the directory 'path'. */
         final void delete(Path p) {
             try {
-                // Recursively delete the contents of the directory
                 Files.walkFileTree(p, new SimpleFileVisitor<Path>() {
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes _a) throws IOException {
@@ -214,10 +191,7 @@ class Orchestrator {
         }
     }
 
-    /**
-     * Create the packages file that list all the packages that were referenced in
-     * the DB.
-     */
+    /** Create the file that list the packages referenced in the DB. */
     void createPkgs(Context ctxt) {
         var pkgs = new HashSet<String>();
         for (var p : it.names.packages) {
@@ -307,8 +281,8 @@ class Orchestrator {
      * Any. This will result in code_warntype returning all possible methods for the
      * requested function names.
      * 
-     * This will be a good starting point, as we believe that functions that are
-     * stable under Any are stable under more specific types.
+     * This is a good starting point, as functions stable at Any are stable for more
+     * specific types.
      * 
      * Furthermore, we can use the internal type information (local variables and
      * called methods) as hints for future tests.
@@ -332,9 +306,7 @@ class Orchestrator {
         return tests;
     }
 
-    /**
-     * Read the results of the tests as genereated by Julia.
-     */
+    /** Read the results of the tests as genereated by Julia. */
     void readResults(Context ctxt) {
         File dir = ctxt.tmp.toFile();
         FilenameFilter filter = (file, name) -> name.endsWith(".tst");
