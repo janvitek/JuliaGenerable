@@ -116,7 +116,11 @@ class LineParser {
                 if (!p.has("{")) return null;
                 List<ParsedType> params = new ArrayList<>();
                 var q = p.sliceMatchedDelims("{", "}");
-                params.add(Constant.makeTupleFrom(q.sliceMatchedDelims("(", ")")));
+                if (q.has("(")) {
+                    params.add(Constant.makeTupleFrom(q.sliceMatchedDelims("(", ")")));
+                } else {
+                    params.add(BoundVar.parse(q));
+                }
                 if (!q.isEmptyLine()) {
                     q.take(",");
                     params.add(BoundVar.parse(q));
