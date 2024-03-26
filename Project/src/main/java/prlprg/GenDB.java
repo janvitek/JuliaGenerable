@@ -737,8 +737,8 @@ record Inst(TypeName nm, List<Type> tys) implements Type, Serializable {
     public Type reduce(List<Type> args, HashMap<Bound, Type> replacements, HashMap<Bound, Bound> bounds) {
         var ntys = tys.stream().map(t -> t.reduce(List.of(), replacements, bounds)).collect(Collectors.toList());
         var nntys = new ArrayList<Type>();
-        nntys.addAll(args);
         nntys.addAll(ntys);
+        nntys.addAll(args);
         return new Inst(nm, nntys);
     }
 
